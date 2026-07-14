@@ -16,13 +16,13 @@
       <p class="lead">本页是项目状态的单一入口。开发计划定义“应该做什么”，本页只记录“当前做到哪里、是否健康、下一步是什么”。</p>
 
       <div class="meta-grid">
-        <div class="meta-item"><span>工程进度</span><strong>1%</strong></div>
+        <div class="meta-item"><span>工程进度</span><strong>2%</strong></div>
         <div class="meta-item"><span>当前阶段</span><strong>Discovery</strong></div>
         <div class="meta-item"><span>当前迭代</span><strong>S0 · 进行中</strong></div>
         <div class="meta-item"><span>最后更新</span><strong>2026-07-14</strong></div>
       </div>
 
-      <div class="decision"><strong>当前结论</strong>首个代码粒度已启动：Rust workspace、Prompt IR v0.1、证据模型、语义校验、OpenAI fixture 和 JSON Schema 已落地。下一步补充 Anthropic fixture，并开始 Gateway 流式 Spike。</div>
+      <div class="decision"><strong>当前结论</strong>Prompt IR v0.1 已覆盖 OpenAI 与 Anthropic 基础请求，并建立 Windows、macOS、Linux CI。远端 CI 通过后完成 ARC-002；下一步进入 Gateway 流式 Spike。</div>
 
       <h2 id="usage">1. 更新规则</h2>
       <ol>
@@ -38,14 +38,14 @@
       <div class="table-wrap"><table><thead><tr><th>维度</th><th>状态</th><th>判断</th><th>行动</th></tr></thead><tbody>
         <tr><td>范围</td><td><span class="status done">Green</span></td><td>MVP 边界与非目标明确</td><td>变更必须进入范围评审</td></tr>
         <tr><td>进度</td><td><span class="status active">Amber</span></td><td>首个代码粒度完成，团队与完整排期未确认</td><td>确认 owner 后建立正式迭代基线</td></tr>
-        <tr><td>质量</td><td><span class="status done">Green</span></td><td>Prompt IR 契约测试与 schema 同步测试通过</td><td>下一步建立 CI 并加入 Clippy 门槛</td></tr>
+        <tr><td>质量</td><td><span class="status active">Amber</span></td><td>本地契约测试通过；跨平台 CI 已实现，待远端验证</td><td>PR 检查通过后关闭 ARC-002</td></tr>
         <tr><td>安全</td><td><span class="status active">Amber</span></td><td>威胁模型已有方向，尚未独立评审</td><td>S0 完成 threat model v1</td></tr>
         <tr><td>资源</td><td><span class="status active">Amber</span></td><td>角色建议明确，实际 owner 未确认</td><td>启动前完成角色分配</td></tr>
       </tbody></table></div>
 
       <h2 id="milestones">3. 里程碑</h2>
       <div class="table-wrap"><table><thead><tr><th>ID</th><th>里程碑</th><th>权重</th><th>进度</th><th>状态</th><th>目标</th><th>Owner</th></tr></thead><tbody>
-        <tr><td class="task-id">M0</td><td>Discovery 与技术验证</td><td>5%</td><td><div class="progress-track"><div class="progress-value" style="width:20%"></div></div> 20%</td><td><span class="status active">In progress</span></td><td>W2</td><td>TBD</td></tr>
+        <tr><td class="task-id">M0</td><td>Discovery 与技术验证</td><td>5%</td><td><div class="progress-track"><div class="progress-value" style="width:35%"></div></div> 35%</td><td><span class="status active">In progress</span></td><td>W2</td><td>TBD</td></tr>
         <tr><td class="task-id">M1</td><td>基础设施与加密数据链路</td><td>15%</td><td><div class="progress-track"><div class="progress-value" style="width:0%"></div></div> 0%</td><td><span class="status">Not started</span></td><td>W4</td><td>TBD</td></tr>
         <tr><td class="task-id">M2</td><td>Gateway 与双厂商闭环</td><td>20%</td><td><div class="progress-track"><div class="progress-value" style="width:0%"></div></div> 0%</td><td><span class="status">Not started</span></td><td>W8</td><td>TBD</td></tr>
         <tr><td class="task-id">M3</td><td>显式代理、安全与恢复</td><td>20%</td><td><div class="progress-track"><div class="progress-value" style="width:0%"></div></div> 0%</td><td><span class="status">Not started</span></td><td>W12</td><td>TBD</td></tr>
@@ -57,10 +57,10 @@
 
       <h2 id="streams">4. 工作流进度</h2>
       <div class="table-wrap"><table><thead><tr><th>工作流</th><th>任务范围</th><th>进度</th><th>状态</th><th>Owner</th><th>本周重点</th></tr></thead><tbody>
-        <tr><td>架构与工程基础</td><td>ARC-001~004</td><td>15%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>补齐 workspace 模块并建立 CI</td></tr>
+        <tr><td>架构与工程基础</td><td>ARC-001~004</td><td>35%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>验证跨平台 CI，继续事件契约</td></tr>
         <tr><td>Desktop / Frontend</td><td>APP-001~006</td><td>0%</td><td><span class="status">Not started</span></td><td>TBD</td><td>确定应用壳与设计 tokens</td></tr>
         <tr><td>Capture / Network</td><td>CAP-001~007</td><td>0%</td><td><span class="status">Not started</span></td><td>TBD</td><td>Gateway 与代理恢复 Spike</td></tr>
-        <tr><td>Prompt / Adapters</td><td>PAR-001~007</td><td>7%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>补充 Anthropic fixture，复审 IR v0.1</td></tr>
+        <tr><td>Prompt / Adapters</td><td>PAR-001~007</td><td>14%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>进入解析器注册表设计</td></tr>
         <tr><td>Data / Security</td><td>DAT-001~002、SEC-001~004</td><td>0%</td><td><span class="status">Not started</span></td><td>TBD</td><td>威胁模型与 secret 边界</td></tr>
         <tr><td>Test / Release</td><td>TST-001~004、REL-001~003</td><td>0%</td><td><span class="status">Not started</span></td><td>TBD</td><td>建立测试矩阵与发布门槛</td></tr>
       </tbody></table></div>
@@ -69,10 +69,10 @@
       <p><strong>目标：</strong>证明关键技术路径可行，并冻结第一版工程契约。初始实现于 2026-07-14 开始，正式团队 owner 尚待确认。</p>
       <div class="table-wrap"><table><thead><tr><th>ID</th><th>任务</th><th>状态</th><th>进度</th><th>Owner</th><th>目标日期</th><th>备注</th></tr></thead><tbody>
         <tr><td class="task-id">ARC-001</td><td>建立仓库与模块边界</td><td><span class="status active">In progress</span></td><td>50%</td><td>Codex / TBD</td><td>2026-07-28</td><td>Rust workspace 与 prompt-ir crate 已完成</td></tr>
-        <tr><td class="task-id">ARC-002</td><td>建立 Windows/macOS CI</td><td><span class="status">Not started</span></td><td>0%</td><td>TBD</td><td>TBD</td><td>依赖仓库结构</td></tr>
+        <tr><td class="task-id">ARC-002</td><td>建立 Windows/macOS CI</td><td><span class="status active">In progress</span></td><td>80%</td><td>Codex / TBD</td><td>2026-07-28</td><td>workflow 已实现，待 PR 跨平台检查</td></tr>
         <tr><td class="task-id">ARC-003</td><td>CaptureEnvelope 与 IPC 草案</td><td><span class="status">Not started</span></td><td>0%</td><td>TBD</td><td>TBD</td><td>与 PAR-001 联合评审</td></tr>
         <tr><td class="task-id">ARC-004</td><td>完成关键 ADR</td><td><span class="status">Not started</span></td><td>0%</td><td>TBD</td><td>TBD</td><td>Tauri、sidecar、DB</td></tr>
-        <tr><td class="task-id">PAR-001</td><td>Prompt IR v0.1 与首批 fixtures</td><td><span class="status active">In progress</span></td><td>50%</td><td>Codex / TBD</td><td>2026-07-28</td><td>类型、校验、OpenAI fixture 与 schema 已完成</td></tr>
+        <tr><td class="task-id">PAR-001</td><td>Prompt IR v0.1 与首批 fixtures</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-14</td><td>OpenAI/Anthropic fixtures、校验与 schema 完成</td></tr>
         <tr><td class="task-id">SPIKE-001</td><td>Gateway 流式透明转发验证</td><td><span class="status">Not started</span></td><td>0%</td><td>TBD</td><td>TBD</td><td>验证取消和背压</td></tr>
         <tr><td class="task-id">SPIKE-002</td><td>mitmproxy sidecar IPC/打包验证</td><td><span class="status">Not started</span></td><td>0%</td><td>TBD</td><td>TBD</td><td>记录体积与签名风险</td></tr>
         <tr><td class="task-id">SPIKE-003</td><td>Windows/macOS 代理恢复验证</td><td><span class="status">Not started</span></td><td>0%</td><td>TBD</td><td>TBD</td><td>包含强杀和重启</td></tr>
@@ -85,7 +85,7 @@
         <li>Gateway 可透明转发一条流式请求</li>
         <li>sidecar 可将已剥离凭据的 envelope 发送给 Core</li>
         <li>强杀测试后系统代理恢复</li>
-        <li>Prompt IR 可表达 OpenAI 与 Anthropic 基础请求</li>
+        <li class="checked">Prompt IR 可表达 OpenAI 与 Anthropic 基础请求</li>
         <li>关键 ADR 与威胁模型完成评审</li>
       </ul>
 
@@ -139,6 +139,7 @@
         <tr><td>2026-07-14</td><td>Baseline</td><td>建立 20 周、10 个迭代的开发计划</td><td>形成首版工程基线</td><td>Codex</td></tr>
         <tr><td>2026-07-14</td><td>Scope</td><td>MVP 保留 Gateway 与显式代理，延后浏览器/TUN</td><td>降低首发技术与权限风险</td><td>Codex</td></tr>
         <tr><td>2026-07-14</td><td>Implementation</td><td>首个代码粒度采用 Rust Prompt IR crate</td><td>为 Gateway、解析器和 UI 建立稳定契约</td><td>Codex</td></tr>
+        <tr><td>2026-07-14</td><td>Quality</td><td>新增三平台 Rust CI 与 Anthropic 契约样本</td><td>固定 fmt、test、clippy 与跨厂商契约</td><td>Codex</td></tr>
         <tr><td colspan="5">后续范围、架构、日期或资源变化均在此追加，并链接对应 ADR/会议结论。</td></tr>
       </tbody></table></div>
 

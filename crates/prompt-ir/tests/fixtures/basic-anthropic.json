@@ -1,0 +1,163 @@
+{
+  "ir_version": "0.1.0",
+  "request_id": "req_anthropic_001",
+  "provider": {
+    "id": "anthropic",
+    "host": "api.anthropic.com",
+    "confidence": 1.0
+  },
+  "operation": "messages.create",
+  "model": "claude-example",
+  "instructions": [
+    {
+      "id": "instruction_system_1",
+      "role": "system",
+      "parts": [
+        {
+          "kind": "text",
+          "id": "part_system_text_1",
+          "text": "You are a careful coding assistant.",
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/system/0/text"
+            },
+            "confidence": 1.0
+          }
+        }
+      ],
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/system/0"
+        },
+        "confidence": 1.0
+      }
+    }
+  ],
+  "messages": [
+    {
+      "id": "message_user_1",
+      "role": "user",
+      "parts": [
+        {
+          "kind": "text",
+          "id": "part_user_text_1",
+          "text": "Read Cargo.toml and summarize the workspace.",
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/messages/0/content/0/text"
+            },
+            "confidence": 1.0
+          }
+        }
+      ],
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/messages/0"
+        },
+        "confidence": 1.0
+      }
+    },
+    {
+      "id": "message_assistant_1",
+      "role": "assistant",
+      "parts": [
+        {
+          "kind": "tool_use",
+          "id": "toolu_example_1",
+          "name": "read_file",
+          "input": {
+            "path": "Cargo.toml"
+          },
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/messages/1/content/0"
+            },
+            "confidence": 1.0
+          }
+        }
+      ],
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/messages/1"
+        },
+        "confidence": 1.0
+      }
+    },
+    {
+      "id": "message_tool_1",
+      "role": "tool",
+      "parts": [
+        {
+          "kind": "tool_result",
+          "id": "part_tool_result_1",
+          "tool_use_id": "toolu_example_1",
+          "value": {
+            "content": "[workspace]\nmembers = [\"crates/prompt-ir\"]"
+          },
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/messages/2/content/0"
+            },
+            "confidence": 1.0
+          }
+        }
+      ],
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/messages/2"
+        },
+        "confidence": 1.0
+      }
+    }
+  ],
+  "context": [],
+  "tools": [
+    {
+      "id": "tool_read_file",
+      "name": "read_file",
+      "description": "Read a UTF-8 file from the workspace.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string" }
+        },
+        "required": ["path"]
+      },
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/tools/0"
+        },
+        "confidence": 1.0
+      }
+    }
+  ],
+  "generation": {
+    "temperature": 0.0,
+    "max_output_tokens": 2048
+  },
+  "vendor": {
+    "anthropic_version": "2023-06-01"
+  },
+  "completeness": {
+    "request_body": "complete",
+    "response_body": "complete"
+  }
+}
