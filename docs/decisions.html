@@ -31,7 +31,7 @@
     <p><strong>决策：</strong>使用 SQLCipher、WAL 和版本化迁移；随机数据库 key 由 OS 凭据库持有，DB 文件、备份和 key 不共址。</p>
     <p><strong>替代：</strong>明文 SQLite + 字段加密易遗漏索引与临时页；RocksDB 缺少成熟关系查询与 FTS；整盘加密不覆盖文件复制场景。</p>
     <p><strong>风险：</strong>SQLCipher 跨平台构建、WAL/备份泄露、凭据库不可用与 key 丢失。实现必须包含锁定状态、恢复说明和 canary 扫描。</p>
-    <p class="note"><strong>复审：</strong>完成 Windows/macOS 构建与迁移 spike 后转 Accepted；若 SQLCipher 发布或性能不可接受，评估页级加密替代。</p>
+    <p class="note"><strong>状态：</strong>实现与 Windows 本地凭据库实验已通过；等待 Windows/macOS CI 后转 Accepted。若 SQLCipher 发布或性能不可接受，评估页级加密替代。</p>
 
     <h2 id="adr-004">ADR-004 · Prompt IR</h2>
     <p><strong>决策：</strong>所有厂商适配器输出版本化 Prompt IR；每个 observed 节点保留原始 JSON 定位，derived/inferred 必须显式标记。</p>

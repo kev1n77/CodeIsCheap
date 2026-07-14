@@ -4,6 +4,8 @@ use std::fmt;
 
 use codeischeap_capture_ipc::{IpcError, receive_from_reader, receive_one};
 use codeischeap_capture_policy::{CapturePolicy, PolicyError, SanitizedCapture};
+use codeischeap_prompt_ir::PromptIr;
+use codeischeap_storage::{EncryptedStore, StorageError};
 use tokio::io::AsyncBufRead;
 use tokio::net::TcpListener;
 
@@ -69,6 +71,14 @@ where
     policy.sanitize_envelope(envelope).map_err(Into::into)
 }
 
+pub fn persist_capture(
+    store: &mut EncryptedStore,
+    capture: &SanitizedCapture,
+    prompt_ir: Option<&PromptIr>,
+) -> Result<(), StorageError> {
+    store.upsert_capture(capture, prompt_ir)
+}
+
 #[cfg(test)]
 mod tests {
     use codeischeap_capture_ipc::{
@@ -76,6 +86,8 @@ mod tests {
         CapturedField, CapturedRequest,
     };
     use codeischeap_capture_policy::PolicyError;
+    use codeischeap_storage::DatabaseKey;
+    use tempfile::tempdir;
     use tokio::io::{AsyncWriteExt, BufReader};
 
     use super::*;
@@ -137,10 +149,10 @@ mod tests {
         let sanitized = ingest_from_reader(&mut reader, "synthetic-token", &policy)
             .await
             .expect("valid input must be accepted");
-        let encoded = serde_json::to_string(&sanitized.envelope).expect("result must encode");
+        let encoded = serde_json::to_string(sanitized.envelope()).expect("result must encode");
 
-        assert_eq!(sanitized.target_id, "openai");
-        assert_eq!(sanitized.newly_redacted, 1);
+        assert_eq!(sanitized.target_id(), "openai");
+        assert_eq!(sanitized.newly_redacted(), 1);
         assert!(!encoded.contains("core-canary"));
         assert!(encoded.contains("preserved prompt"));
     }
@@ -158,5 +170,30 @@ mod tests {
             error,
             IngestError::Policy(PolicyError::OutOfScope)
         ));
+    }
+
+    #[tokio::test]
+    async fn sanitized_input_can_enter_the_encrypted_store() {
+        let policy = CapturePolicy::load_default().expect("policy must load");
+        let mut reader = framed_reader("synthetic-token", envelope("/v1/responses")).await;
+        let sanitized = ingest_from_reader(&mut reader, "synthetic-token", &policy)
+            .await
+            .expect("valid input must be accepted");
+        let directory = tempdir().expect("temp directory must be created");
+        let mut store = EncryptedStore::open(
+            directory.path().join("captures.db"),
+            DatabaseKey::from_bytes([0x33; 32]),
+        )
+        .expect("encrypted store must open");
+
+        persist_capture(&mut store, &sanitized, None).expect("capture must persist");
+
+        let stored = store
+            .get_capture("core_ingest_test")
+            .expect("capture query must succeed")
+            .expect("capture must exist");
+        let encoded = serde_json::to_string(&stored.envelope).expect("capture must encode");
+        assert!(!encoded.contains("core-canary"));
+        assert!(encoded.contains("preserved prompt"));
     }
 }

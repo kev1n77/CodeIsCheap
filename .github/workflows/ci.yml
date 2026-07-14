@@ -84,6 +84,10 @@ jobs:
       - name: Run tests
         run: cargo test --workspace --all-targets
 
+      - name: Run real OS credential store experiment
+        if: runner.os == 'Windows' || runner.os == 'macOS'
+        run: cargo test -p codeischeap-storage --test os_key_store real_os_key_store_round_trip -- --ignored --exact --nocapture
+
       - name: Run real WinINet recovery experiment
         if: runner.os == 'Windows'
         run: cargo test -p codeischeap-proxy-recovery --test windows_registry real_windows_proxy_is_restored_after_force_kill -- --ignored --exact --nocapture --test-threads=1
