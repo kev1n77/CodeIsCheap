@@ -43,7 +43,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .arg(&watchdog)
         .arg(port.to_string())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stderr(Stdio::inherit())
         .spawn()?;
     let mut guard = RecoveryGuard {
         backend: backend.clone(),
@@ -52,7 +52,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         journal: journal.clone(),
     };
 
-    wait_until(Duration::from_secs(15), || ready.exists())?;
+    wait_for_ready(
+        Duration::from_secs(15),
+        &ready,
+        guard.child.as_mut().ok_or("owner process is missing")?,
+    )?;
     if backend.snapshot()? == original {
         return Err("macOS proxy settings did not change".into());
     }
@@ -107,6 +111,25 @@ fn wait_until(
         thread::sleep(Duration::from_millis(50));
     }
     Err(format!("condition was not met within {timeout:?}").into())
+}
+
+#[cfg(target_os = "macos")]
+fn wait_for_ready(
+    timeout: Duration,
+    ready: &std::path::Path,
+    child: &mut Child,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if ready.exists() {
+            return Ok(());
+        }
+        if let Some(status) = child.try_wait()? {
+            return Err(format!("proxy owner exited before ready with {status}").into());
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    Err(format!("proxy owner was not ready within {timeout:?}").into())
 }
 
 #[cfg(target_os = "macos")]
