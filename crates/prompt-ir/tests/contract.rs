@@ -4,6 +4,7 @@ use codeischeap_prompt_ir::{
 use schemars::schema_for;
 
 const BASIC_OPENAI: &str = include_str!("fixtures/basic-openai.json");
+const BASIC_ANTHROPIC: &str = include_str!("fixtures/basic-anthropic.json");
 const CHECKED_IN_SCHEMA: &str = include_str!("../../../schemas/prompt-ir/v0.1.schema.json");
 
 #[test]
@@ -20,6 +21,30 @@ fn fixture_round_trips_and_validates() {
     assert_eq!(prompt.provider.id, "openai");
     assert_eq!(prompt.messages.len(), 1);
     assert_eq!(prompt.tools.len(), 1);
+}
+
+#[test]
+fn anthropic_fixture_preserves_tool_use_and_tool_result() {
+    let prompt: PromptIr = serde_json::from_str(BASIC_ANTHROPIC).expect("fixture must deserialize");
+    prompt
+        .validate()
+        .expect("fixture must satisfy semantic invariants");
+
+    assert_eq!(prompt.provider.id, "anthropic");
+    assert_eq!(prompt.messages.len(), 3);
+    assert_eq!(prompt.messages[1].parts[0].id(), "toolu_example_1");
+    assert!(matches!(
+        prompt.messages[1].parts[0],
+        PromptPart::ToolUse { ref name, .. } if name == "read_file"
+    ));
+    assert!(matches!(
+        prompt.messages[2].parts[0],
+        PromptPart::ToolResult { ref tool_use_id, .. } if tool_use_id == "toolu_example_1"
+    ));
+
+    let encoded = serde_json::to_value(&prompt).expect("Prompt IR must serialize");
+    let decoded: PromptIr = serde_json::from_value(encoded).expect("Prompt IR must deserialize");
+    assert_eq!(decoded, prompt);
 }
 
 #[test]
