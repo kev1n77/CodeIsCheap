@@ -1,0 +1,18 @@
+[package]
+name = "codeischeap-gateway"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Streaming local AI gateway for CodeIsCheap"
+
+[dependencies]
+axum.workspace = true
+futures-util.workspace = true
+http.workspace = true
+reqwest.workspace = true
+tokio.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+bytes.workspace = true
+tokio-stream.workspace = true
