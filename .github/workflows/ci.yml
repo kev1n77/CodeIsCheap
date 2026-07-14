@@ -13,6 +13,54 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  desktop-frontend:
+    name: Desktop frontend
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install desktop dependencies
+        run: npm ci
+
+      - name: Check desktop frontend
+        run: npm run desktop:check
+
+      - name: Build desktop frontend
+        run: npm run desktop:build
+
+  desktop-native:
+    name: Desktop native (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        run: rustup show
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri -> apps/desktop/src-tauri/target
+
+      - name: Check desktop formatting
+        run: cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml -- --check
+
+      - name: Test desktop native shell
+        run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+      - name: Check desktop native shell
+        run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
+
   rust:
     name: Rust (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
