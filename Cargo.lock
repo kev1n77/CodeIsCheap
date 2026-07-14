@@ -128,6 +128,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeischeap-capture-policy"
+version = "0.1.0"
+dependencies = [
+ "codeischeap-capture-ipc",
+ "schemars",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "codeischeap-core"
+version = "0.1.0"
+dependencies = [
+ "codeischeap-capture-ipc",
+ "codeischeap-capture-policy",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "codeischeap-gateway"
 version = "0.1.0"
 dependencies = [

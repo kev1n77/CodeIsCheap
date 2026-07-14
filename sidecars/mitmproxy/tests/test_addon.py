@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import socket
 import sys
+import tempfile
 import threading
 import unittest
 from unittest.mock import patch
@@ -14,7 +15,13 @@ SIDECAR_DIR = Path(__file__).resolve().parents[1]
 FIXTURE = SIDECAR_DIR.parents[1] / "crates" / "capture-ipc" / "tests" / "fixtures" / "mitmproxy-request.json"
 sys.path.insert(0, str(SIDECAR_DIR))
 
-from codeischeap_addon import IpcConfig, build_envelope, send_envelope, should_capture
+from codeischeap_addon import (
+    IpcConfig,
+    build_envelope,
+    load_policy,
+    send_envelope,
+    should_capture,
+)
 
 
 class FakeHeaders:
@@ -102,9 +109,85 @@ class AddonTests(unittest.TestCase):
         self.assertNotIn("opaque-canary", json.dumps(envelope))
 
     def test_only_explicit_target_hosts_are_captured(self) -> None:
-        self.assertTrue(should_capture("api.openai.com"))
-        self.assertFalse(should_capture("example.com"))
-        self.assertFalse(should_capture("api.openai.com.example.com"))
+        self.assertTrue(
+            should_capture("api.openai.com", "/v1/chat/completions", "POST")
+        )
+        self.assertFalse(
+            should_capture("example.com", "/v1/chat/completions", "POST")
+        )
+        self.assertFalse(
+            should_capture(
+                "api.openai.com.example.com", "/v1/chat/completions", "POST"
+            )
+        )
+
+    def test_unlisted_paths_and_methods_are_not_captured(self) -> None:
+        self.assertFalse(should_capture("api.openai.com", "/v1/files", "POST"))
+        self.assertFalse(
+            should_capture("api.openai.com", "/v1/chat/completions", "GET")
+        )
+        self.assertTrue(
+            should_capture(
+                "generativelanguage.googleapis.com",
+                "/v1beta/models/gemini-pro:streamGenerateContent",
+                "POST",
+            )
+        )
+
+    def test_explicit_host_override_still_enforces_paths(self) -> None:
+        with patch.dict(os.environ, {"CIC_CAPTURE_HOSTS": "127.0.0.1"}):
+            self.assertTrue(
+                should_capture("127.0.0.1", "/v1/chat/completions", "POST")
+            )
+            self.assertFalse(should_capture("127.0.0.1", "/admin", "POST"))
+
+    def test_shared_policy_is_versioned_and_covers_extended_credentials(self) -> None:
+        policy = load_policy()
+        self.assertEqual(policy["version"], "0.1")
+
+        flow = FakeFlow()
+        flow.request = FakeRequest()
+        flow.request.headers = FakeHeaders(
+            [
+                ("content-type", "application/json"),
+                ("x-goog-api-key", "google-canary"),
+            ]
+        )
+        flow.request.raw_content = json.dumps(
+            {
+                "messages": [{"role": "user", "content": "keep"}],
+                "session_token": "session-canary",
+            }
+        ).encode()
+
+        encoded = json.dumps(build_envelope(flow))
+        self.assertNotIn("google-canary", encoded)
+        self.assertNotIn("session-canary", encoded)
+        self.assertIn("keep", encoded)
+
+    def test_invalid_policy_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "invalid-policy.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "version": "0.1",
+                        "targets": [
+                            {
+                                "id": "test",
+                                "hosts": ["api.openai.com"],
+                                "methods": ["POST"],
+                                "paths": ["/v1/responses"],
+                            }
+                        ],
+                        "sensitive_names": ["api-key", "api_key"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch.dict(os.environ, {"CIC_CAPTURE_POLICY_PATH": str(path)}):
+                with self.assertRaisesRegex(ValueError, "sensitive name"):
+                    load_policy()
 
     def test_ipc_rejects_non_loopback_configuration(self) -> None:
         with patch.dict(

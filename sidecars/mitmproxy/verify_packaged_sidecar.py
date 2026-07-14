@@ -66,6 +66,27 @@ def wait_for_port(port: int, process: subprocess.Popen[bytes], timeout_seconds: 
     raise TimeoutError("packaged sidecar did not start in time")
 
 
+def stop_process_tree(process: subprocess.Popen[bytes]) -> None:
+    if process.poll() is not None:
+        return
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+            check=False,
+            capture_output=True,
+            timeout=10,
+        )
+        process.wait(timeout=5)
+        return
+
+    process.terminate()
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=5)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("executable", type=Path)
@@ -183,12 +204,7 @@ def main() -> None:
                 )
             )
         finally:
-            process.terminate()
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=5)
+            stop_process_tree(process)
             upstream.shutdown()
             upstream.server_close()
             ipc_listener.close()

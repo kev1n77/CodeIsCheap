@@ -8,7 +8,7 @@
 
 ## 当前实现
 
-当前实现包含版本化 Prompt IR 契约、可双向流式转发的本地 AI Gateway，以及 React + Tauri 桌面工作台。
+当前实现包含版本化 Prompt IR、共享捕获策略、可信 Core 入口、可双向流式转发的本地 AI Gateway，以及 React + Tauri 桌面工作台。
 
 启动桌面工作台：
 
@@ -38,6 +38,8 @@ Rust crate 位于 `crates/prompt-ir`，公开 JSON Schema 位于 `schemas/prompt
 桌面应用位于 `apps/desktop`。当前以无真实凭据的合成请求展示三栏工作台、筛选、Anatomy / Timeline / Raw 检查器、明暗主题和托盘生命周期；实时捕获与持久化将在后续接入。
 
 捕获 sidecar 位于 `sidecars/mitmproxy`，跨进程契约位于 `crates/capture-ipc`，公开 CaptureEnvelope Schema 位于 `schemas/capture-envelope/v0.1.schema.json`。sidecar 的安装、测试与打包命令见 [`sidecars/mitmproxy/README.md`](./sidecars/mitmproxy/README.md)。
+
+捕获范围与敏感字段由 `policies/capture-policy.v0.1.json` 定义，公开 schema 位于 `schemas/capture-policy/v0.1.schema.json`。Python sidecar 在 IPC 前执行策略，`crates/core` 在进入持久化前再次拒绝越界请求并删除遗漏凭据。
 
 系统代理事务与独立恢复 watchdog 位于 `crates/proxy-recovery`；Windows WinINet 与 macOS networksetup backend 均已通过临时 CI runner 的真实强杀恢复实验。
 

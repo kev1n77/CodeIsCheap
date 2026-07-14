@@ -1,0 +1,15 @@
+[package]
+name = "codeischeap-capture-policy"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Versioned capture scope and credential scrubbing policy for CodeIsCheap"
+
+[dependencies]
+codeischeap-capture-ipc = { path = "../capture-ipc" }
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
