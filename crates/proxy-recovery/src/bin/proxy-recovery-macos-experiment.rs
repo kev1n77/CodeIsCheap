@@ -12,7 +12,9 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 #[cfg(target_os = "macos")]
-use codeischeap_proxy_recovery::{MacOsProxyBackend, ProxyBackend, ProxySnapshot};
+use codeischeap_proxy_recovery::{
+    MacOsNetworkService, MacOsProxyBackend, ProxyBackend, ProxySnapshot, recover_from_journal,
+};
 
 #[cfg(target_os = "macos")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -65,9 +67,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     child.wait()?;
     guard.child = None;
 
-    wait_until(Duration::from_secs(15), || {
-        backend.snapshot().ok() == Some(original.clone()) && !journal.exists()
-    })?;
+    wait_for_restore(Duration::from_secs(15), &backend, &original, &journal)?;
     fs::remove_dir_all(root)?;
     println!("macOS system proxy restored after force-killing the owner process");
     Ok(())
@@ -99,18 +99,35 @@ impl Drop for RecoveryGuard {
 }
 
 #[cfg(target_os = "macos")]
-fn wait_until(
+fn wait_for_restore(
     timeout: Duration,
-    condition: impl Fn() -> bool,
+    backend: &MacOsProxyBackend,
+    expected: &ProxySnapshot,
+    journal: &std::path::Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
-        if condition() {
+        if backend.snapshot().ok().as_ref() == Some(expected) && !journal.exists() {
             return Ok(());
         }
         thread::sleep(Duration::from_millis(50));
     }
-    Err(format!("condition was not met within {timeout:?}").into())
+    let actual = backend.snapshot()?;
+    let differences = snapshot_differences(expected, &actual);
+    let journal_existed = journal.exists();
+    let repair = if journal_existed {
+        match recover_from_journal(journal) {
+            Ok(restored) => format!("startup_repair={restored}"),
+            Err(error) => format!("startup_repair_error={error}"),
+        }
+    } else {
+        "startup_repair=not_needed".to_owned()
+    };
+    Err(format!(
+        "macOS restore mismatch fields={}; journal_existed={journal_existed}; {repair}",
+        differences.join(",")
+    )
+    .into())
 }
 
 #[cfg(target_os = "macos")]
@@ -142,4 +159,67 @@ fn experiment_directory() -> PathBuf {
         "codeischeap-macos-system-{}-{nanos}",
         std::process::id()
     ))
+}
+
+#[cfg(target_os = "macos")]
+fn snapshot_differences(expected: &ProxySnapshot, actual: &ProxySnapshot) -> Vec<String> {
+    let (
+        ProxySnapshot::MacOs {
+            services: expected,
+        },
+        ProxySnapshot::MacOs { services: actual },
+    ) = (expected, actual)
+    else {
+        return vec!["snapshot_platform".to_owned()];
+    };
+    if expected.len() != actual.len() {
+        return vec!["service_count".to_owned()];
+    }
+    let mut differences = Vec::new();
+    for (expected, actual) in expected.iter().zip(actual) {
+        if expected.name != actual.name {
+            differences.push("service_name".to_owned());
+            continue;
+        }
+        compare_service(expected, actual, &mut differences);
+    }
+    differences
+}
+
+#[cfg(target_os = "macos")]
+fn compare_service(
+    expected: &MacOsNetworkService,
+    actual: &MacOsNetworkService,
+    differences: &mut Vec<String>,
+) {
+    if expected.web_proxy.enabled != actual.web_proxy.enabled {
+        differences.push("web_enabled".to_owned());
+    }
+    if expected.web_proxy.server != actual.web_proxy.server {
+        differences.push("web_server".to_owned());
+    }
+    if expected.web_proxy.port != actual.web_proxy.port {
+        differences.push("web_port".to_owned());
+    }
+    if expected.secure_web_proxy.enabled != actual.secure_web_proxy.enabled {
+        differences.push("secure_enabled".to_owned());
+    }
+    if expected.secure_web_proxy.server != actual.secure_web_proxy.server {
+        differences.push("secure_server".to_owned());
+    }
+    if expected.secure_web_proxy.port != actual.secure_web_proxy.port {
+        differences.push("secure_port".to_owned());
+    }
+    if expected.auto_config.enabled != actual.auto_config.enabled {
+        differences.push("auto_config_enabled".to_owned());
+    }
+    if expected.auto_config.url != actual.auto_config.url {
+        differences.push("auto_config_url".to_owned());
+    }
+    if expected.auto_discovery_enabled != actual.auto_discovery_enabled {
+        differences.push("auto_discovery".to_owned());
+    }
+    if expected.bypass_domains != actual.bypass_domains {
+        differences.push("bypass_domains".to_owned());
+    }
 }
