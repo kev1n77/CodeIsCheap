@@ -9,6 +9,9 @@ use codeischeap_proxy_recovery::{FileProxyBackend, ProxyBackend, ProxySession, P
 #[cfg(windows)]
 use codeischeap_proxy_recovery::WindowsProxyBackend;
 
+#[cfg(target_os = "macos")]
+use codeischeap_proxy_recovery::MacOsProxyBackend;
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut arguments = env::args_os().skip(1);
     match arguments
@@ -50,6 +53,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 watchdog,
             )
         }
+        #[cfg(target_os = "macos")]
+        Some("hold-macos") => {
+            let journal = next_path(&mut arguments, "journal")?;
+            let ready = next_path(&mut arguments, "ready")?;
+            let watchdog = next_path(&mut arguments, "watchdog")?;
+            let port = next_port(&mut arguments)?;
+            ensure_finished(&mut arguments)?;
+            hold(
+                MacOsProxyBackend::system(),
+                desired_settings(port),
+                journal,
+                ready,
+                watchdog,
+            )
+        }
         _ => Err("usage: proxy-recovery-spike hold <state> <journal> <ready> <watchdog>".into()),
     }
 }
@@ -83,6 +101,18 @@ fn ensure_finished(
         return Err("unexpected proxy-recovery-spike argument".into());
     }
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn next_port(
+    arguments: &mut impl Iterator<Item = std::ffi::OsString>,
+) -> Result<u16, Box<dyn std::error::Error>> {
+    Ok(arguments
+        .next()
+        .ok_or("missing proxy port")?
+        .into_string()
+        .map_err(|_| "proxy port must be UTF-8")?
+        .parse()?)
 }
 
 fn next_path(

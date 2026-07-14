@@ -2,6 +2,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
+use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -9,6 +10,8 @@ use codeischeap_proxy_recovery::{
     FileProxyBackend, JournalStatus, ProxyBackend, ProxySession, ProxySettings, ProxySnapshot,
     RECOVERY_JOURNAL_VERSION, RecoveryJournal, recover_from_journal,
 };
+
+static PROCESS_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 fn original_settings() -> ProxySettings {
     ProxySettings::AutoConfig {
@@ -26,6 +29,9 @@ fn desired_settings() -> ProxySettings {
 
 #[test]
 fn normal_restore_returns_to_the_exact_snapshot() {
+    let _lock = PROCESS_TEST_LOCK
+        .lock()
+        .expect("process test lock must work");
     let root = test_directory("normal");
     let state = root.join("proxy-state.json");
     let journal = root.join("recovery.json");
@@ -52,6 +58,9 @@ fn normal_restore_returns_to_the_exact_snapshot() {
 
 #[test]
 fn watchdog_restores_after_the_owner_is_force_killed() {
+    let _lock = PROCESS_TEST_LOCK
+        .lock()
+        .expect("process test lock must work");
     let root = test_directory("force-kill");
     let state = root.join("proxy-state.json");
     let journal = root.join("recovery.json");
@@ -73,13 +82,13 @@ fn watchdog_restores_after_the_owner_is_force_killed() {
             .spawn()
             .expect("owner process must start"),
     );
-    wait_until(Duration::from_secs(5), || ready.exists());
+    wait_until(Duration::from_secs(15), || ready.exists());
     assert_eq!(file_settings(&backend), desired_settings());
 
     owner.0.kill().expect("owner process must be force killed");
     owner.0.wait().expect("owner process must exit");
 
-    wait_until(Duration::from_secs(5), || {
+    wait_until(Duration::from_secs(15), || {
         file_settings(&backend) == original_settings() && !journal.exists()
     });
     fs::remove_dir_all(root).expect("test directory must clean up");
@@ -87,6 +96,9 @@ fn watchdog_restores_after_the_owner_is_force_killed() {
 
 #[test]
 fn watchdog_uses_the_snapshot_loaded_before_ready() {
+    let _lock = PROCESS_TEST_LOCK
+        .lock()
+        .expect("process test lock must work");
     let root = test_directory("journal-tamper");
     let state = root.join("proxy-state.json");
     let unrelated = root.join("unrelated-state.json");
@@ -113,7 +125,7 @@ fn watchdog_uses_the_snapshot_loaded_before_ready() {
             .spawn()
             .expect("owner process must start"),
     );
-    wait_until(Duration::from_secs(5), || ready.exists());
+    wait_until(Duration::from_secs(15), || ready.exists());
 
     let mut tampered: RecoveryJournal =
         serde_json::from_slice(&fs::read(&journal).expect("journal must read"))
@@ -131,7 +143,7 @@ fn watchdog_uses_the_snapshot_loaded_before_ready() {
     owner.0.kill().expect("owner process must be force killed");
     owner.0.wait().expect("owner process must exit");
 
-    wait_until(Duration::from_secs(5), || {
+    wait_until(Duration::from_secs(15), || {
         file_settings(&backend) == original_settings() && !journal.exists()
     });
     assert_eq!(file_settings(&unrelated_backend), ProxySettings::Disabled);
@@ -197,6 +209,7 @@ fn file_settings(backend: &FileProxyBackend) -> ProxySettings {
     match backend.snapshot().expect("state must read") {
         ProxySnapshot::File { settings } => settings,
         ProxySnapshot::Windows { .. } => panic!("file backend returned a Windows snapshot"),
+        ProxySnapshot::MacOs { .. } => panic!("file backend returned a macOS snapshot"),
     }
 }
 

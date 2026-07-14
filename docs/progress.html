@@ -22,7 +22,7 @@
         <div class="meta-item"><span>最后更新</span><strong>2026-07-14</strong></div>
       </div>
 
-      <div class="decision"><strong>当前结论</strong>Gateway、mitmproxy sidecar 与 Windows WinINet 恢复路径已验证；Windows 真实强杀实验可精确恢复原代理设置。SPIKE-003 仍需完成 macOS backend。</div>
+      <div class="decision"><strong>当前结论</strong>Gateway、mitmproxy sidecar 与 Windows/macOS 系统代理恢复路径均已验证。S0 下一关键项是 Threat model v1 与关键 ADR，之后进入桌面壳和加密数据链路。</div>
 
       <h2 id="usage">1. 更新规则</h2>
       <ol>
@@ -45,7 +45,7 @@
 
       <h2 id="milestones">3. 里程碑</h2>
       <div class="table-wrap"><table><thead><tr><th>ID</th><th>里程碑</th><th>权重</th><th>进度</th><th>状态</th><th>目标</th><th>Owner</th></tr></thead><tbody>
-        <tr><td class="task-id">M0</td><td>Discovery 与技术验证</td><td>5%</td><td><div class="progress-track"><div class="progress-value" style="width:90%"></div></div> 90%</td><td><span class="status active">In progress</span></td><td>W2</td><td>TBD</td></tr>
+        <tr><td class="task-id">M0</td><td>Discovery 与技术验证</td><td>5%</td><td><div class="progress-track"><div class="progress-value" style="width:95%"></div></div> 95%</td><td><span class="status active">In progress</span></td><td>W2</td><td>TBD</td></tr>
         <tr><td class="task-id">M1</td><td>基础设施与加密数据链路</td><td>15%</td><td><div class="progress-track"><div class="progress-value" style="width:0%"></div></div> 0%</td><td><span class="status">Not started</span></td><td>W4</td><td>TBD</td></tr>
         <tr><td class="task-id">M2</td><td>Gateway 与双厂商闭环</td><td>20%</td><td><div class="progress-track"><div class="progress-value" style="width:0%"></div></div> 0%</td><td><span class="status">Not started</span></td><td>W8</td><td>TBD</td></tr>
         <tr><td class="task-id">M3</td><td>显式代理、安全与恢复</td><td>20%</td><td><div class="progress-track"><div class="progress-value" style="width:0%"></div></div> 0%</td><td><span class="status">Not started</span></td><td>W12</td><td>TBD</td></tr>
@@ -75,7 +75,7 @@
         <tr><td class="task-id">PAR-001</td><td>Prompt IR v0.1 与首批 fixtures</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-14</td><td>OpenAI/Anthropic fixtures、校验与 schema 完成</td></tr>
         <tr><td class="task-id">SPIKE-001</td><td>Gateway 流式透明转发验证</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-14</td><td>双向流式、取消传递、头清理与稳定 502 集成测试通过</td></tr>
         <tr><td class="task-id">SPIKE-002</td><td>mitmproxy sidecar IPC/打包验证</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-14</td><td><a href="spikes/mitmproxy-sidecar.html">凭据清理、IPC、打包与真实转发通过</a></td></tr>
-        <tr><td class="task-id">SPIKE-003</td><td>Windows/macOS 代理恢复验证</td><td><span class="status active">In progress</span></td><td>70%</td><td>Codex / TBD</td><td>2026-07-28</td><td><a href="spikes/windows-proxy-recovery.html">Windows 真实强杀恢复通过</a>；待 macOS backend</td></tr>
+        <tr><td class="task-id">SPIKE-003</td><td>Windows/macOS 代理恢复验证</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-14</td><td><a href="spikes/windows-proxy-recovery.html">Windows</a> / <a href="spikes/macos-proxy-recovery.html">macOS</a> 真实强杀恢复通过</td></tr>
         <tr><td class="task-id">SPIKE-004</td><td>Threat model v1</td><td><span class="status">Not started</span></td><td>0%</td><td>TBD</td><td>TBD</td><td>确定凭据删除边界</td></tr>
       </tbody></table></div>
 
@@ -84,7 +84,7 @@
         <li>Windows 与 macOS 均能运行最小桌面壳</li>
         <li class="checked">Gateway 可透明转发一条流式请求</li>
         <li class="checked">sidecar 可将已剥离凭据的 envelope 发送给 Core</li>
-        <li>强杀测试后系统代理恢复</li>
+        <li class="checked">强杀测试后系统代理恢复</li>
         <li class="checked">Prompt IR 可表达 OpenAI 与 Anthropic 基础请求</li>
         <li>关键 ADR 与威胁模型完成评审</li>
       </ul>
@@ -144,6 +144,7 @@
         <tr><td>2026-07-14</td><td>Spike</td><td>完成 mitmproxy sidecar IPC 与打包验证</td><td>固定版本、凭据前置清理、认证 IPC 与三平台制品检查</td><td>Codex</td></tr>
         <tr><td>2026-07-14</td><td>Implementation</td><td>建立系统代理事务与独立 watchdog 核心</td><td>异常退出和下次启动均可恢复可信快照；真实平台接入仍待完成</td><td>Codex</td></tr>
         <tr><td>2026-07-14</td><td>Spike</td><td>Windows WinINet 真实强杀恢复通过</td><td>确认原始注册表值精确恢复；macOS 仍为 SPIKE-003 剩余项</td><td>Codex</td></tr>
+        <tr><td>2026-07-14</td><td>Spike</td><td>macOS networksetup 真实强杀恢复通过</td><td>SPIKE-003 两平台完成；认证代理明确拒绝接管</td><td>Codex</td></tr>
         <tr><td colspan="5">后续范围、架构、日期或资源变化均在此追加，并链接对应 ADR/会议结论。</td></tr>
       </tbody></table></div>
 

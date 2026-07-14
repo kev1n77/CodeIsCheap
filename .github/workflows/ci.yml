@@ -43,6 +43,12 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      - name: Run real macOS networksetup recovery experiment
+        if: runner.os == 'macOS'
+        run: |
+          cargo build -p codeischeap-proxy-recovery --bins
+          sudo target/debug/proxy-recovery-macos-experiment
+
   sidecar:
     name: Sidecar (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

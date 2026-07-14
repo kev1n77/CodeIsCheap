@@ -16,8 +16,14 @@ use serde::{Deserialize, Serialize};
 #[cfg(windows)]
 mod windows;
 
+#[cfg(target_os = "macos")]
+mod macos;
+
 #[cfg(windows)]
 pub use windows::WindowsProxyBackend;
+
+#[cfg(target_os = "macos")]
+pub use macos::MacOsProxyBackend;
 
 pub const RECOVERY_JOURNAL_VERSION: &str = "0.1";
 
@@ -43,6 +49,7 @@ pub enum ProxySettings {
 pub enum BackendDescriptor {
     File { state_path: PathBuf },
     Windows { registry_path: String, notify: bool },
+    MacOs { networksetup_path: PathBuf },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -55,6 +62,9 @@ pub enum ProxySnapshot {
         main_values: Vec<WindowsRegistryValue>,
         connection_values: Vec<WindowsRegistryValue>,
     },
+    MacOs {
+        services: Vec<MacOsNetworkService>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -62,6 +72,31 @@ pub struct WindowsRegistryValue {
     pub name: String,
     pub value_type: u32,
     pub bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MacOsNetworkService {
+    pub name: String,
+    pub web_proxy: MacOsManualProxy,
+    pub secure_web_proxy: MacOsManualProxy,
+    pub auto_config: MacOsAutoConfig,
+    pub auto_discovery_enabled: bool,
+    #[serde(default)]
+    pub bypass_domains: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MacOsManualProxy {
+    pub enabled: bool,
+    pub server: String,
+    pub port: u16,
+    pub authenticated: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MacOsAutoConfig {
+    pub enabled: bool,
+    pub url: Option<String>,
 }
 
 pub trait ProxyBackend {
@@ -137,6 +172,9 @@ pub enum RecoveryError {
     UnsupportedBackend,
     SnapshotBackendMismatch,
     InvalidProxyEndpoint(String),
+    PlatformCommandFailed(String),
+    PlatformOutputInvalid(String),
+    AuthenticatedProxyUnsupported(String),
 }
 
 impl fmt::Display for RecoveryError {
@@ -160,6 +198,21 @@ impl fmt::Display for RecoveryError {
             }
             Self::InvalidProxyEndpoint(endpoint) => {
                 write!(formatter, "proxy endpoint {endpoint} is invalid")
+            }
+            Self::PlatformCommandFailed(operation) => {
+                write!(formatter, "platform proxy command {operation} failed")
+            }
+            Self::PlatformOutputInvalid(operation) => {
+                write!(
+                    formatter,
+                    "platform proxy output for {operation} is invalid"
+                )
+            }
+            Self::AuthenticatedProxyUnsupported(service) => {
+                write!(
+                    formatter,
+                    "authenticated proxy on service {service} cannot be restored safely"
+                )
             }
         }
     }
@@ -366,6 +419,12 @@ fn restore_with_backend(
         }
         #[cfg(not(windows))]
         BackendDescriptor::Windows { .. } => Err(RecoveryError::UnsupportedBackend),
+        #[cfg(target_os = "macos")]
+        BackendDescriptor::MacOs { networksetup_path } => {
+            MacOsProxyBackend::for_networksetup_path(networksetup_path.clone())?.restore(snapshot)
+        }
+        #[cfg(not(target_os = "macos"))]
+        BackendDescriptor::MacOs { .. } => Err(RecoveryError::UnsupportedBackend),
     }
 }
 
