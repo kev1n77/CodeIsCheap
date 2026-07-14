@@ -163,12 +163,8 @@ fn experiment_directory() -> PathBuf {
 
 #[cfg(target_os = "macos")]
 fn snapshot_differences(expected: &ProxySnapshot, actual: &ProxySnapshot) -> Vec<String> {
-    let (
-        ProxySnapshot::MacOs {
-            services: expected,
-        },
-        ProxySnapshot::MacOs { services: actual },
-    ) = (expected, actual)
+    let (ProxySnapshot::MacOs { services: expected }, ProxySnapshot::MacOs { services: actual }) =
+        (expected, actual)
     else {
         return vec!["snapshot_platform".to_owned()];
     };
