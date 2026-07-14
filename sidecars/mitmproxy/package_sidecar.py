@@ -42,6 +42,8 @@ def main() -> None:
             str(BUILD),
             "--add-data",
             f"{ROOT / 'codeischeap_addon.py'}{';' if sys.platform == 'win32' else ':'}.",
+            "--add-data",
+            f"{ROOT.parents[1] / 'policies' / 'capture-policy.v0.1.json'}{';' if sys.platform == 'win32' else ':'}.",
             "--collect-all",
             "mitmproxy",
             "--collect-all",

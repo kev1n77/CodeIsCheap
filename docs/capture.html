@@ -19,6 +19,7 @@
     <div class="flow" aria-label="请求处理管线">
       <div class="flow-step">请求进入</div><div class="flow-arrow">→</div><div class="flow-step">范围判断</div><div class="flow-arrow">→</div><div class="flow-step">删除凭据</div><div class="flow-arrow">→</div><div class="flow-step">协议解析</div><div class="flow-arrow">→</div><div class="flow-step">Prompt IR</div>
     </div>
+    <p class="note">范围和敏感字段由版本化 Capture Policy 驱动。sidecar 在 IPC 前执行一次，Rust Core 在进入持久化前再次执行；任一层判断越界即不记录。</p>
 
     <h2 id="ir">Prompt IR</h2>
     <p>IR 是跨厂商统一的数据骨架。它保留消息顺序、工具 schema、原始 JSON 路径和厂商特有字段。</p>

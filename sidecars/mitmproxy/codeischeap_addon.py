@@ -5,6 +5,8 @@ from __future__ import annotations
 import ipaddress
 import json
 import os
+from fnmatch import fnmatchcase
+from pathlib import Path
 import queue
 import socket
 import threading
@@ -16,29 +18,75 @@ from urllib.parse import parse_qsl, urlsplit
 IPC_PROTOCOL = "codeischeap.capture-ipc"
 IPC_PROTOCOL_VERSION = "0.1"
 CAPTURE_ENVELOPE_VERSION = "0.1"
-DEFAULT_TARGET_HOSTS = frozenset(
-    {
-        "api.anthropic.com",
-        "api.mistral.ai",
-        "api.openai.com",
-        "generativelanguage.googleapis.com",
-    }
-)
+CAPTURE_POLICY_VERSION = "0.1"
+CAPTURE_POLICY_FILENAME = "capture-policy.v0.1.json"
+
+
+def _policy_path() -> Path:
+    configured = os.getenv("CIC_CAPTURE_POLICY_PATH")
+    if configured:
+        return Path(configured)
+
+    source = Path(__file__).resolve()
+    candidates = [source.with_name(CAPTURE_POLICY_FILENAME)]
+    if len(source.parents) > 2:
+        candidates.append(source.parents[2] / "policies" / CAPTURE_POLICY_FILENAME)
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    raise ValueError("CodeIsCheap capture policy file is missing")
+
+
+def load_policy() -> dict[str, Any]:
+    policy = json.loads(_policy_path().read_text(encoding="utf-8"))
+    if policy.get("version") != CAPTURE_POLICY_VERSION:
+        raise ValueError("CodeIsCheap capture policy version is unsupported")
+    targets = policy.get("targets")
+    sensitive_names = policy.get("sensitive_names")
+    if not isinstance(targets, list) or not targets:
+        raise ValueError("CodeIsCheap capture policy has no targets")
+    if not isinstance(sensitive_names, list) or not sensitive_names:
+        raise ValueError("CodeIsCheap capture policy has no sensitive names")
+    target_ids: set[str] = set()
+    for target in targets:
+        if not isinstance(target, dict):
+            raise ValueError("CodeIsCheap capture policy target is invalid")
+        target_id = target.get("id")
+        if not isinstance(target_id, str) or not target_id or target_id in target_ids:
+            raise ValueError("CodeIsCheap capture policy target id is invalid")
+        target_ids.add(target_id)
+        for field in ("hosts", "methods", "paths"):
+            values = target.get(field)
+            if (
+                not isinstance(values, list)
+                or not values
+                or not all(isinstance(value, str) and value for value in values)
+            ):
+                raise ValueError("CodeIsCheap capture policy target is invalid")
+        if any(host != host.lower().rstrip(".") for host in target["hosts"]):
+            raise ValueError("CodeIsCheap capture policy host is invalid")
+        if any(method != method.upper() for method in target["methods"]):
+            raise ValueError("CodeIsCheap capture policy method is invalid")
+        if any(not path.startswith("/") for path in target["paths"]):
+            raise ValueError("CodeIsCheap capture policy path is invalid")
+    normalized_names = [
+        "".join(character for character in name.lower() if character.isalnum())
+        for name in sensitive_names
+        if isinstance(name, str)
+    ]
+    if (
+        len(normalized_names) != len(sensitive_names)
+        or any(not name for name in normalized_names)
+        or len(set(normalized_names)) != len(normalized_names)
+    ):
+        raise ValueError("CodeIsCheap sensitive name policy is invalid")
+    return policy
+
+
+CAPTURE_POLICY = load_policy()
 SENSITIVE_NAMES = frozenset(
-    {
-        "apikey",
-        "authorization",
-        "clientsecret",
-        "cookie",
-        "password",
-        "proxyauthorization",
-        "secret",
-        "setcookie",
-        "token",
-        "accesstoken",
-        "anthropicapikey",
-        "xapikey",
-    }
+    "".join(character for character in name.lower() if character.isalnum())
+    for name in CAPTURE_POLICY["sensitive_names"]
 )
 
 
@@ -130,13 +178,34 @@ def _capture_body(raw_content: bytes | None, content_type: str) -> tuple[dict[st
 
 def target_hosts() -> frozenset[str]:
     configured = os.getenv("CIC_CAPTURE_HOSTS")
-    if not configured:
-        return DEFAULT_TARGET_HOSTS
-    return frozenset(host.strip().lower().rstrip(".") for host in configured.split(",") if host.strip())
+    if configured:
+        return frozenset(
+            host.strip().lower().rstrip(".")
+            for host in configured.split(",")
+            if host.strip()
+        )
+    return frozenset(
+        host
+        for target in CAPTURE_POLICY["targets"]
+        for host in target["hosts"]
+    )
 
 
-def should_capture(host: str) -> bool:
-    return host.lower().rstrip(".") in target_hosts()
+def should_capture(host: str, path: str, method: str) -> bool:
+    normalized_host = host.lower().rstrip(".")
+    if normalized_host not in target_hosts():
+        return False
+
+    configured_hosts = bool(os.getenv("CIC_CAPTURE_HOSTS"))
+    for target in CAPTURE_POLICY["targets"]:
+        host_matches = configured_hosts or normalized_host in target["hosts"]
+        if (
+            host_matches
+            and method.upper() in target["methods"]
+            and any(fnmatchcase(path, pattern) for pattern in target["paths"])
+        ):
+            return True
+    return False
 
 
 def build_envelope(flow: Any) -> dict[str, Any]:
@@ -257,7 +326,11 @@ class CaptureAddon:
         self._configuration_failed = False
 
     def request(self, flow: Any) -> None:
-        if not should_capture(_text(flow.request.host)):
+        request = flow.request
+        split = urlsplit(_text(getattr(request, "pretty_url", request.url)))
+        if not should_capture(
+            _text(request.host), split.path or "/", _text(request.method)
+        ):
             return
         if self._configuration_failed:
             return
