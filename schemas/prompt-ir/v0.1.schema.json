@@ -1,0 +1,658 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PromptIr",
+  "type": "object",
+  "properties": {
+    "completeness": {
+      "$ref": "#/$defs/Completeness",
+      "default": {
+        "request_body": "complete",
+        "response_body": "missing"
+      }
+    },
+    "context": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ContextItem"
+      }
+    },
+    "generation": {
+      "$ref": "#/$defs/GenerationOptions",
+      "default": {}
+    },
+    "instructions": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Instruction"
+      }
+    },
+    "ir_version": {
+      "type": "string"
+    },
+    "messages": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Message"
+      }
+    },
+    "model": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "operation": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "provider": {
+      "$ref": "#/$defs/ProviderRef"
+    },
+    "request_id": {
+      "type": "string"
+    },
+    "tools": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ToolDefinition"
+      }
+    },
+    "vendor": {
+      "type": "object",
+      "additionalProperties": true,
+      "default": {}
+    }
+  },
+  "required": [
+    "ir_version",
+    "request_id",
+    "provider"
+  ],
+  "$defs": {
+    "BodyState": {
+      "type": "string",
+      "enum": [
+        "complete",
+        "partial",
+        "streaming",
+        "missing",
+        "unsupported"
+      ]
+    },
+    "Completeness": {
+      "type": "object",
+      "properties": {
+        "request_body": {
+          "$ref": "#/$defs/BodyState"
+        },
+        "response_body": {
+          "$ref": "#/$defs/BodyState"
+        }
+      },
+      "required": [
+        "request_body",
+        "response_body"
+      ]
+    },
+    "ContextItem": {
+      "type": "object",
+      "properties": {
+        "evidence": {
+          "$ref": "#/$defs/Evidence"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ContextKind"
+        },
+        "parts": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/PromptPart"
+          }
+        },
+        "source_label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "evidence"
+      ]
+    },
+    "ContextKind": {
+      "type": "string",
+      "enum": [
+        "retrieved_document",
+        "cached_content",
+        "tool_result",
+        "application_state",
+        "unknown"
+      ]
+    },
+    "Evidence": {
+      "description": "Evidence metadata attached to every semantically meaningful IR node.",
+      "type": "object",
+      "properties": {
+        "confidence": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "float"
+        },
+        "level": {
+          "$ref": "#/$defs/EvidenceLevel"
+        },
+        "rule_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EvidenceSource"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "level"
+      ]
+    },
+    "EvidenceLevel": {
+      "description": "Describes how strongly a value is supported by captured evidence.",
+      "oneOf": [
+        {
+          "description": "Read directly from the captured request or response.",
+          "type": "string",
+          "const": "observed"
+        },
+        {
+          "description": "Calculated deterministically from observed data.",
+          "type": "string",
+          "const": "derived"
+        },
+        {
+          "description": "Guessed by a versioned rule and potentially incorrect.",
+          "type": "string",
+          "const": "inferred"
+        },
+        {
+          "description": "Not visible to the client or not understood by the current adapter.",
+          "type": "string",
+          "const": "unknown"
+        }
+      ]
+    },
+    "EvidenceSource": {
+      "description": "A stable locator back to the captured source.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "json_pointer"
+            },
+            "pointer": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "pointer"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "index": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "kind": {
+              "type": "string",
+              "const": "stream_event"
+            }
+          },
+          "required": [
+            "kind",
+            "index"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "attribute"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "end": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "kind": {
+              "type": "string",
+              "const": "byte_range"
+            },
+            "start": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "kind",
+            "start",
+            "end"
+          ]
+        }
+      ]
+    },
+    "GenerationOptions": {
+      "type": "object",
+      "properties": {
+        "extra": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "max_output_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "stop": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "temperature": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "top_p": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        }
+      }
+    },
+    "Instruction": {
+      "type": "object",
+      "properties": {
+        "evidence": {
+          "$ref": "#/$defs/Evidence"
+        },
+        "id": {
+          "type": "string"
+        },
+        "parts": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/PromptPart"
+          }
+        },
+        "role": {
+          "$ref": "#/$defs/InstructionRole"
+        }
+      },
+      "required": [
+        "id",
+        "role",
+        "evidence"
+      ]
+    },
+    "InstructionRole": {
+      "type": "string",
+      "enum": [
+        "system",
+        "developer",
+        "unknown"
+      ]
+    },
+    "Message": {
+      "type": "object",
+      "properties": {
+        "evidence": {
+          "$ref": "#/$defs/Evidence"
+        },
+        "id": {
+          "type": "string"
+        },
+        "parts": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/PromptPart"
+          }
+        },
+        "role": {
+          "$ref": "#/$defs/MessageRole"
+        }
+      },
+      "required": [
+        "id",
+        "role",
+        "evidence"
+      ]
+    },
+    "MessageRole": {
+      "type": "string",
+      "enum": [
+        "system",
+        "developer",
+        "user",
+        "assistant",
+        "tool",
+        "unknown"
+      ]
+    },
+    "PromptPart": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "evidence": {
+              "$ref": "#/$defs/Evidence"
+            },
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "text"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "text",
+            "evidence"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "evidence": {
+              "$ref": "#/$defs/Evidence"
+            },
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "json"
+            },
+            "value": true
+          },
+          "required": [
+            "kind",
+            "id",
+            "value",
+            "evidence"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "evidence": {
+              "$ref": "#/$defs/Evidence"
+            },
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "image_ref"
+            },
+            "location": {
+              "type": "string"
+            },
+            "media_type": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "location",
+            "evidence"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "evidence": {
+              "$ref": "#/$defs/Evidence"
+            },
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "audio_ref"
+            },
+            "location": {
+              "type": "string"
+            },
+            "media_type": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "location",
+            "evidence"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "evidence": {
+              "$ref": "#/$defs/Evidence"
+            },
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "file_ref"
+            },
+            "location": {
+              "type": "string"
+            },
+            "media_type": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "location",
+            "evidence"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "evidence": {
+              "$ref": "#/$defs/Evidence"
+            },
+            "id": {
+              "type": "string"
+            },
+            "input": true,
+            "kind": {
+              "type": "string",
+              "const": "tool_use"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "name",
+            "input",
+            "evidence"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "evidence": {
+              "$ref": "#/$defs/Evidence"
+            },
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "tool_result"
+            },
+            "tool_use_id": {
+              "type": "string"
+            },
+            "value": true
+          },
+          "required": [
+            "kind",
+            "id",
+            "tool_use_id",
+            "value",
+            "evidence"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "evidence": {
+              "$ref": "#/$defs/Evidence"
+            },
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "unknown"
+            },
+            "value": true
+          },
+          "required": [
+            "kind",
+            "id",
+            "value",
+            "evidence"
+          ]
+        }
+      ]
+    },
+    "ProviderRef": {
+      "type": "object",
+      "properties": {
+        "confidence": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "float"
+        },
+        "host": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "ToolDefinition": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "evidence": {
+          "$ref": "#/$defs/Evidence"
+        },
+        "id": {
+          "type": "string"
+        },
+        "input_schema": true,
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "input_schema",
+        "evidence"
+      ]
+    }
+  }
+}
