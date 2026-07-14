@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>MVP 交付 · CodeIsCheap</title><link rel="stylesheet" href="assets/styles.css" /></head>
+<body>
+  <header class="site-header"><div class="header-inner"><a class="brand" href="index.html"><span class="brand-mark">C</span>CodeIsCheap</a><nav class="site-nav" aria-label="文档导航"><a href="index.html">总览</a><a href="product.html">产品</a><a href="capture.html">采集</a><a href="architecture.html">架构</a><a href="security.html">安全</a><a href="experience.html">体验</a><a href="delivery.html" aria-current="page">交付</a></nav></div></header>
+  <div class="page"><main>
+    <p class="eyebrow">06 · Delivery</p><h1>MVP 交付</h1>
+    <p class="lead">先证明“稳定看到并正确解释请求”，再扩展应用数量、团队协作和 AI 分析。</p>
+
+    <h2 id="scope">范围切线</h2>
+    <div class="two-column">
+      <section class="plain-panel"><h3>MVP 必须有</h3><ul><li>Gateway + 显式代理</li><li>四类协议适配</li><li>Anatomy / Raw / Timeline</li><li>结构化比较</li><li>本地搜索与脱敏导出</li><li>Windows / macOS</li></ul></section>
+      <section class="plain-panel"><h3>后续再做</h3><ul><li>浏览器扩展与 TUN</li><li>团队云同步</li><li>AI 语义分析</li><li>完整评测平台</li><li>移动和远程设备</li><li>Linux GA</li></ul></section>
+    </div>
+
+    <h2 id="phases">建议阶段</h2>
+    <div class="timeline">
+      <div class="timeline-item"><strong>Discovery · 2 周</strong><span>协议样本、Gateway/代理 Spike、威胁模型、Prompt IR。</span></div>
+      <div class="timeline-item"><strong>Foundation · 3 周</strong><span>桌面框架、策略管线、加密存储、适配器注册表。</span></div>
+      <div class="timeline-item"><strong>Private Alpha · 6 周</strong><span>Gateway、OpenAI/Anthropic、代理恢复、Inspector、导出。</span></div>
+      <div class="timeline-item"><strong>Public Beta · 5 周</strong><span>Gemini/Ollama、Compare、规则、性能和安全评审。</span></div>
+      <div class="timeline-item"><strong>GA · 4 周</strong><span>签名更新、升级回滚、文档、本地化和发布演练。</span></div>
+    </div>
+
+    <h2 id="gates">发布门槛</h2>
+    <ul><li>已支持端点解析成功率高于 95%。</li><li>Windows 与 macOS 的代理恢复故障测试全部通过。</li><li>数据库、日志、临时文件和导出物中无鉴权凭据。</li><li>所有推断字段都明确标记，不伪装成 observed。</li><li>未知协议可降级 Raw，sidecar 崩溃不影响历史数据。</li></ul>
+
+    <h2 id="team">建议团队</h2>
+    <p>核心 6 人：1 名技术负责人、1 名网络/桌面工程师、1–2 名前端工程师、1 名设计师、1 名 QA/SDET，安全评审按阶段参与。</p>
+
+    <h2 id="risks">最高风险</h2>
+    <div class="table-wrap"><table><thead><tr><th>风险</th><th>应对</th></tr></thead><tbody>
+      <tr><td>应用绕过代理或证书固定</td><td>多采集模式，不宣传 universal capture</td></tr>
+      <tr><td>凭据或 Prompt 泄露</td><td>最小范围、双层 scrub、加密与强制预览</td></tr>
+      <tr><td>崩溃导致断网</td><td>独立 watchdog；恢复率不达标则不发布系统代理模式</td></tr>
+      <tr><td>范围膨胀</td><td>把“理解真实请求”作为唯一首发闭环</td></tr>
+    </tbody></table></div>
+    <footer class="doc-footer"><a href="experience.html">← UI/UX</a><a href="index.html">返回总览 →</a></footer>
+  </main><aside class="toc"><strong>本页</strong><a href="#scope">范围切线</a><a href="#phases">建议阶段</a><a href="#gates">发布门槛</a><a href="#team">建议团队</a><a href="#risks">最高风险</a></aside></div>
+</body></html>

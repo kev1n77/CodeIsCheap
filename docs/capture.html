@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>采集与 Prompt IR · CodeIsCheap</title><link rel="stylesheet" href="assets/styles.css" /></head>
+<body>
+  <header class="site-header"><div class="header-inner"><a class="brand" href="index.html"><span class="brand-mark">C</span>CodeIsCheap</a><nav class="site-nav" aria-label="文档导航"><a href="index.html">总览</a><a href="product.html">产品</a><a href="capture.html" aria-current="page">采集</a><a href="architecture.html">架构</a><a href="security.html">安全</a><a href="experience.html">体验</a><a href="delivery.html">交付</a></nav></div></header>
+  <div class="page"><main>
+    <p class="eyebrow">02 · Capture</p><h1>采集与 Prompt IR</h1>
+    <p class="lead">不存在覆盖所有应用的单一采集方式。产品应优先提供稳定、显式、可解释的路径。</p>
+
+    <h2 id="modes">采集模式</h2>
+    <div class="table-wrap"><table><thead><tr><th>模式</th><th>适用场景</th><th>证书</th><th>阶段</th></tr></thead><tbody>
+      <tr><td>Local AI Gateway</td><td>CLI、IDE、自研应用</td><td>不需要</td><td>MVP</td></tr>
+      <tr><td>显式 HTTP(S) 代理</td><td>支持代理的桌面应用</td><td>HTTPS 需要</td><td>MVP</td></tr>
+      <tr><td>浏览器标签页</td><td>Web AI 应用</td><td>不需要</td><td>P1</td></tr>
+      <tr><td>OTLP / SDK / HAR</td><td>自研服务与离线证据</td><td>不需要</td><td>P1</td></tr>
+    </tbody></table></div>
+
+    <h2 id="pipeline">处理管线</h2>
+    <div class="flow" aria-label="请求处理管线">
+      <div class="flow-step">请求进入</div><div class="flow-arrow">→</div><div class="flow-step">范围判断</div><div class="flow-arrow">→</div><div class="flow-step">删除凭据</div><div class="flow-arrow">→</div><div class="flow-step">协议解析</div><div class="flow-arrow">→</div><div class="flow-step">Prompt IR</div>
+    </div>
+
+    <h2 id="ir">Prompt IR</h2>
+    <p>IR 是跨厂商统一的数据骨架。它保留消息顺序、工具 schema、原始 JSON 路径和厂商特有字段。</p>
+    <div class="table-wrap"><table><thead><tr><th>字段</th><th>内容</th></tr></thead><tbody>
+      <tr><td>instructions</td><td>系统与开发者指令</td></tr><tr><td>messages</td><td>用户、助手、工具消息</td></tr><tr><td>context</td><td>检索文档、缓存上下文</td></tr><tr><td>tools</td><td>工具定义、选择策略、调用结果</td></tr><tr><td>generation</td><td>temperature、max tokens 等参数</td></tr><tr><td>evidence</td><td>observed、derived、inferred、unknown</td></tr>
+    </tbody></table></div>
+
+    <h2 id="limits">明确边界</h2>
+    <ul><li>应用忽略代理、使用 HTTP/3、独立证书库或证书固定时，代理可能无法捕获。</li><li>服务端二次拼装的系统指令和 RAG 内容不可从客户端请求证明。</li><li>流式响应丢失、取消或截断必须显示为不完整，不伪造最终结果。</li><li>未知协议降级到 Raw，不阻塞请求转发。</li></ul>
+    <footer class="doc-footer"><a href="product.html">← 产品定义</a><a href="architecture.html">下一篇：系统架构 →</a></footer>
+  </main><aside class="toc"><strong>本页</strong><a href="#modes">采集模式</a><a href="#pipeline">处理管线</a><a href="#ir">Prompt IR</a><a href="#limits">明确边界</a></aside></div>
+</body></html>

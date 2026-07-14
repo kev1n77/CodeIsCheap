@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>安全与隐私 · CodeIsCheap</title><link rel="stylesheet" href="assets/styles.css" /></head>
+<body>
+  <header class="site-header"><div class="header-inner"><a class="brand" href="index.html"><span class="brand-mark">C</span>CodeIsCheap</a><nav class="site-nav" aria-label="文档导航"><a href="index.html">总览</a><a href="product.html">产品</a><a href="capture.html">采集</a><a href="architecture.html">架构</a><a href="security.html" aria-current="page">安全</a><a href="experience.html">体验</a><a href="delivery.html">交付</a></nav></div></header>
+  <div class="page"><main>
+    <p class="eyebrow">04 · Security</p><h1>安全与隐私</h1>
+    <p class="lead">Prompt 可能包含 API 密钥、私有代码、文件和个人信息。安全策略必须在数据进入日志和数据库之前生效。</p>
+
+    <div class="decision"><strong>默认承诺</strong>只捕获目标 AI 端点；不持久化鉴权凭据；不上传 Prompt；不提供证书固定绕过。</div>
+
+    <h2 id="lifecycle">数据生命周期</h2>
+    <div class="flow" aria-label="安全数据生命周期">
+      <div class="flow-step">范围判断</div><div class="flow-arrow">→</div><div class="flow-step">凭据剥离</div><div class="flow-arrow">→</div><div class="flow-step">解析与脱敏</div><div class="flow-arrow">→</div><div class="flow-step">加密存储</div><div class="flow-arrow">→</div><div class="flow-step">预览后导出</div>
+    </div>
+
+    <h2 id="controls">关键控制</h2>
+    <div class="table-wrap"><table><thead><tr><th>风险</th><th>控制</th></tr></thead><tbody>
+      <tr><td>过度采集</td><td>AI host/path allowlist；非目标流量只 tunnel</td></tr>
+      <tr><td>密钥落盘</td><td>删除 Authorization、Cookie、API key header 和敏感 query</td></tr>
+      <tr><td>本机进程读取</td><td>本地 IPC 权限、随机 token、数据库加密、OS 凭据库</td></tr>
+      <tr><td>CA 私钥泄露</td><td>每设备独立生成、不可同步、最小文件权限、一键卸载</td></tr>
+      <tr><td>导出泄密</td><td>强制预览、秘密扫描、稳定占位符、策略版本记录</td></tr>
+      <tr><td>代理残留</td><td>设置快照、独立 watchdog、启动修复和卸载恢复</td></tr>
+    </tbody></table></div>
+
+    <h2 id="certificate">证书与代理边界</h2>
+    <ul><li>仅在用户选择 HTTPS 代理时生成本地 CA。</li><li>UI 显示证书指纹、信任状态和卸载入口。</li><li>应用使用证书固定时停止 MITM，并建议 Gateway 或浏览器适配器。</li><li>停止、崩溃、升级和卸载都必须恢复原系统代理。</li></ul>
+
+    <h2 id="export">导出等级</h2>
+    <div class="table-wrap"><table><thead><tr><th>等级</th><th>内容</th><th>用途</th></tr></thead><tbody>
+      <tr><td>Minimal</td><td>结构与选中片段，无 Raw</td><td>Issue / 聊天分享</td></tr>
+      <tr><td>Reproducible</td><td>脱敏 IR、工具 schema、关键参数</td><td>团队复现</td></tr>
+      <tr><td>Forensic</td><td>脱敏 Raw、流事件、解析问题</td><td>受控支持与安全分析</td></tr>
+    </tbody></table></div>
+    <footer class="doc-footer"><a href="architecture.html">← 系统架构</a><a href="experience.html">下一篇：UI/UX →</a></footer>
+  </main><aside class="toc"><strong>本页</strong><a href="#lifecycle">数据生命周期</a><a href="#controls">关键控制</a><a href="#certificate">证书与代理</a><a href="#export">导出等级</a></aside></div>
+</body></html>

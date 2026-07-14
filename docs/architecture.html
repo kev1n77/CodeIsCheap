@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>系统架构 · CodeIsCheap</title><link rel="stylesheet" href="assets/styles.css" /></head>
+<body>
+  <header class="site-header"><div class="header-inner"><a class="brand" href="index.html"><span class="brand-mark">C</span>CodeIsCheap</a><nav class="site-nav" aria-label="文档导航"><a href="index.html">总览</a><a href="product.html">产品</a><a href="capture.html">采集</a><a href="architecture.html" aria-current="page">架构</a><a href="security.html">安全</a><a href="experience.html">体验</a><a href="delivery.html">交付</a></nav></div></header>
+  <div class="page"><main>
+    <p class="eyebrow">03 · Architecture</p><h1>系统架构</h1>
+    <p class="lead">本地优先架构：桌面 UI 负责检查体验，Rust Core 负责策略、解析和存储，成熟 sidecar 负责 TLS 网络流。</p>
+
+    <h2 id="overview">组件关系</h2>
+    <figure class="diagram">
+      <svg viewBox="0 0 760 340" role="img" aria-labelledby="arch-title arch-desc">
+        <title id="arch-title">CodeIsCheap 系统架构</title><desc id="arch-desc">AI 应用通过 Gateway 或代理访问模型厂商，捕获事件进入 Rust Core，再由策略、解析器和数据库处理并展示在桌面 UI。</desc>
+        <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--muted)" /></marker></defs>
+        <rect class="box" x="20" y="130" width="120" height="64" rx="5" /><text x="80" y="158" text-anchor="middle">AI 应用</text><text class="small" x="80" y="177" text-anchor="middle">CLI / IDE / Desktop</text>
+        <rect class="box-accent" x="190" y="58" width="140" height="64" rx="5" /><text x="260" y="87" text-anchor="middle">Local Gateway</text><text class="small" x="260" y="106" text-anchor="middle">无需本地 CA</text>
+        <rect class="box-accent" x="190" y="202" width="140" height="64" rx="5" /><text x="260" y="231" text-anchor="middle">mitmproxy sidecar</text><text class="small" x="260" y="250" text-anchor="middle">TLS / HTTP flow</text>
+        <rect class="box-main" x="386" y="118" width="150" height="88" rx="5" /><text x="461" y="151" text-anchor="middle">Rust Core</text><text class="small" x="461" y="172" text-anchor="middle">范围 · 脱敏 · 解析</text><text class="small" x="461" y="189" text-anchor="middle">事件与进程管理</text>
+        <rect class="box" x="602" y="45" width="138" height="64" rx="5" /><text x="671" y="74" text-anchor="middle">Desktop UI</text><text class="small" x="671" y="93" text-anchor="middle">React + Tauri</text>
+        <rect class="box" x="602" y="138" width="138" height="64" rx="5" /><text x="671" y="167" text-anchor="middle">Prompt IR</text><text class="small" x="671" y="186" text-anchor="middle">Provider adapters</text>
+        <rect class="box" x="602" y="231" width="138" height="64" rx="5" /><text x="671" y="260" text-anchor="middle">Encrypted SQLite</text><text class="small" x="671" y="279" text-anchor="middle">本地搜索与历史</text>
+        <path class="line" d="M140 150 C165 130 165 95 190 90" marker-end="url(#arrow)"/><path class="line" d="M140 175 C165 195 165 230 190 234" marker-end="url(#arrow)"/>
+        <path class="line" d="M330 90 C365 90 350 145 386 150" marker-end="url(#arrow)"/><path class="line" d="M330 234 C365 234 350 178 386 174" marker-end="url(#arrow)"/>
+        <path class="line" d="M536 145 C570 125 570 82 602 78" marker-end="url(#arrow)"/><path class="line" d="M536 162 L602 169" marker-end="url(#arrow)"/><path class="line" d="M536 181 C570 205 570 258 602 263" marker-end="url(#arrow)"/>
+      </svg>
+    </figure>
+
+    <h2 id="stack">技术选型</h2>
+    <div class="table-wrap"><table><thead><tr><th>层</th><th>选择</th><th>理由</th></tr></thead><tbody>
+      <tr><td>桌面端</td><td>Tauri 2 + React + TypeScript</td><td>跨平台桌面体验与原生系统能力</td></tr>
+      <tr><td>控制核心</td><td>Rust + Tokio</td><td>进程、网络、加密和性能</td></tr>
+      <tr><td>TLS 捕获</td><td>mitmproxy sidecar</td><td>复用成熟协议栈，避免自研 MITM</td></tr>
+      <tr><td>数据</td><td>SQLite / SQLCipher</td><td>本地事务、全文检索和加密</td></tr>
+      <tr><td>扩展</td><td>声明式映射，复杂插件用 WASI</td><td>最小权限、可隔离</td></tr>
+    </tbody></table></div>
+
+    <h2 id="rules">架构原则</h2>
+    <ul><li>网络转发优先于记录；压力过高时降级记录，不阻塞用户请求。</li><li>sidecar 不访问数据库和工作区密钥。</li><li>新厂商适配器只产出 Prompt IR，不直接依赖 UI。</li><li>未知协议和解析失败都可降级 Raw。</li><li>系统代理由独立 watchdog 负责异常恢复。</li></ul>
+    <footer class="doc-footer"><a href="capture.html">← 采集与 Prompt IR</a><a href="security.html">下一篇：安全与隐私 →</a></footer>
+  </main><aside class="toc"><strong>本页</strong><a href="#overview">组件关系</a><a href="#stack">技术选型</a><a href="#rules">架构原则</a></aside></div>
+</body></html>

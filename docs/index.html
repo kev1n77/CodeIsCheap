@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CodeIsCheap 产品设计</title>
+  <link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="index.html"><span class="brand-mark">C</span>CodeIsCheap</a>
+      <nav class="site-nav" aria-label="文档导航">
+        <a href="index.html" aria-current="page">总览</a><a href="product.html">产品</a><a href="capture.html">采集</a><a href="architecture.html">架构</a><a href="security.html">安全</a><a href="experience.html">体验</a><a href="delivery.html">交付</a>
+      </nav>
+    </div>
+  </header>
+  <div class="page">
+    <main>
+      <p class="eyebrow">Product Design</p>
+      <h1>CodeIsCheap</h1>
+      <p class="lead">看清 AI 应用实际发出的请求，把杂乱 JSON 还原成可理解、可比较、可安全分享的 Prompt。</p>
+
+      <div class="decision">
+        <strong>核心定位</strong>
+        CodeIsCheap 是本地优先的 AI 请求检查器，不是通用抓包器，也不承诺恢复模型服务端的隐藏 Prompt。
+      </div>
+
+      <h2 id="value">核心价值</h2>
+      <div class="flow" aria-label="产品价值链">
+        <div class="flow-step">捕获 AI 请求</div><div class="flow-arrow">→</div>
+        <div class="flow-step">识别厂商协议</div><div class="flow-arrow">→</div>
+        <div class="flow-step">还原 Prompt 结构</div><div class="flow-arrow">→</div>
+        <div class="flow-step">比较与分析</div><div class="flow-arrow">→</div>
+        <div class="flow-step">脱敏导出</div>
+      </div>
+
+      <h2 id="decisions">关键结论</h2>
+      <ul>
+        <li>MVP 优先支持 OpenAI-compatible、Anthropic、Gemini、Ollama。</li>
+        <li>首发采集方式为本地 API Gateway 与显式 HTTP(S) 代理。</li>
+        <li>不同厂商统一转换为版本化 Prompt IR，同时保留原始证据路径。</li>
+        <li>鉴权头永不落盘；所有导出先脱敏、后确认。</li>
+        <li>桌面端采用 Tauri + React + Rust，TLS 捕获复用 mitmproxy sidecar。</li>
+      </ul>
+
+      <h2 id="docs">文档结构</h2>
+      <div class="page-links">
+        <a href="product.html"><strong>产品定义</strong><span>用户、范围、指标</span></a>
+        <a href="capture.html"><strong>采集与 Prompt IR</strong><span>采集模式、解析边界</span></a>
+        <a href="architecture.html"><strong>系统架构</strong><span>模块、技术选型</span></a>
+        <a href="security.html"><strong>安全与隐私</strong><span>凭据、CA、存储、导出</span></a>
+        <a href="experience.html"><strong>UI/UX</strong><span>工作台与关键流程</span></a>
+        <a href="delivery.html"><strong>MVP 交付</strong><span>范围、阶段、验收</span></a>
+      </div>
+
+      <h2 id="references">公开参考</h2>
+      <p class="references">
+        <a href="https://docs.mitmproxy.org/stable/concepts/modes/">mitmproxy</a> ·
+        <a href="https://langfuse.com/docs/observability/overview">Langfuse</a> ·
+        <a href="https://docs.helicone.ai/llms.txt">Helicone</a> ·
+        <a href="https://opentelemetry.io/docs/specs/semconv/gen-ai/">OpenTelemetry GenAI</a> ·
+        <a href="https://v2.tauri.app/start/">Tauri 2</a>
+      </p>
+      <footer class="doc-footer"><span>CodeIsCheap 产品设计</span><a href="product.html">下一篇：产品定义 →</a></footer>
+    </main>
+    <aside class="toc"><strong>本页</strong><a href="#value">核心价值</a><a href="#decisions">关键结论</a><a href="#docs">文档结构</a><a href="#references">公开参考</a></aside>
+  </div>
+</body>
+</html>

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>产品定义 · CodeIsCheap</title><link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+  <header class="site-header"><div class="header-inner"><a class="brand" href="index.html"><span class="brand-mark">C</span>CodeIsCheap</a><nav class="site-nav" aria-label="文档导航"><a href="index.html">总览</a><a href="product.html" aria-current="page">产品</a><a href="capture.html">采集</a><a href="architecture.html">架构</a><a href="security.html">安全</a><a href="experience.html">体验</a><a href="delivery.html">交付</a></nav></div></header>
+  <div class="page"><main>
+    <p class="eyebrow">01 · Product</p><h1>产品定义</h1>
+    <p class="lead">AI 输出由系统指令、历史消息、工具、文件、检索上下文和参数共同决定。CodeIsCheap 让这些客户端可观测内容变得透明。</p>
+
+    <h2 id="users">目标用户</h2>
+    <div class="table-wrap"><table><thead><tr><th>用户</th><th>核心任务</th><th>产品价值</th></tr></thead><tbody>
+      <tr><td>AI 应用开发者</td><td>定位上下文污染和版本差异</td><td>原始证据 + 结构化差异</td></tr>
+      <tr><td>Prompt / Agent 工程师</td><td>检查系统指令、工具和 token 分配</td><td>Prompt Anatomy + 预算分析</td></tr>
+      <tr><td>QA / 安全评审</td><td>检查敏感数据和越权工具</td><td>规则、脱敏和审计证据</td></tr>
+    </tbody></table></div>
+
+    <h2 id="scope">范围</h2>
+    <div class="two-column">
+      <section class="plain-panel"><h3>要做</h3><ul><li>捕获用户有权观察的 AI 请求。</li><li>统一展示 Prompt、工具、参数与响应。</li><li>搜索、比较、脱敏和导出。</li><li>明确标记观察、推断与未知。</li></ul></section>
+      <section class="plain-panel"><h3>不做</h3><ul><li>不恢复服务端隐藏 Prompt。</li><li>不绕过证书固定或企业策略。</li><li>不默认捕获全部 HTTPS 流量。</li><li>不未经同意上传 Prompt。</li></ul></section>
+    </div>
+
+    <h2 id="mvp">MVP 功能</h2>
+    <ol><li>Gateway 与显式代理捕获。</li><li>四类主流协议解析。</li><li>Anatomy、Raw、Timeline 三种请求视图。</li><li>两请求结构化比较。</li><li>本地搜索与脱敏导出。</li><li>证书、代理的可靠安装与恢复。</li></ol>
+
+    <h2 id="metrics">成功指标</h2>
+    <div class="table-wrap"><table><tbody>
+      <tr><th>首次成功捕获 P50</th><td>&lt; 3 分钟</td></tr>
+      <tr><th>已支持端点解析成功率</th><td>&gt; 95%</td></tr>
+      <tr><th>异常退出代理恢复率</th><td>100%</td></tr>
+      <tr><th>密钥落盘</th><td>零命中</td></tr>
+    </tbody></table></div>
+    <footer class="doc-footer"><a href="index.html">← 总览</a><a href="capture.html">下一篇：采集与 Prompt IR →</a></footer>
+  </main><aside class="toc"><strong>本页</strong><a href="#users">目标用户</a><a href="#scope">范围</a><a href="#mvp">MVP 功能</a><a href="#metrics">成功指标</a></aside></div>
+</body></html>
