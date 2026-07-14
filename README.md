@@ -19,7 +19,7 @@ Rust crate 位于 `crates/prompt-ir`，公开 JSON Schema 位于 `schemas/prompt
 
 捕获 sidecar 位于 `sidecars/mitmproxy`，跨进程契约位于 `crates/capture-ipc`，公开 CaptureEnvelope Schema 位于 `schemas/capture-envelope/v0.1.schema.json`。sidecar 的安装、测试与打包命令见 [`sidecars/mitmproxy/README.md`](./sidecars/mitmproxy/README.md)。
 
-系统代理事务与独立恢复 watchdog 位于 `crates/proxy-recovery`；Windows WinINet backend 已通过临时 CI runner 的真实强杀恢复实验，macOS backend 尚在开发。
+系统代理事务与独立恢复 watchdog 位于 `crates/proxy-recovery`；Windows WinINet 与 macOS networksetup backend 均已通过临时 CI runner 的真实强杀恢复实验。
 
 启动 Gateway Spike：
 
