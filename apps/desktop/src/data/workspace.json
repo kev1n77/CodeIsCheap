@@ -1,0 +1,224 @@
+{
+  "fixture": "synthetic",
+  "capture": {
+    "active": true,
+    "mode": "gateway",
+    "profile": "Local development",
+    "endpoint": "127.0.0.1:3210",
+    "storage": "Local only",
+    "requestCount": 6
+  },
+  "requests": [
+    {
+      "id": "req_anthropic_tools",
+      "time": "10:42:18",
+      "application": "VS Code",
+      "provider": "Anthropic",
+      "operation": "messages.create",
+      "model": "claude-sonnet",
+      "tokens": 14218,
+      "durationMs": 2384,
+      "status": "complete",
+      "hasTools": true,
+      "promptPreview": "Inspect the failing authentication flow and propose a minimal patch.",
+      "detail": {
+        "anatomy": [
+          {
+            "id": "instructions",
+            "title": "Instructions",
+            "tokenCount": 1240,
+            "count": 2,
+            "evidence": "observed",
+            "items": [
+              { "id": "inst_system", "label": "System", "role": "system", "content": "You are a coding assistant operating inside an existing repository.", "source": "/system/0" },
+              { "id": "inst_developer", "label": "Developer", "role": "developer", "content": "Preserve unrelated work and cite evidence for behavioral claims.", "source": "/system/1" }
+            ]
+          },
+          {
+            "id": "messages",
+            "title": "Messages",
+            "tokenCount": 8724,
+            "count": 3,
+            "evidence": "observed",
+            "items": [
+              { "id": "msg_user", "label": "User", "role": "user", "content": "Inspect the failing authentication flow and propose a minimal patch.", "source": "/messages/0/content" },
+              { "id": "msg_assistant", "label": "Assistant", "role": "assistant", "content": "I will inspect the route and its existing tests first.", "source": "/messages/1/content" },
+              { "id": "msg_tool", "label": "Tool result", "role": "tool", "content": "Synthetic repository search result: auth/session.ts and auth/session.test.ts", "source": "/messages/2/content" }
+            ]
+          },
+          {
+            "id": "tools",
+            "title": "Tools",
+            "tokenCount": 4102,
+            "count": 3,
+            "evidence": "observed",
+            "items": [
+              { "id": "tool_read", "label": "read_file", "content": "Read a UTF-8 text file from the active workspace.", "source": "/tools/0" },
+              { "id": "tool_search", "label": "search", "content": "Search repository text with a bounded result count.", "source": "/tools/1" },
+              { "id": "tool_patch", "label": "apply_patch", "content": "Apply a reviewable patch to workspace files.", "source": "/tools/2" }
+            ]
+          },
+          {
+            "id": "parameters",
+            "title": "Parameters",
+            "count": 4,
+            "evidence": "observed",
+            "items": [
+              { "id": "param_model", "label": "model", "content": "claude-sonnet", "source": "/model" },
+              { "id": "param_temp", "label": "temperature", "content": "0.2", "source": "/temperature" },
+              { "id": "param_max", "label": "max_tokens", "content": "8192", "source": "/max_tokens" },
+              { "id": "param_stream", "label": "stream", "content": "true", "source": "/stream" }
+            ]
+          }
+        ],
+        "timeline": [
+          { "id": "event_request", "offsetMs": 0, "kind": "request", "title": "Request observed", "detail": "POST /v1/messages" },
+          { "id": "event_headers", "offsetMs": 2, "kind": "security", "title": "Credentials removed", "detail": "Authorization and API key headers excluded before IPC" },
+          { "id": "event_first", "offsetMs": 418, "kind": "stream", "title": "First response event", "detail": "message_start" },
+          { "id": "event_tool", "offsetMs": 1304, "kind": "tool", "title": "Tool use emitted", "detail": "search" },
+          { "id": "event_done", "offsetMs": 2384, "kind": "complete", "title": "Stream complete", "detail": "stop_reason: end_turn" }
+        ],
+        "raw": {
+          "model": "claude-sonnet",
+          "stream": true,
+          "system": [
+            { "type": "text", "text": "You are a coding assistant operating inside an existing repository." }
+          ],
+          "messages": [
+            { "role": "user", "content": "Inspect the failing authentication flow and propose a minimal patch." }
+          ],
+          "tools": [
+            { "name": "read_file", "description": "Read a UTF-8 text file from the active workspace." },
+            { "name": "search", "description": "Search repository text with a bounded result count." }
+          ],
+          "metadata": { "fixture": "synthetic", "credentials_persisted": false }
+        }
+      }
+    },
+    {
+      "id": "req_openai_review",
+      "time": "10:41:52",
+      "application": "Chrome",
+      "provider": "OpenAI",
+      "operation": "responses.create",
+      "model": "gpt-codex",
+      "tokens": 812,
+      "durationMs": 742,
+      "status": "complete",
+      "hasTools": false,
+      "promptPreview": "Review this function for race conditions and missing cleanup.",
+      "detail": {
+        "anatomy": [
+          { "id": "instructions", "title": "Instructions", "tokenCount": 182, "count": 1, "evidence": "observed", "items": [{ "id": "inst", "label": "Developer", "role": "developer", "content": "Prioritize concrete correctness findings.", "source": "/instructions" }] },
+          { "id": "messages", "title": "Messages", "tokenCount": 604, "count": 1, "evidence": "observed", "items": [{ "id": "msg", "label": "User", "role": "user", "content": "Review this function for race conditions and missing cleanup.", "source": "/input/0/content/0/text" }] },
+          { "id": "tools", "title": "Tools", "tokenCount": 0, "count": 0, "evidence": "observed", "items": [] },
+          { "id": "parameters", "title": "Parameters", "count": 2, "evidence": "observed", "items": [{ "id": "model", "label": "model", "content": "gpt-codex", "source": "/model" }, { "id": "stream", "label": "stream", "content": "false", "source": "/stream" }] }
+        ],
+        "timeline": [
+          { "id": "request", "offsetMs": 0, "kind": "request", "title": "Request observed", "detail": "POST /v1/responses" },
+          { "id": "complete", "offsetMs": 742, "kind": "complete", "title": "Response complete", "detail": "200 OK" }
+        ],
+        "raw": { "model": "gpt-codex", "input": "Review this function for race conditions and missing cleanup.", "metadata": { "fixture": "synthetic" } }
+      }
+    },
+    {
+      "id": "req_openai_stream",
+      "time": "10:40:37",
+      "application": "Terminal",
+      "provider": "OpenAI",
+      "operation": "chat.completions",
+      "model": "gpt-4.1",
+      "tokens": 1842,
+      "durationMs": 1260,
+      "status": "streaming",
+      "hasTools": true,
+      "promptPreview": "Generate a migration plan for the event schema.",
+      "detail": {
+        "anatomy": [
+          { "id": "instructions", "title": "Instructions", "tokenCount": 314, "count": 1, "evidence": "observed", "items": [{ "id": "system", "label": "System", "role": "system", "content": "Return a staged migration with rollback points.", "source": "/messages/0/content" }] },
+          { "id": "messages", "title": "Messages", "tokenCount": 1120, "count": 1, "evidence": "observed", "items": [{ "id": "user", "label": "User", "role": "user", "content": "Generate a migration plan for the event schema.", "source": "/messages/1/content" }] },
+          { "id": "tools", "title": "Tools", "tokenCount": 338, "count": 1, "evidence": "observed", "items": [{ "id": "schema", "label": "read_schema", "content": "Read the current public schema revision.", "source": "/tools/0" }] },
+          { "id": "parameters", "title": "Parameters", "count": 2, "evidence": "observed", "items": [{ "id": "temp", "label": "temperature", "content": "0", "source": "/temperature" }, { "id": "stream", "label": "stream", "content": "true", "source": "/stream" }] }
+        ],
+        "timeline": [
+          { "id": "request", "offsetMs": 0, "kind": "request", "title": "Request observed", "detail": "POST /v1/chat/completions" },
+          { "id": "first", "offsetMs": 288, "kind": "stream", "title": "First token", "detail": "delta received" },
+          { "id": "active", "offsetMs": 1260, "kind": "stream", "title": "Still streaming", "detail": "response body remains open" }
+        ],
+        "raw": { "model": "gpt-4.1", "stream": true, "messages": [{ "role": "user", "content": "Generate a migration plan for the event schema." }] }
+      }
+    },
+    {
+      "id": "req_anthropic_small",
+      "time": "10:39:08",
+      "application": "Cursor",
+      "provider": "Anthropic",
+      "operation": "messages.create",
+      "model": "claude-haiku",
+      "tokens": 438,
+      "durationMs": 524,
+      "status": "complete",
+      "hasTools": false,
+      "promptPreview": "Summarize the selected changes in three bullets.",
+      "detail": {
+        "anatomy": [
+          { "id": "instructions", "title": "Instructions", "tokenCount": 64, "count": 1, "evidence": "observed", "items": [{ "id": "system", "label": "System", "role": "system", "content": "Be concise and factual.", "source": "/system" }] },
+          { "id": "messages", "title": "Messages", "tokenCount": 332, "count": 1, "evidence": "observed", "items": [{ "id": "user", "label": "User", "role": "user", "content": "Summarize the selected changes in three bullets.", "source": "/messages/0/content" }] },
+          { "id": "tools", "title": "Tools", "count": 0, "evidence": "observed", "items": [] },
+          { "id": "parameters", "title": "Parameters", "count": 1, "evidence": "observed", "items": [{ "id": "model", "label": "model", "content": "claude-haiku", "source": "/model" }] }
+        ],
+        "timeline": [{ "id": "complete", "offsetMs": 524, "kind": "complete", "title": "Response complete", "detail": "200 OK" }],
+        "raw": { "model": "claude-haiku", "messages": [{ "role": "user", "content": "Summarize the selected changes in three bullets." }] }
+      }
+    },
+    {
+      "id": "req_google_error",
+      "time": "10:36:44",
+      "application": "JetBrains",
+      "provider": "Google",
+      "operation": "generateContent",
+      "model": "gemini-pro",
+      "tokens": 2260,
+      "durationMs": 918,
+      "status": "error",
+      "hasTools": true,
+      "promptPreview": "Explain why this build step fails only on Windows.",
+      "detail": {
+        "anatomy": [
+          { "id": "instructions", "title": "Instructions", "tokenCount": 290, "count": 1, "evidence": "observed", "items": [{ "id": "system", "label": "System instruction", "role": "system", "content": "Use the supplied build log as observed evidence.", "source": "/systemInstruction/parts/0/text" }] },
+          { "id": "messages", "title": "Messages", "tokenCount": 1602, "count": 1, "evidence": "observed", "items": [{ "id": "user", "label": "User", "role": "user", "content": "Explain why this build step fails only on Windows.", "source": "/contents/0/parts/0/text" }] },
+          { "id": "tools", "title": "Tools", "tokenCount": 312, "count": 1, "evidence": "observed", "items": [{ "id": "search", "label": "search_docs", "content": "Search synthetic build documentation.", "source": "/tools/0" }] },
+          { "id": "parameters", "title": "Parameters", "count": 1, "evidence": "unknown", "items": [{ "id": "unknown", "label": "generationConfig", "content": "Not captured after upstream rejection", "source": "/generationConfig" }] }
+        ],
+        "timeline": [
+          { "id": "request", "offsetMs": 0, "kind": "request", "title": "Request observed", "detail": "POST generateContent" },
+          { "id": "error", "offsetMs": 918, "kind": "error", "title": "Upstream rejected request", "detail": "400 invalid argument" }
+        ],
+        "raw": { "model": "gemini-pro", "error": { "code": 400, "status": "INVALID_ARGUMENT" }, "metadata": { "fixture": "synthetic" } }
+      }
+    },
+    {
+      "id": "req_mistral",
+      "time": "10:34:11",
+      "application": "Terminal",
+      "provider": "Mistral",
+      "operation": "chat.complete",
+      "model": "codestral",
+      "tokens": 3284,
+      "durationMs": 1104,
+      "status": "complete",
+      "hasTools": false,
+      "promptPreview": "Refactor the parser without changing its public output.",
+      "detail": {
+        "anatomy": [
+          { "id": "instructions", "title": "Instructions", "tokenCount": 422, "count": 1, "evidence": "observed", "items": [{ "id": "system", "label": "System", "role": "system", "content": "Preserve public behavior and add focused tests.", "source": "/messages/0/content" }] },
+          { "id": "messages", "title": "Messages", "tokenCount": 2790, "count": 1, "evidence": "observed", "items": [{ "id": "user", "label": "User", "role": "user", "content": "Refactor the parser without changing its public output.", "source": "/messages/1/content" }] },
+          { "id": "tools", "title": "Tools", "count": 0, "evidence": "observed", "items": [] },
+          { "id": "parameters", "title": "Parameters", "count": 2, "evidence": "derived", "items": [{ "id": "safe", "label": "safe_prompt", "content": "false", "source": "/safe_prompt" }, { "id": "temp", "label": "temperature", "content": "0.1", "source": "/temperature" }] }
+        ],
+        "timeline": [{ "id": "complete", "offsetMs": 1104, "kind": "complete", "title": "Response complete", "detail": "200 OK" }],
+        "raw": { "model": "codestral", "messages": [{ "role": "user", "content": "Refactor the parser without changing its public output." }] }
+      }
+    }
+  ]
+}

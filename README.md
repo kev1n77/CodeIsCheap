@@ -8,7 +8,25 @@
 
 ## 当前实现
 
-当前 Rust workspace 包含版本化 Prompt IR 契约，以及可双向流式转发的本地 AI Gateway：
+当前实现包含版本化 Prompt IR 契约、可双向流式转发的本地 AI Gateway，以及 React + Tauri 桌面工作台。
+
+启动桌面工作台：
+
+```powershell
+npm ci
+npm run desktop:dev
+```
+
+校验前端与原生壳：
+
+```powershell
+npm run desktop:check
+npm run desktop:build
+cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
+cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
+```
+
+校验核心 Rust workspace：
 
 ```powershell
 cargo test --workspace
@@ -16,6 +34,8 @@ cargo clippy --workspace --all-targets -- -D warnings
 ```
 
 Rust crate 位于 `crates/prompt-ir`，公开 JSON Schema 位于 `schemas/prompt-ir/v0.1.schema.json`。
+
+桌面应用位于 `apps/desktop`。当前以无真实凭据的合成请求展示三栏工作台、筛选、Anatomy / Timeline / Raw 检查器、明暗主题和托盘生命周期；实时捕获与持久化将在后续接入。
 
 捕获 sidecar 位于 `sidecars/mitmproxy`，跨进程契约位于 `crates/capture-ipc`，公开 CaptureEnvelope Schema 位于 `schemas/capture-envelope/v0.1.schema.json`。sidecar 的安装、测试与打包命令见 [`sidecars/mitmproxy/README.md`](./sidecars/mitmproxy/README.md)。
 

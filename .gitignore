@@ -6,3 +6,8 @@ __pycache__/
 /.venv-sidecar/
 /sidecars/mitmproxy/build/
 /sidecars/mitmproxy/dist/
+node_modules/
+*.tsbuildinfo
+/apps/desktop/dist/
+/apps/desktop/src-tauri/gen/
+/apps/desktop/src-tauri/target/
