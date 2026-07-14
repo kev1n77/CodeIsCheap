@@ -151,6 +151,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeischeap-proxy-recovery"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "cpufeatures"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
