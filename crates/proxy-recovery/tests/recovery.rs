@@ -197,6 +197,7 @@ fn file_settings(backend: &FileProxyBackend) -> ProxySettings {
     match backend.snapshot().expect("state must read") {
         ProxySnapshot::File { settings } => settings,
         ProxySnapshot::Windows { .. } => panic!("file backend returned a Windows snapshot"),
+        ProxySnapshot::MacOs { .. } => panic!("file backend returned a macOS snapshot"),
     }
 }
 
