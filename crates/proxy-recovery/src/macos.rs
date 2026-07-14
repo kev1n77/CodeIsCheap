@@ -108,10 +108,13 @@ impl MacOsProxyBackend {
         service: &str,
         auto_config: &MacOsAutoConfig,
     ) -> Result<(), RecoveryError> {
-        self.run(
-            "-setautoproxyurl",
-            &[service, auto_config.url.as_deref().unwrap_or("")],
-        )?;
+        if let Some(url) = &auto_config.url {
+            self.run("-setautoproxyurl", &[service, url])?;
+        } else if auto_config.enabled {
+            return Err(RecoveryError::PlatformOutputInvalid(
+                "-setautoproxyurl".to_owned(),
+            ));
+        }
         self.set_state("-setautoproxystate", service, auto_config.enabled)
     }
 
