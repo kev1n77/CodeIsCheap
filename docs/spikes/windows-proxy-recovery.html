@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Windows Proxy Recovery Spike · CodeIsCheap</title>
+  <link rel="stylesheet" href="../assets/styles.css" />
+</head>
+<body>
+  <header class="site-header"><div class="header-inner"><a class="brand" href="../index.html"><span class="brand-mark">C</span>CodeIsCheap</a><nav class="site-nav" aria-label="文档导航"><a href="../architecture.html">架构</a><a href="../security.html">安全</a><a href="../development-plan.html">计划</a><a href="../progress.html">进度</a></nav></div></header>
+  <div class="page"><main>
+    <p class="eyebrow">Spike · SPIKE-003 / Windows</p>
+    <h1>Windows 系统代理恢复</h1>
+    <p class="lead">结论：WinINet backend 能保存原始注册表类型与字节；应用被强杀后，独立 watchdog 可恢复原设置并通知 WinINet 刷新。</p>
+
+    <h2>验证结果</h2>
+    <div class="table-wrap"><table><thead><tr><th>项目</th><th>结果</th></tr></thead><tbody>
+      <tr><td>原始快照</td><td>ProxyEnable、ProxyServer、ProxyOverride、AutoConfigURL、AutoDetect 与 Connections 原始值</td></tr>
+      <tr><td>隔离注册表测试</td><td>值存在性、注册表类型和原始 bytes 精确往返</td></tr>
+      <tr><td>真实系统实验</td><td>GitHub Windows 临时 runner 修改 HKCU Internet Settings 后强杀 owner</td></tr>
+      <tr><td>恢复结果</td><td>watchdog 自动恢复，journal 删除，测试 1 passed / 0 failed</td></tr>
+      <tr><td>通知</td><td>INTERNET_OPTION_SETTINGS_CHANGED + INTERNET_OPTION_REFRESH</td></tr>
+    </tbody></table></div>
+
+    <h2>剩余边界</h2>
+    <ul>
+      <li>macOS network service 快照与强杀恢复尚未验证，因此 SPIKE-003 仍为进行中。</li>
+      <li>生产 journal 必须位于当前用户私有目录，并在发布前纳入权限与篡改测试。</li>
+      <li>真实实验只在临时 CI runner 执行，不自动修改开发者机器的系统代理。</li>
+    </ul>
+    <footer class="doc-footer"><a href="../progress.html">← 返回开发进度</a><a href="../security.html">安全边界 →</a></footer>
+  </main></div>
+</body>
+</html>

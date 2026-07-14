@@ -10,4 +10,4 @@ This crate owns the transaction state machine used before CodeIsCheap changes sy
 6. On owner-process death, pipe EOF makes the watchdog restore its in-memory snapshot.
 7. On the next startup, an armed journal provides a second recovery path.
 
-The included file backend exists only for deterministic crash injection. Production Windows and macOS backends, private journal-directory permissions, and platform notifications are separate work; `SPIKE-003` remains in progress until those backends pass real setting/restore experiments.
+The included file backend exists only for deterministic crash injection. The Windows WinINet backend has passed a real force-kill recovery experiment on a temporary GitHub runner. The macOS backend and private production journal-directory permissions remain separate work; `SPIKE-003` stays in progress until macOS passes the same experiment.

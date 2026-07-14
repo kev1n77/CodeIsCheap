@@ -13,6 +13,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
+#[cfg(windows)]
+mod windows;
+
+#[cfg(windows)]
+pub use windows::WindowsProxyBackend;
+
 pub const RECOVERY_JOURNAL_VERSION: &str = "0.1";
 
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -36,12 +42,33 @@ pub enum ProxySettings {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum BackendDescriptor {
     File { state_path: PathBuf },
+    Windows { registry_path: String, notify: bool },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "platform", rename_all = "snake_case")]
+pub enum ProxySnapshot {
+    File {
+        settings: ProxySettings,
+    },
+    Windows {
+        main_values: Vec<WindowsRegistryValue>,
+        connection_values: Vec<WindowsRegistryValue>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WindowsRegistryValue {
+    pub name: String,
+    pub value_type: u32,
+    pub bytes: Vec<u8>,
 }
 
 pub trait ProxyBackend {
     fn descriptor(&self) -> BackendDescriptor;
-    fn read(&self) -> Result<ProxySettings, RecoveryError>;
+    fn snapshot(&self) -> Result<ProxySnapshot, RecoveryError>;
     fn apply(&self, settings: &ProxySettings) -> Result<(), RecoveryError>;
+    fn restore(&self, snapshot: &ProxySnapshot) -> Result<(), RecoveryError>;
 }
 
 #[derive(Debug, Clone)]
@@ -64,13 +91,21 @@ impl ProxyBackend for FileProxyBackend {
         }
     }
 
-    fn read(&self) -> Result<ProxySettings, RecoveryError> {
+    fn snapshot(&self) -> Result<ProxySnapshot, RecoveryError> {
         let bytes = fs::read(&self.state_path).map_err(RecoveryError::Io)?;
-        serde_json::from_slice(&bytes).map_err(RecoveryError::Json)
+        let settings = serde_json::from_slice(&bytes).map_err(RecoveryError::Json)?;
+        Ok(ProxySnapshot::File { settings })
     }
 
     fn apply(&self, settings: &ProxySettings) -> Result<(), RecoveryError> {
         write_json_atomic(&self.state_path, settings)
+    }
+
+    fn restore(&self, snapshot: &ProxySnapshot) -> Result<(), RecoveryError> {
+        let ProxySnapshot::File { settings } = snapshot else {
+            return Err(RecoveryError::SnapshotBackendMismatch);
+        };
+        self.apply(settings)
     }
 }
 
@@ -88,7 +123,7 @@ pub struct RecoveryJournal {
     pub owner_pid: u32,
     pub status: JournalStatus,
     pub backend: BackendDescriptor,
-    pub original: ProxySettings,
+    pub original: ProxySnapshot,
     pub desired: ProxySettings,
 }
 
@@ -100,6 +135,8 @@ pub enum RecoveryError {
     WatchdogDidNotBecomeReady,
     WatchdogExitedEarly,
     UnsupportedBackend,
+    SnapshotBackendMismatch,
+    InvalidProxyEndpoint(String),
 }
 
 impl fmt::Display for RecoveryError {
@@ -118,6 +155,12 @@ impl fmt::Display for RecoveryError {
             }
             Self::WatchdogExitedEarly => write!(formatter, "proxy watchdog exited before arming"),
             Self::UnsupportedBackend => write!(formatter, "proxy recovery backend is unsupported"),
+            Self::SnapshotBackendMismatch => {
+                write!(formatter, "proxy snapshot does not match its backend")
+            }
+            Self::InvalidProxyEndpoint(endpoint) => {
+                write!(formatter, "proxy endpoint {endpoint} is invalid")
+            }
         }
     }
 }
@@ -141,7 +184,7 @@ impl From<io::Error> for RecoveryError {
 pub struct ProxySession<B: ProxyBackend> {
     backend: B,
     journal_path: PathBuf,
-    original: ProxySettings,
+    original: ProxySnapshot,
     watchdog: Option<WatchdogHandle>,
     restored: bool,
 }
@@ -154,7 +197,7 @@ impl<B: ProxyBackend> ProxySession<B> {
         watchdog_executable: impl AsRef<Path>,
     ) -> Result<Self, RecoveryError> {
         let journal_path = journal_path.into();
-        let original = backend.read()?;
+        let original = backend.snapshot()?;
         let journal = RecoveryJournal {
             version: RECOVERY_JOURNAL_VERSION.to_owned(),
             transaction_id: transaction_id(),
@@ -175,7 +218,7 @@ impl<B: ProxyBackend> ProxySession<B> {
         };
 
         if let Err(error) = backend.apply(&desired) {
-            let _ = backend.apply(&original);
+            let _ = backend.restore(&original);
             let _ = mark_restored(&journal_path);
             let mut watchdog = watchdog;
             let _ = watchdog.disarm();
@@ -200,7 +243,7 @@ impl<B: ProxyBackend> ProxySession<B> {
         if self.restored {
             return Ok(());
         }
-        self.backend.apply(&self.original)?;
+        self.backend.restore(&self.original)?;
         mark_restored(&self.journal_path)?;
         if let Some(mut watchdog) = self.watchdog.take() {
             watchdog.disarm()?;
@@ -298,8 +341,7 @@ pub fn recover_from_journal(journal_path: &Path) -> Result<bool, RecoveryError> 
 }
 
 fn restore_snapshot(journal_path: &Path, journal: &RecoveryJournal) -> Result<(), RecoveryError> {
-    let backend = backend_from_descriptor(&journal.backend)?;
-    backend.apply(&journal.original)?;
+    restore_with_backend(&journal.backend, &journal.original)?;
     let mut restored = journal.clone();
     restored.status = JournalStatus::Restored;
     write_json_atomic(journal_path, &restored)?;
@@ -307,11 +349,23 @@ fn restore_snapshot(journal_path: &Path, journal: &RecoveryJournal) -> Result<()
     Ok(())
 }
 
-fn backend_from_descriptor(
+fn restore_with_backend(
     descriptor: &BackendDescriptor,
-) -> Result<FileProxyBackend, RecoveryError> {
+    snapshot: &ProxySnapshot,
+) -> Result<(), RecoveryError> {
     match descriptor {
-        BackendDescriptor::File { state_path } => Ok(FileProxyBackend::new(state_path)),
+        BackendDescriptor::File { state_path } => {
+            FileProxyBackend::new(state_path).restore(snapshot)
+        }
+        #[cfg(windows)]
+        BackendDescriptor::Windows {
+            registry_path,
+            notify,
+        } => {
+            WindowsProxyBackend::for_registry_path(registry_path.clone(), *notify).restore(snapshot)
+        }
+        #[cfg(not(windows))]
+        BackendDescriptor::Windows { .. } => Err(RecoveryError::UnsupportedBackend),
     }
 }
 
