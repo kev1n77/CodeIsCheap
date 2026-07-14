@@ -1,0 +1,32 @@
+{
+  "version": "0.1",
+  "capture_id": "flow_1",
+  "observed_at_unix_ms": 1721000000250,
+  "source": "mitmproxy",
+  "request": {
+    "method": "POST",
+    "scheme": "https",
+    "host": "api.openai.com",
+    "port": 443,
+    "path": "/v1/chat/completions",
+    "query": [{ "name": "stream", "value": "true" }],
+    "headers": [
+      { "name": "content-type", "value": "application/json" },
+      { "name": "x-request-id", "value": "request_1" }
+    ],
+    "body": {
+      "state": "json",
+      "content": {
+        "messages": [{ "role": "user", "content": "keep this prompt" }],
+        "metadata": { "trace": "keep" }
+      }
+    }
+  },
+  "redactions": [
+    { "location": "header", "name": "authorization" },
+    { "location": "header", "name": "x-api-key" },
+    { "location": "query", "name": "access_token" },
+    { "location": "body", "name": "api_key" },
+    { "location": "body", "name": "client_secret" }
+  ]
+}
