@@ -36,6 +36,8 @@
 
     <h2 id="rules">架构原则</h2>
     <ul><li>网络转发优先于记录；压力过高时降级记录，不阻塞用户请求。</li><li>sidecar 不访问数据库和工作区密钥。</li><li>新厂商适配器只产出 Prompt IR，不直接依赖 UI。</li><li>未知协议和解析失败都可降级 Raw。</li><li>系统代理由独立 watchdog 负责异常恢复。</li></ul>
+    <h2 id="decisions">决策记录</h2>
+    <p>技术选型的替代方案、风险和复审条件集中记录在 <a href="decisions.html">ADR-001~005</a>；数据存储 ADR 在跨平台 SQLCipher spike 通过前保持 Proposed。</p>
     <footer class="doc-footer"><a href="capture.html">← 采集与 Prompt IR</a><a href="security.html">下一篇：安全与隐私 →</a></footer>
-  </main><aside class="toc"><strong>本页</strong><a href="#overview">组件关系</a><a href="#stack">技术选型</a><a href="#rules">架构原则</a></aside></div>
+  </main><aside class="toc"><strong>本页</strong><a href="#overview">组件关系</a><a href="#stack">技术选型</a><a href="#rules">架构原则</a><a href="#decisions">决策记录</a></aside></div>
 </body></html>

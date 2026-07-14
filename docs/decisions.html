@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>架构决策记录 · CodeIsCheap</title><link rel="stylesheet" href="assets/styles.css" /></head>
+<body>
+  <header class="site-header"><div class="header-inner"><a class="brand" href="index.html"><span class="brand-mark">C</span>CodeIsCheap</a><nav class="site-nav" aria-label="文档导航"><a href="index.html">总览</a><a href="product.html">产品</a><a href="capture.html">采集</a><a href="architecture.html">架构</a><a href="security.html">安全</a><a href="experience.html">体验</a><a href="delivery.html">交付</a><a href="development-plan.html">计划</a><a href="progress.html">进度</a></nav></div></header>
+  <div class="page"><main>
+    <p class="eyebrow">Architecture Decisions</p><h1>关键 ADR</h1>
+    <p class="lead">记录已选方案、放弃方案、主要风险和复审条件。Accepted 表示当前实现基线，Proposed 表示进入实现前仍需验证。</p>
+
+    <div class="table-wrap"><table><thead><tr><th>ID</th><th>决策</th><th>状态</th></tr></thead><tbody>
+      <tr><td class="task-id"><a href="#adr-001">ADR-001</a></td><td>Tauri 2 + React + Rust 桌面壳</td><td><span class="status done">Accepted</span></td></tr>
+      <tr><td class="task-id"><a href="#adr-002">ADR-002</a></td><td>mitmproxy 作为隔离 sidecar</td><td><span class="status done">Accepted</span></td></tr>
+      <tr><td class="task-id"><a href="#adr-003">ADR-003</a></td><td>SQLCipher + OS 凭据库</td><td><span class="status active">Proposed</span></td></tr>
+      <tr><td class="task-id"><a href="#adr-004">ADR-004</a></td><td>版本化 Prompt IR 与证据定位</td><td><span class="status done">Accepted</span></td></tr>
+      <tr><td class="task-id"><a href="#adr-005">ADR-005</a></td><td>Gateway-first、显式代理、系统代理可选</td><td><span class="status done">Accepted</span></td></tr>
+    </tbody></table></div>
+
+    <h2 id="adr-001">ADR-001 · 桌面技术栈</h2>
+    <p><strong>决策：</strong>Tauri 2 承载窗口、托盘与系统能力；React + TypeScript 构建 UI；Rust 管理可信边界。WebView 仅获得显式 capability。</p>
+    <p><strong>替代：</strong>Electron 生态更成熟但运行时和攻击面更大；纯原生双端成本高；浏览器应用无法可靠管理本地代理和凭据库。</p>
+    <p><strong>风险：</strong>WebView 平台差异、Tauri API 变动、原生签名复杂。通过跨平台 CI、最小权限和 command schema 控制。</p>
+    <p class="note"><strong>复审：</strong>WebView 行为阻断核心检查器、Tauri 安全公告无法及时修复，或原生模块占比显著超过 UI 时。</p>
+
+    <h2 id="adr-002">ADR-002 · TLS 捕获 sidecar</h2>
+    <p><strong>决策：</strong>复用固定版本 mitmproxy/mitmdump；sidecar 不访问数据库，只向回环认证 IPC 发送已删除凭据的 envelope。</p>
+    <p><strong>替代：</strong>自研 Rust MITM 风险和协议成本过高；系统注入不可维护；仅 Gateway 无法覆盖支持显式代理的第三方应用。</p>
+    <p><strong>风险：</strong>Python 供应链、打包体积、进程崩溃与 CA 权限。通过有界队列、hash、签名、SBOM、watchdog 和最小环境变量控制。</p>
+    <p class="note"><strong>复审：</strong>mitmproxy 无法满足签名/体积目标、关键协议长期不支持，或维护成本超过受控原生实现。</p>
+
+    <h2 id="adr-003">ADR-003 · 加密本地存储</h2>
+    <p><strong>决策：</strong>使用 SQLCipher、WAL 和版本化迁移；随机数据库 key 由 OS 凭据库持有，DB 文件、备份和 key 不共址。</p>
+    <p><strong>替代：</strong>明文 SQLite + 字段加密易遗漏索引与临时页；RocksDB 缺少成熟关系查询与 FTS；整盘加密不覆盖文件复制场景。</p>
+    <p><strong>风险：</strong>SQLCipher 跨平台构建、WAL/备份泄露、凭据库不可用与 key 丢失。实现必须包含锁定状态、恢复说明和 canary 扫描。</p>
+    <p class="note"><strong>复审：</strong>完成 Windows/macOS 构建与迁移 spike 后转 Accepted；若 SQLCipher 发布或性能不可接受，评估页级加密替代。</p>
+
+    <h2 id="adr-004">ADR-004 · Prompt IR</h2>
+    <p><strong>决策：</strong>所有厂商适配器输出版本化 Prompt IR；每个 observed 节点保留原始 JSON 定位，derived/inferred 必须显式标记。</p>
+    <p><strong>替代：</strong>直接展示厂商 JSON 无法比较；单一通用 chat schema 会丢失工具、缓存和多模态语义；仅采用 OTLP 无法表达完整证据。</p>
+    <p><strong>风险：</strong>抽象泄漏与 schema 演进。通过 provider extensions、未知字段保留、fixture/golden 测试和版本迁移控制。</p>
+    <p class="note"><strong>复审：</strong>连续两个主流协议无法无损表达，或版本迁移导致证据定位不可保持时。</p>
+
+    <h2 id="adr-005">ADR-005 · 捕获与代理策略</h2>
+    <p><strong>决策：</strong>优先 Gateway；其次应用显式代理；系统代理必须由用户主动启用，并在修改前持久化快照、启动独立 watchdog。证书固定失败时停止 MITM，不提供绕过。</p>
+    <p><strong>替代：</strong>默认接管系统代理影响面过大；透明内核代理跨平台与权限成本高；浏览器扩展无法覆盖 CLI/IDE。</p>
+    <p><strong>风险：</strong>代理残留、认证代理无法精确恢复、HTTP/3 和独立证书库不可见。通过拒绝不安全状态、能力诊断和明确降级路径控制。</p>
+    <p class="note"><strong>复审：</strong>平台 API 变化破坏恢复保证、显式代理覆盖率不足，或浏览器/SDK 采集成为主要入口时。</p>
+
+    <footer class="doc-footer"><a href="architecture.html">← 系统架构</a><a href="progress.html">查看开发进度 →</a></footer>
+  </main><aside class="toc"><strong>本页</strong><a href="#adr-001">ADR-001 桌面</a><a href="#adr-002">ADR-002 sidecar</a><a href="#adr-003">ADR-003 数据库</a><a href="#adr-004">ADR-004 IR</a><a href="#adr-005">ADR-005 代理</a></aside></div>
+</body></html>
