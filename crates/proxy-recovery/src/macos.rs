@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use url::Url;
@@ -24,7 +24,7 @@ impl MacOsProxyBackend {
     }
 
     pub(crate) fn for_networksetup_path(path: PathBuf) -> Result<Self, RecoveryError> {
-        if path != PathBuf::from(NETWORKSETUP) {
+        if path != Path::new(NETWORKSETUP) {
             return Err(RecoveryError::UnsupportedBackend);
         }
         Ok(Self {
