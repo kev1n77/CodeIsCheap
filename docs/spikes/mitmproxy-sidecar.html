@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>mitmproxy Sidecar Spike · CodeIsCheap</title>
+  <link rel="stylesheet" href="../assets/styles.css" />
+</head>
+<body>
+  <header class="site-header"><div class="header-inner"><a class="brand" href="../index.html"><span class="brand-mark">C</span>CodeIsCheap</a><nav class="site-nav" aria-label="文档导航"><a href="../architecture.html">架构</a><a href="../security.html">安全</a><a href="../development-plan.html">计划</a><a href="../progress.html">进度</a></nav></div></header>
+  <div class="page"><main>
+    <p class="eyebrow">Spike · SPIKE-002</p>
+    <h1>mitmproxy Sidecar 验证</h1>
+    <p class="lead">结论：固定版本 sidecar 可以打包并真实转发请求；凭据在跨进程前删除，Prompt 与原始网络请求保持完整。</p>
+
+    <h2>验证结果</h2>
+    <div class="table-wrap"><table><thead><tr><th>项目</th><th>结果</th></tr></thead><tbody>
+      <tr><td>运行时</td><td>mitmproxy 12.2.3 / Python 3.12</td></tr>
+      <tr><td>Windows 单文件制品</td><td>29,510,084 bytes（约 28.1 MiB）</td></tr>
+      <tr><td>冷启动至监听</td><td>本机重复验证约 2.1–3.2 秒</td></tr>
+      <tr><td>转发正确性</td><td>header、query、body 原样到达本地 fake upstream</td></tr>
+      <tr><td>IPC 安全边界</td><td>5 类合成凭据 canary 零命中，Prompt 保留</td></tr>
+      <tr><td>制品状态</td><td>Spike 未签名；正式发布必须平台签名、固定 hash 并生成 SBOM</td></tr>
+    </tbody></table></div>
+
+    <h2>边界</h2>
+    <ul>
+      <li>IPC 只允许 loopback，并使用每次启动随机 token 的独立认证帧。</li>
+      <li>只捕获明确 allowlist 中的 AI host；未知正文类型默认不发送。</li>
+      <li>记录队列有界，IPC 故障只丢弃记录，不阻断目标网络。</li>
+      <li>证书生命周期、系统代理恢复和生产签名不属于本 Spike。</li>
+    </ul>
+    <footer class="doc-footer"><a href="../progress.html">← 返回开发进度</a><a href="../security.html">安全边界 →</a></footer>
+  </main></div>
+</body>
+</html>

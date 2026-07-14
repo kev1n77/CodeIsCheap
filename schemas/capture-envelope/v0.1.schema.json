@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CaptureEnvelope",
+  "type": "object",
+  "properties": {
+    "capture_id": {
+      "type": "string"
+    },
+    "observed_at_unix_ms": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "redactions": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/CaptureRedaction"
+      }
+    },
+    "request": {
+      "$ref": "#/$defs/CapturedRequest"
+    },
+    "source": {
+      "$ref": "#/$defs/CaptureSource"
+    },
+    "version": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "capture_id",
+    "observed_at_unix_ms",
+    "source",
+    "request"
+  ],
+  "$defs": {
+    "CaptureRedaction": {
+      "type": "object",
+      "properties": {
+        "location": {
+          "$ref": "#/$defs/RedactionLocation"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "location",
+        "name"
+      ]
+    },
+    "CaptureSource": {
+      "type": "string",
+      "enum": [
+        "mitmproxy"
+      ]
+    },
+    "CapturedBody": {
+      "type": "object",
+      "properties": {
+        "content": true,
+        "state": {
+          "$ref": "#/$defs/CapturedBodyState"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "state"
+      ]
+    },
+    "CapturedBodyState": {
+      "type": "string",
+      "enum": [
+        "empty",
+        "json",
+        "invalid_json",
+        "invalid_utf8",
+        "omitted_unsupported_content_type"
+      ]
+    },
+    "CapturedField": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "value"
+      ]
+    },
+    "CapturedRequest": {
+      "type": "object",
+      "properties": {
+        "body": {
+          "$ref": "#/$defs/CapturedBody"
+        },
+        "headers": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/CapturedField"
+          }
+        },
+        "host": {
+          "type": "string"
+        },
+        "method": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "port": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "query": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/CapturedField"
+          }
+        },
+        "scheme": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "method",
+        "scheme",
+        "host",
+        "port",
+        "path",
+        "body"
+      ]
+    },
+    "RedactionLocation": {
+      "type": "string",
+      "enum": [
+        "header",
+        "query",
+        "body"
+      ]
+    }
+  }
+}
