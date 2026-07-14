@@ -36,6 +36,10 @@ jobs:
       - name: Run tests
         run: cargo test --workspace --all-targets
 
+      - name: Run real WinINet recovery experiment
+        if: runner.os == 'Windows'
+        run: cargo test -p codeischeap-proxy-recovery --test windows_registry real_windows_proxy_is_restored_after_force_kill -- --ignored --exact --nocapture --test-threads=1
+
       - name: Run Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 

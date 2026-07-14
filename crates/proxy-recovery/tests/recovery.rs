@@ -6,7 +6,7 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use codeischeap_proxy_recovery::{
-    FileProxyBackend, JournalStatus, ProxyBackend, ProxySession, ProxySettings,
+    FileProxyBackend, JournalStatus, ProxyBackend, ProxySession, ProxySettings, ProxySnapshot,
     RECOVERY_JOURNAL_VERSION, RecoveryJournal, recover_from_journal,
 };
 
@@ -41,14 +41,11 @@ fn normal_restore_returns_to_the_exact_snapshot() {
         env!("CARGO_BIN_EXE_proxy-watchdog"),
     )
     .expect("session must begin");
-    assert_eq!(backend.read().expect("state must read"), desired_settings());
+    assert_eq!(file_settings(&backend), desired_settings());
 
     session.restore().expect("session must restore");
 
-    assert_eq!(
-        backend.read().expect("state must read"),
-        original_settings()
-    );
+    assert_eq!(file_settings(&backend), original_settings());
     assert!(!journal.exists());
     fs::remove_dir_all(root).expect("test directory must clean up");
 }
@@ -77,13 +74,13 @@ fn watchdog_restores_after_the_owner_is_force_killed() {
             .expect("owner process must start"),
     );
     wait_until(Duration::from_secs(5), || ready.exists());
-    assert_eq!(backend.read().expect("state must read"), desired_settings());
+    assert_eq!(file_settings(&backend), desired_settings());
 
     owner.0.kill().expect("owner process must be force killed");
     owner.0.wait().expect("owner process must exit");
 
     wait_until(Duration::from_secs(5), || {
-        backend.read().ok() == Some(original_settings()) && !journal.exists()
+        file_settings(&backend) == original_settings() && !journal.exists()
     });
     fs::remove_dir_all(root).expect("test directory must clean up");
 }
@@ -122,7 +119,9 @@ fn watchdog_uses_the_snapshot_loaded_before_ready() {
         serde_json::from_slice(&fs::read(&journal).expect("journal must read"))
             .expect("journal must deserialize");
     tampered.backend = unrelated_backend.descriptor();
-    tampered.original = desired_settings();
+    tampered.original = ProxySnapshot::File {
+        settings: desired_settings(),
+    };
     fs::write(
         &journal,
         serde_json::to_vec_pretty(&tampered).expect("tampered journal must serialize"),
@@ -133,12 +132,9 @@ fn watchdog_uses_the_snapshot_loaded_before_ready() {
     owner.0.wait().expect("owner process must exit");
 
     wait_until(Duration::from_secs(5), || {
-        backend.read().ok() == Some(original_settings()) && !journal.exists()
+        file_settings(&backend) == original_settings() && !journal.exists()
     });
-    assert_eq!(
-        unrelated_backend.read().expect("unrelated state must read"),
-        ProxySettings::Disabled
-    );
+    assert_eq!(file_settings(&unrelated_backend), ProxySettings::Disabled);
     fs::remove_dir_all(root).expect("test directory must clean up");
 }
 
@@ -169,7 +165,9 @@ fn startup_recovery_repairs_an_armed_journal() {
         owner_pid: u32::MAX,
         status: JournalStatus::Armed,
         backend: backend.descriptor(),
-        original: original_settings(),
+        original: ProxySnapshot::File {
+            settings: original_settings(),
+        },
         desired: desired_settings(),
     };
     fs::write(
@@ -179,10 +177,7 @@ fn startup_recovery_repairs_an_armed_journal() {
     .expect("journal must write");
 
     assert!(recover_from_journal(&journal).expect("startup recovery must succeed"));
-    assert_eq!(
-        backend.read().expect("state must read"),
-        original_settings()
-    );
+    assert_eq!(file_settings(&backend), original_settings());
     assert!(!journal.exists());
     fs::remove_dir_all(root).expect("test directory must clean up");
 }
@@ -196,6 +191,13 @@ fn wait_until(timeout: Duration, condition: impl Fn() -> bool) {
         thread::sleep(Duration::from_millis(25));
     }
     panic!("condition was not met within {timeout:?}");
+}
+
+fn file_settings(backend: &FileProxyBackend) -> ProxySettings {
+    match backend.snapshot().expect("state must read") {
+        ProxySnapshot::File { settings } => settings,
+        ProxySnapshot::Windows { .. } => panic!("file backend returned a Windows snapshot"),
+    }
 }
 
 fn test_directory(label: &str) -> PathBuf {

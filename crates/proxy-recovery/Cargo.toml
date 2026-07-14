@@ -8,6 +8,8 @@ description = "Transactional system proxy recovery core for CodeIsCheap"
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
+url.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true
+winreg.workspace = true
