@@ -8,6 +8,7 @@
     <p class="lead">Prompt 可能包含 API 密钥、私有代码、文件和个人信息。安全策略必须在数据进入日志和数据库之前生效。</p>
 
     <div class="decision"><strong>默认承诺</strong>只捕获目标 AI 端点；不持久化鉴权凭据；不上传 Prompt；不提供证书固定绕过。</div>
+    <p class="note">完整资产、信任边界、威胁台账与发布阻断项见 <a href="threat-model.html">Threat Model v1</a>。当前版本仍待独立 Security Reviewer 评审。</p>
 
     <h2 id="lifecycle">数据生命周期</h2>
     <div class="flow" aria-label="安全数据生命周期">

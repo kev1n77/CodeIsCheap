@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>Threat Model v1 · CodeIsCheap</title><link rel="stylesheet" href="assets/styles.css" /></head>
+<body>
+  <header class="site-header"><div class="header-inner"><a class="brand" href="index.html"><span class="brand-mark">C</span>CodeIsCheap</a><nav class="site-nav" aria-label="文档导航"><a href="index.html">总览</a><a href="product.html">产品</a><a href="capture.html">采集</a><a href="architecture.html">架构</a><a href="security.html">安全</a><a href="experience.html">体验</a><a href="delivery.html">交付</a><a href="development-plan.html">计划</a><a href="progress.html">进度</a></nav></div></header>
+  <div class="page"><main>
+    <p class="eyebrow">Security · TM-001</p><h1>Threat Model v1</h1>
+    <p class="lead">覆盖本地 Gateway、显式代理、sidecar、Rust Core、桌面 UI 与本地存储。当前为待独立评审版本，不代表发布批准。</p>
+
+    <div class="meta-grid">
+      <div class="meta-item"><span>版本</span><strong>0.1</strong></div><div class="meta-item"><span>状态</span><strong>Review required</strong></div><div class="meta-item"><span>范围</span><strong>Desktop MVP</strong></div><div class="meta-item"><span>更新</span><strong>2026-07-14</strong></div>
+    </div>
+    <div class="decision"><strong>安全边界</strong>网络请求只有在范围判断和凭据删除后才可跨入 Core；真实请求只有在 SEC-001 与 DAT-001 验收后才可持久化。</div>
+
+    <h2 id="boundaries">信任边界</h2>
+    <figure class="diagram">
+      <svg viewBox="0 0 800 330" role="img" aria-labelledby="tm-title tm-desc">
+        <title id="tm-title">CodeIsCheap 信任边界</title><desc id="tm-desc">不可信 AI 应用和网络流量经过 Gateway 或 sidecar；凭据删除后通过认证 IPC 进入 Core，再写入加密数据库并由桌面 UI 展示。</desc>
+        <defs><marker id="tm-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--muted)" /></marker></defs>
+        <rect class="box" x="18" y="115" width="122" height="70" rx="5" /><text x="79" y="145" text-anchor="middle">AI 应用</text><text class="small" x="79" y="166" text-anchor="middle">不可信输入</text>
+        <rect class="box-accent" x="185" y="35" width="145" height="70" rx="5" /><text x="257" y="65" text-anchor="middle">Local Gateway</text><text class="small" x="257" y="86" text-anchor="middle">转发优先</text>
+        <rect class="box-accent" x="185" y="215" width="145" height="70" rx="5" /><text x="257" y="245" text-anchor="middle">mitmproxy</text><text class="small" x="257" y="266" text-anchor="middle">范围 + 凭据删除</text>
+        <rect class="box-main" x="390" y="105" width="150" height="90" rx="5" /><text x="465" y="137" text-anchor="middle">Rust Core</text><text class="small" x="465" y="159" text-anchor="middle">策略 · 解析 · 生命周期</text><text class="small" x="465" y="178" text-anchor="middle">认证 IPC 终点</text>
+        <rect class="box" x="615" y="28" width="150" height="68" rx="5" /><text x="690" y="57" text-anchor="middle">Desktop UI</text><text class="small" x="690" y="78" text-anchor="middle">转义显示 + CSP</text>
+        <rect class="box" x="615" y="131" width="150" height="68" rx="5" /><text x="690" y="160" text-anchor="middle">SQLCipher</text><text class="small" x="690" y="181" text-anchor="middle">OS 凭据库持钥</text>
+        <rect class="box" x="615" y="234" width="150" height="68" rx="5" /><text x="690" y="263" text-anchor="middle">OS / Watchdog</text><text class="small" x="690" y="284" text-anchor="middle">代理与密钥服务</text>
+        <path class="line" d="M140 135 C165 110 160 72 185 70" marker-end="url(#tm-arrow)"/><path class="line" d="M140 168 C165 190 160 248 185 250" marker-end="url(#tm-arrow)"/>
+        <path class="line" d="M330 70 C370 75 355 130 390 140" marker-end="url(#tm-arrow)"/><path class="line" d="M330 250 C370 240 355 175 390 165" marker-end="url(#tm-arrow)"/>
+        <path class="line" d="M540 130 C575 105 580 68 615 63" marker-end="url(#tm-arrow)"/><path class="line" d="M540 154 L615 164" marker-end="url(#tm-arrow)"/><path class="line" d="M540 178 C575 200 580 260 615 267" marker-end="url(#tm-arrow)"/>
+      </svg>
+    </figure>
+    <p class="note">边界内不等于可信：捕获内容仍视为恶意输入，禁止作为 HTML、命令、文件路径或 SQL 直接执行。</p>
+
+    <h2 id="assets">关键资产</h2>
+    <div class="table-wrap"><table><thead><tr><th>资产</th><th>保护目标</th><th>允许位置</th></tr></thead><tbody>
+      <tr><td>Prompt、代码与附件</td><td>机密性、完整性、可删除</td><td>内存；启用后进入加密 DB</td></tr>
+      <tr><td>API key、Cookie、认证 query/body</td><td>永不持久化、永不记录</td><td>转发路径瞬时内存</td></tr>
+      <tr><td>数据库 key</td><td>不可与 DB 同目录保存</td><td>OS 凭据库</td></tr>
+      <tr><td>本地 CA 私钥</td><td>每设备唯一、最小权限、可撤销</td><td>OS 受保护存储</td></tr>
+      <tr><td>IPC token</td><td>每次启动随机、短生命周期</td><td>父进程与 sidecar 内存</td></tr>
+      <tr><td>代理恢复快照</td><td>精确、原子、仅当前用户可读</td><td>受限 journal 目录</td></tr>
+    </tbody></table></div>
+
+    <h2 id="threats">威胁台账</h2>
+    <div class="table-wrap"><table><thead><tr><th>ID</th><th>威胁</th><th>现有证据</th><th>剩余控制 / 门槛</th></tr></thead><tbody>
+      <tr><td class="task-id">TM-01</td><td>鉴权凭据进入 IPC、日志或 DB</td><td>sidecar header/query/JSON scrubber 与 canary 测试</td><td>SEC-001 统一策略；DB、日志、临时文件零命中</td></tr>
+      <tr><td class="task-id">TM-02</td><td>捕获非目标应用或端点</td><td>sidecar 精确 host allowlist</td><td>增加 path/profile 范围；非目标只 tunnel</td></tr>
+      <tr><td class="task-id">TM-03</td><td>本机其他进程伪造或读取 IPC</td><td>loopback 限制、首帧随机 token、4 MiB 帧上限</td><td>用户级 socket ACL、token 轮换、失败限速</td></tr>
+      <tr><td class="task-id">TM-04</td><td>数据库文件被离线读取</td><td>尚未实现持久化</td><td>SQLCipher、OS 凭据库、迁移与备份测试；持久化硬门槛</td></tr>
+      <tr><td class="task-id">TM-05</td><td>本地 CA 私钥泄露或残留信任</td><td>生产 CA 生命周期尚未实现</td><td>每设备生成、受限权限、指纹 UI、一键卸载；代理 Beta 硬门槛</td></tr>
+      <tr><td class="task-id">TM-06</td><td>崩溃后系统代理残留</td><td>Windows/macOS 强杀恢复实验通过</td><td>journal 私有目录与 macOS 特权 helper</td></tr>
+      <tr><td class="task-id">TM-07</td><td>sidecar 或更新包被替换</td><td>打包 manifest 含 SHA-256</td><td>签名、SBOM、启动前 hash 校验；发布硬门槛</td></tr>
+      <tr><td class="task-id">TM-08</td><td>复制或导出泄露秘密</td><td>功能尚未实现</td><td>稳定占位符、秘密扫描、预览确认、策略版本</td></tr>
+      <tr><td class="task-id">TM-09</td><td>恶意 Prompt 触发 UI 注入</td><td>React 默认转义、Tauri CSP</td><td>Raw 仅纯文本、URL 不自动执行、XSS fixture</td></tr>
+      <tr><td class="task-id">TM-10</td><td>超大/高速流量耗尽内存或磁盘</td><td>IPC 帧上限、sidecar 有界队列</td><td>记录降级、配额、磁盘压力与丢弃事件</td></tr>
+      <tr><td class="task-id">TM-11</td><td>将推断内容误标为已观察 Prompt</td><td>Prompt IR evidence 类型</td><td>UI 强制显示 observed / inferred / unknown</td></tr>
+      <tr><td class="task-id">TM-12</td><td>诊断、崩溃报告或遥测外泄</td><td>当前无产品遥测</td><td>日志禁止 payload；遥测显式选择且先脱敏</td></tr>
+    </tbody></table></div>
+
+    <h2 id="blockers">发布阻断项</h2>
+    <ul class="checklist">
+      <li class="checked">凭据在 sidecar 跨进程前删除，并有 canary 测试</li>
+      <li class="checked">代理设置具备正常、强杀和启动恢复路径</li>
+      <li>SEC-001 对 DB、日志、临时文件执行端到端 canary 验收</li>
+      <li>DAT-001 完成 SQLCipher 与 OS 凭据库密钥管理</li>
+      <li>HTTPS 代理完成 CA 生命周期、权限和卸载验证</li>
+      <li>sidecar 与更新包完成签名、hash 和 SBOM 校验</li>
+      <li>安全 reviewer 关闭所有 Critical / High 未缓解项</li>
+    </ul>
+
+    <h2 id="review">评审记录</h2>
+    <div class="table-wrap"><table><thead><tr><th>日期</th><th>角色</th><th>结论</th><th>待办</th></tr></thead><tbody><tr><td>2026-07-14</td><td>Codex / 实现审计</td><td>v0.1 ready for review</td><td>指定独立 Security Reviewer；验证 SEC-001、DAT-001 与 CA 生命周期</td></tr></tbody></table></div>
+    <footer class="doc-footer"><a href="security.html">← 安全与隐私</a><a href="decisions.html">下一篇：架构决策 →</a></footer>
+  </main><aside class="toc"><strong>本页</strong><a href="#boundaries">信任边界</a><a href="#assets">关键资产</a><a href="#threats">威胁台账</a><a href="#blockers">发布阻断项</a><a href="#review">评审记录</a></aside></div>
+</body></html>
