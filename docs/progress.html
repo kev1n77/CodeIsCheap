@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>开发进度跟踪 · CodeIsCheap</title>
+  <link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+  <header class="site-header"><div class="header-inner"><a class="brand" href="index.html"><span class="brand-mark">C</span>CodeIsCheap</a><nav class="site-nav" aria-label="文档导航"><a href="index.html">总览</a><a href="product.html">产品</a><a href="capture.html">采集</a><a href="architecture.html">架构</a><a href="security.html">安全</a><a href="experience.html">体验</a><a href="delivery.html">交付</a><a href="development-plan.html">计划</a><a href="progress.html" aria-current="page">进度</a></nav></div></header>
+
+  <div class="page">
+    <main>
+      <p class="eyebrow">08 · Progress Tracker</p>
+      <h1>开发进度跟踪</h1>
+      <p class="lead">本页是项目状态的单一入口。开发计划定义“应该做什么”，本页只记录“当前做到哪里、是否健康、下一步是什么”。</p>
+
+      <div class="meta-grid">
+        <div class="meta-item"><span>工程进度</span><strong>0%</strong></div>
+        <div class="meta-item"><span>当前阶段</span><strong>Planning</strong></div>
+        <div class="meta-item"><span>当前迭代</span><strong>S0 · 未开始</strong></div>
+        <div class="meta-item"><span>最后更新</span><strong>2026-07-14</strong></div>
+      </div>
+
+      <div class="decision"><strong>当前结论</strong>产品与技术设计基线已完成；工程任务尚未启动。下一步是确认团队、目标日期和 S0 owner，然后开始技术 Spike。</div>
+
+      <h2 id="usage">1. 更新规则</h2>
+      <ol>
+        <li>任务状态只使用：<span class="status">Not started</span> <span class="status active">In progress</span> <span class="status blocked">Blocked</span> <span class="status done">Done</span> <span class="status">Deferred</span>。</li>
+        <li>每个任务必须有 owner、目标日期、完成百分比和一句话备注。</li>
+        <li>百分比按可验收产物计算，不按已投入时间估算。</li>
+        <li>出现阻塞当天登记；解除后保留原因与处理结果。</li>
+        <li>每周更新一次里程碑、风险、质量指标与总体判断。</li>
+      </ol>
+      <p class="note">维护方式：直接编辑本 HTML 中对应表格。任务定义和完成标准以 <a href="development-plan.html">开发计划</a> 为准，避免在两个页面重复修改范围。</p>
+
+      <h2 id="health">2. 项目健康度</h2>
+      <div class="table-wrap"><table><thead><tr><th>维度</th><th>状态</th><th>判断</th><th>行动</th></tr></thead><tbody>
+        <tr><td>范围</td><td><span class="status done">Green</span></td><td>MVP 边界与非目标明确</td><td>变更必须进入范围评审</td></tr>
+        <tr><td>进度</td><td><span class="status">Not rated</span></td><td>尚未开始工程执行</td><td>确定启动日后建立计划基线</td></tr>
+        <tr><td>质量</td><td><span class="status">Not rated</span></td><td>尚无工程制品</td><td>S0 建立 CI 与质量门槛</td></tr>
+        <tr><td>安全</td><td><span class="status active">Amber</span></td><td>威胁模型已有方向，尚未独立评审</td><td>S0 完成 threat model v1</td></tr>
+        <tr><td>资源</td><td><span class="status active">Amber</span></td><td>角色建议明确，实际 owner 未确认</td><td>启动前完成角色分配</td></tr>
+      </tbody></table></div>
+
+      <h2 id="milestones">3. 里程碑</h2>
+      <div class="table-wrap"><table><thead><tr><th>ID</th><th>里程碑</th><th>权重</th><th>进度</th><th>状态</th><th>目标</th><th>Owner</th></tr></thead><tbody>
+        <tr><td class="task-id">M0</td><td>Discovery 与技术验证</td><td>5%</td><td><div class="progress-track"><div class="progress-value" style="width:0%"></div></div> 0%</td><td><span class="status">Not started</span></td><td>W2</td><td>TBD</td></tr>
+        <tr><td class="task-id">M1</td><td>基础设施与加密数据链路</td><td>15%</td><td><div class="progress-track"><div class="progress-value" style="width:0%"></div></div> 0%</td><td><span class="status">Not started</span></td><td>W4</td><td>TBD</td></tr>
+        <tr><td class="task-id">M2</td><td>Gateway 与双厂商闭环</td><td>20%</td><td><div class="progress-track"><div class="progress-value" style="width:0%"></div></div> 0%</td><td><span class="status">Not started</span></td><td>W8</td><td>TBD</td></tr>
+        <tr><td class="task-id">M3</td><td>显式代理、安全与恢复</td><td>20%</td><td><div class="progress-track"><div class="progress-value" style="width:0%"></div></div> 0%</td><td><span class="status">Not started</span></td><td>W12</td><td>TBD</td></tr>
+        <tr><td class="task-id">M4</td><td>四厂商、Compare 与搜索</td><td>15%</td><td><div class="progress-track"><div class="progress-value" style="width:0%"></div></div> 0%</td><td><span class="status">Not started</span></td><td>W14</td><td>TBD</td></tr>
+        <tr><td class="task-id">M5</td><td>Public Beta 稳定性</td><td>15%</td><td><div class="progress-track"><div class="progress-value" style="width:0%"></div></div> 0%</td><td><span class="status">Not started</span></td><td>W18</td><td>TBD</td></tr>
+        <tr><td class="task-id">M6</td><td>GA 发布</td><td>10%</td><td><div class="progress-track"><div class="progress-value" style="width:0%"></div></div> 0%</td><td><span class="status">Not started</span></td><td>W20</td><td>TBD</td></tr>
+      </tbody></table></div>
+      <p class="note">总体进度 = Σ（里程碑权重 × 里程碑完成度）。设计文档不计入工程完成度。</p>
+
+      <h2 id="streams">4. 工作流进度</h2>
+      <div class="table-wrap"><table><thead><tr><th>工作流</th><th>任务范围</th><th>进度</th><th>状态</th><th>Owner</th><th>本周重点</th></tr></thead><tbody>
+        <tr><td>架构与工程基础</td><td>ARC-001~004</td><td>0%</td><td><span class="status">Not started</span></td><td>TBD</td><td>确认 repo 与 CI 方案</td></tr>
+        <tr><td>Desktop / Frontend</td><td>APP-001~006</td><td>0%</td><td><span class="status">Not started</span></td><td>TBD</td><td>确定应用壳与设计 tokens</td></tr>
+        <tr><td>Capture / Network</td><td>CAP-001~007</td><td>0%</td><td><span class="status">Not started</span></td><td>TBD</td><td>Gateway 与代理恢复 Spike</td></tr>
+        <tr><td>Prompt / Adapters</td><td>PAR-001~007</td><td>0%</td><td><span class="status">Not started</span></td><td>TBD</td><td>冻结 IR v0.1 和 fixtures</td></tr>
+        <tr><td>Data / Security</td><td>DAT-001~002、SEC-001~004</td><td>0%</td><td><span class="status">Not started</span></td><td>TBD</td><td>威胁模型与 secret 边界</td></tr>
+        <tr><td>Test / Release</td><td>TST-001~004、REL-001~003</td><td>0%</td><td><span class="status">Not started</span></td><td>TBD</td><td>建立测试矩阵与发布门槛</td></tr>
+      </tbody></table></div>
+
+      <h2 id="current-sprint">5. 当前迭代：S0</h2>
+      <p><strong>目标：</strong>证明关键技术路径可行，并冻结第一版工程契约。开始日期与 owner 尚待确认。</p>
+      <div class="table-wrap"><table><thead><tr><th>ID</th><th>任务</th><th>状态</th><th>进度</th><th>Owner</th><th>目标日期</th><th>备注</th></tr></thead><tbody>
+        <tr><td class="task-id">ARC-001</td><td>建立仓库与模块边界</td><td><span class="status">Not started</span></td><td>0%</td><td>TBD</td><td>TBD</td><td>启动前确认</td></tr>
+        <tr><td class="task-id">ARC-002</td><td>建立 Windows/macOS CI</td><td><span class="status">Not started</span></td><td>0%</td><td>TBD</td><td>TBD</td><td>依赖仓库结构</td></tr>
+        <tr><td class="task-id">ARC-003</td><td>CaptureEnvelope 与 IPC 草案</td><td><span class="status">Not started</span></td><td>0%</td><td>TBD</td><td>TBD</td><td>与 PAR-001 联合评审</td></tr>
+        <tr><td class="task-id">ARC-004</td><td>完成关键 ADR</td><td><span class="status">Not started</span></td><td>0%</td><td>TBD</td><td>TBD</td><td>Tauri、sidecar、DB</td></tr>
+        <tr><td class="task-id">PAR-001</td><td>Prompt IR v0.1 与首批 fixtures</td><td><span class="status">Not started</span></td><td>0%</td><td>TBD</td><td>TBD</td><td>OpenAI + Anthropic</td></tr>
+        <tr><td class="task-id">SPIKE-001</td><td>Gateway 流式透明转发验证</td><td><span class="status">Not started</span></td><td>0%</td><td>TBD</td><td>TBD</td><td>验证取消和背压</td></tr>
+        <tr><td class="task-id">SPIKE-002</td><td>mitmproxy sidecar IPC/打包验证</td><td><span class="status">Not started</span></td><td>0%</td><td>TBD</td><td>TBD</td><td>记录体积与签名风险</td></tr>
+        <tr><td class="task-id">SPIKE-003</td><td>Windows/macOS 代理恢复验证</td><td><span class="status">Not started</span></td><td>0%</td><td>TBD</td><td>TBD</td><td>包含强杀和重启</td></tr>
+        <tr><td class="task-id">SPIKE-004</td><td>Threat model v1</td><td><span class="status">Not started</span></td><td>0%</td><td>TBD</td><td>TBD</td><td>确定凭据删除边界</td></tr>
+      </tbody></table></div>
+
+      <h3>S0 验收清单</h3>
+      <ul class="checklist">
+        <li>Windows 与 macOS 均能运行最小桌面壳</li>
+        <li>Gateway 可透明转发一条流式请求</li>
+        <li>sidecar 可将已剥离凭据的 envelope 发送给 Core</li>
+        <li>强杀测试后系统代理恢复</li>
+        <li>Prompt IR 可表达 OpenAI 与 Anthropic 基础请求</li>
+        <li>关键 ADR 与威胁模型完成评审</li>
+      </ul>
+
+      <h2 id="backlog">6. 后续迭代承诺</h2>
+      <div class="table-wrap"><table><thead><tr><th>迭代</th><th>计划任务</th><th>状态</th><th>进入条件</th></tr></thead><tbody>
+        <tr><td>S1</td><td>APP-001/002、DAT-001、SEC-001、Core 事件骨架</td><td><span class="status">Not started</span></td><td>S0 契约与 ADR 通过</td></tr>
+        <tr><td>S2</td><td>CAP-001/002、PAR-002/003、APP-003</td><td><span class="status">Not started</span></td><td>加密数据链路可用</td></tr>
+        <tr><td>S3</td><td>PAR-004、APP-004、TST-001、DAT-002</td><td><span class="status">Not started</span></td><td>Gateway 闭环稳定</td></tr>
+        <tr><td>S4</td><td>CAP-003~005、TST-002</td><td><span class="status">Not started</span></td><td>sidecar 打包方案接受</td></tr>
+        <tr><td>S5</td><td>CAP-006/007、SEC-002/003、APP-006、TST-003</td><td><span class="status">Not started</span></td><td>显式代理可用</td></tr>
+        <tr><td>S6</td><td>PAR-005~007、APP-005</td><td><span class="status">Not started</span></td><td>双厂商 Inspector 稳定</td></tr>
+        <tr><td>S7</td><td>TST-004、性能、可访问性、诊断与保留</td><td><span class="status">Not started</span></td><td>功能冻结</td></tr>
+        <tr><td>S8</td><td>SEC-004、REL-001/002、安全评审</td><td><span class="status">Not started</span></td><td>Beta 质量门槛通过</td></tr>
+        <tr><td>S9</td><td>REL-003、完整回归与发布演练</td><td><span class="status">Not started</span></td><td>阻断项清零</td></tr>
+      </tbody></table></div>
+
+      <h2 id="blockers">7. 阻塞项</h2>
+      <div class="table-wrap"><table><thead><tr><th>ID</th><th>阻塞</th><th>影响</th><th>Owner</th><th>开始</th><th>解除条件</th><th>状态</th></tr></thead><tbody>
+        <tr><td class="task-id">B-001</td><td>核心团队与启动日期未确认</td><td>无法建立真实迭代基线</td><td>TBD</td><td>2026-07-14</td><td>角色、投入比例与启动日确定</td><td><span class="status blocked">Open</span></td></tr>
+        <tr><td colspan="7">新增阻塞项时在此追加；解除后保留记录并将状态改为 Closed。</td></tr>
+      </tbody></table></div>
+
+      <h2 id="risks">8. 风险台账</h2>
+      <div class="table-wrap"><table><thead><tr><th>ID</th><th>风险</th><th>概率</th><th>影响</th><th>应对</th><th>Owner</th><th>状态</th></tr></thead><tbody>
+        <tr><td class="task-id">R-01</td><td>大量应用绕过代理或证书固定</td><td>高</td><td>高</td><td>Gateway 优先、多模式、兼容等级</td><td>TBD</td><td><span class="status active">Watching</span></td></tr>
+        <tr><td class="task-id">R-02</td><td>凭据或 Prompt 泄露</td><td>中</td><td>极高</td><td>最小范围、双层 scrub、加密、强制预览</td><td>TBD</td><td><span class="status active">Watching</span></td></tr>
+        <tr><td class="task-id">R-03</td><td>代理异常导致断网</td><td>中</td><td>极高</td><td>独立 watchdog、事务快照、故障注入</td><td>TBD</td><td><span class="status active">Watching</span></td></tr>
+        <tr><td class="task-id">R-04</td><td>sidecar 分发体积或漏洞不可控</td><td>中</td><td>高</td><td>固定版本、SBOM、签名、进程隔离</td><td>TBD</td><td><span class="status">Open</span></td></tr>
+        <tr><td class="task-id">R-05</td><td>IR 过度抽象导致语义丢失</td><td>中</td><td>高</td><td>原始指针、vendor fields、版本化 revision</td><td>TBD</td><td><span class="status">Open</span></td></tr>
+        <tr><td class="task-id">R-06</td><td>范围膨胀为完整观测/评测平台</td><td>高</td><td>高</td><td>首发只闭环“看清真实请求”</td><td>TBD</td><td><span class="status active">Watching</span></td></tr>
+      </tbody></table></div>
+
+      <h2 id="quality">9. 质量指标</h2>
+      <div class="table-wrap"><table><thead><tr><th>指标</th><th>当前</th><th>Beta 目标</th><th>数据来源</th></tr></thead><tbody>
+        <tr><td>支持端点解析成功率</td><td>N/A</td><td>&gt; 95%</td><td>adapter integration tests</td></tr>
+        <tr><td>首次捕获时间 P50</td><td>N/A</td><td>&lt; 3 分钟</td><td>本地匿名事件/可用性测试</td></tr>
+        <tr><td>代理恢复成功率</td><td>N/A</td><td>100%</td><td>故障注入矩阵</td></tr>
+        <tr><td>凭据落盘命中</td><td>N/A</td><td>0</td><td>DB、日志、临时文件扫描</td></tr>
+        <tr><td>Gateway 额外延迟 P95</td><td>N/A</td><td>&lt; 20 ms</td><td>本地 fake provider benchmark</td></tr>
+        <tr><td>关键 crash-free session</td><td>N/A</td><td>&gt; 99.5%</td><td>选择开启的产品遥测</td></tr>
+      </tbody></table></div>
+
+      <h2 id="release">10. 发布就绪清单</h2>
+      <div class="two-column">
+        <section class="plain-panel"><h3>Beta</h3><ul class="checklist"><li>四类厂商 fixtures 与集成测试通过</li><li>代理恢复矩阵 100% 通过</li><li>脱敏导出与 secret scan 通过</li><li>性能和可访问性达到目标</li><li>外部安全评审完成</li></ul></section>
+        <section class="plain-panel"><h3>GA</h3><ul class="checklist"><li>签名安装、升级和回滚通过</li><li>数据库迁移和只读恢复通过</li><li>兼容矩阵与支持流程发布</li><li>事故响应与网络恢复演练完成</li><li>所有发布阻断项清零</li></ul></section>
+      </div>
+
+      <h2 id="decisions">11. 决策与变更记录</h2>
+      <div class="table-wrap"><table><thead><tr><th>日期</th><th>类型</th><th>内容</th><th>影响</th><th>记录人</th></tr></thead><tbody>
+        <tr><td>2026-07-14</td><td>Baseline</td><td>建立 20 周、10 个迭代的开发计划</td><td>形成首版工程基线</td><td>Codex</td></tr>
+        <tr><td>2026-07-14</td><td>Scope</td><td>MVP 保留 Gateway 与显式代理，延后浏览器/TUN</td><td>降低首发技术与权限风险</td><td>Codex</td></tr>
+        <tr><td colspan="5">后续范围、架构、日期或资源变化均在此追加，并链接对应 ADR/会议结论。</td></tr>
+      </tbody></table></div>
+
+      <h2 id="weekly">12. 周报模板</h2>
+      <pre>周期：YYYY-MM-DD ~ YYYY-MM-DD
+总体状态：Green / Amber / Red
+总体进度：__%
+
+本周完成：
+- TASK-ID：结果与验收证据
+
+下周计划：
+- TASK-ID：目标与 owner
+
+阻塞与风险：
+- B/R-ID：影响、处理人、预计解除时间
+
+质量数据：
+- 测试、性能、安全和崩溃指标变化
+
+需要决策：
+- 决策问题、选项、截止时间</pre>
+
+      <footer class="doc-footer"><a href="development-plan.html">← 详细开发计划</a><a href="index.html">返回总览 →</a></footer>
+    </main>
+    <aside class="toc"><strong>本页</strong><a href="#usage">更新规则</a><a href="#health">健康度</a><a href="#milestones">里程碑</a><a href="#streams">工作流</a><a href="#current-sprint">当前迭代</a><a href="#backlog">后续迭代</a><a href="#blockers">阻塞项</a><a href="#risks">风险</a><a href="#quality">质量</a><a href="#release">发布清单</a><a href="#weekly">周报模板</a></aside>
+  </div>
+</body>
+</html>

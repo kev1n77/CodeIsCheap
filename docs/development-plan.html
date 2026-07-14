@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>详细开发计划 · CodeIsCheap</title>
+  <link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+  <header class="site-header"><div class="header-inner"><a class="brand" href="index.html"><span class="brand-mark">C</span>CodeIsCheap</a><nav class="site-nav" aria-label="文档导航"><a href="index.html">总览</a><a href="product.html">产品</a><a href="capture.html">采集</a><a href="architecture.html">架构</a><a href="security.html">安全</a><a href="experience.html">体验</a><a href="delivery.html">交付</a><a href="development-plan.html" aria-current="page">计划</a><a href="progress.html">进度</a></nav></div></header>
+
+  <div class="page">
+    <main>
+      <p class="eyebrow">07 · Development Plan</p>
+      <h1>详细开发计划</h1>
+      <p class="lead">以 20 周、10 个双周迭代完成桌面端 MVP。计划围绕“请求可捕获、Prompt 可解释、数据不泄露、网络可恢复”四条主线展开。</p>
+
+      <div class="meta-grid">
+        <div class="meta-item"><span>计划周期</span><strong>20 周</strong></div>
+        <div class="meta-item"><span>迭代长度</span><strong>2 周</strong></div>
+        <div class="meta-item"><span>目标平台</span><strong>Windows / macOS</strong></div>
+        <div class="meta-item"><span>计划基线</span><strong>2026-07-14</strong></div>
+      </div>
+
+      <div class="decision"><strong>执行原则</strong>网络正确性与数据安全优先于功能数量。任何凭据落盘、系统代理无法恢复或推断冒充事实的问题都阻断发布。</div>
+
+      <h2 id="team">1. 团队与职责</h2>
+      <div class="table-wrap"><table><thead><tr><th>角色</th><th>建议人数</th><th>主要职责</th></tr></thead><tbody>
+        <tr><td>Tech Lead / Rust</td><td>1</td><td>总体架构、Core、Gateway、跨平台边界、关键 ADR</td></tr>
+        <tr><td>Network / Desktop</td><td>1</td><td>mitmproxy sidecar、证书、系统代理、watchdog、安装升级</td></tr>
+        <tr><td>Frontend</td><td>1–2</td><td>工作台、Inspector、Compare、虚拟列表、可访问性</td></tr>
+        <tr><td>Product Designer</td><td>1</td><td>交互、设计系统、可用性测试、错误诊断体验</td></tr>
+        <tr><td>QA / SDET</td><td>1</td><td>fixtures、集成测试、故障注入、跨平台 E2E、性能</td></tr>
+        <tr><td>Security Reviewer</td><td>兼职/外部</td><td>威胁模型、凭据与 CA 评审、发布前渗透测试</td></tr>
+      </tbody></table></div>
+      <p class="note">若团队不足 5 人，第一版应缩减为 Gateway-only Developer Preview，不得通过删除代理恢复和安全测试压缩周期。</p>
+
+      <h2 id="workstreams">2. 工作流与工作分解</h2>
+
+      <h3>2.0 Discovery 技术验证</h3>
+      <div class="table-wrap"><table><thead><tr><th>ID</th><th>任务</th><th>主要产物</th><th>完成标准</th></tr></thead><tbody>
+        <tr><td class="task-id">SPIKE-001</td><td>Gateway 流式透明转发验证</td><td>最小代理、取消/背压实验与结论</td><td>流式响应不被整体缓存，客户端取消可传递</td></tr>
+        <tr><td class="task-id">SPIKE-002</td><td>mitmproxy sidecar IPC 与打包验证</td><td>最小 addon、IPC 样例、体积/签名结论</td><td>凭据在跨进程前删除，打包方案可接受</td></tr>
+        <tr><td class="task-id">SPIKE-003</td><td>Windows/macOS 代理恢复验证</td><td>设置快照、强杀/重启实验与恢复记录</td><td>两平台均能恢复原始代理设置</td></tr>
+        <tr><td class="task-id">SPIKE-004</td><td>Threat model v1</td><td>资产、边界、威胁、控制和发布阻断项</td><td>安全 reviewer 完成首次评审</td></tr>
+      </tbody></table></div>
+
+      <h3>2.1 项目基础与架构</h3>
+      <div class="table-wrap"><table><thead><tr><th>ID</th><th>任务</th><th>主要产物</th><th>完成标准</th></tr></thead><tbody>
+        <tr><td class="task-id">ARC-001</td><td>建立 monorepo、模块边界与 CODEOWNERS</td><td>apps、crates、schemas、fixtures、tests 目录</td><td>各模块可独立构建；安全目录必须评审</td></tr>
+        <tr><td class="task-id">ARC-002</td><td>建立 CI、格式化、静态检查与制品缓存</td><td>Windows/macOS CI pipeline</td><td>PR 自动执行 Rust、TS、fixture 和安全扫描</td></tr>
+        <tr><td class="task-id">ARC-003</td><td>确定 IPC、事件模型和错误码</td><td>CaptureEnvelope、Core event、Tauri command schema</td><td>Rust/TS 类型由 schema 生成且一致</td></tr>
+        <tr><td class="task-id">ARC-004</td><td>记录关键 ADR</td><td>Tauri、sidecar、SQLCipher、Prompt IR、代理策略 ADR</td><td>替代方案、风险和复审条件完整</td></tr>
+      </tbody></table></div>
+
+      <h3>2.2 Desktop 与前端</h3>
+      <div class="table-wrap"><table><thead><tr><th>ID</th><th>任务</th><th>主要产物</th><th>完成标准</th></tr></thead><tbody>
+        <tr><td class="task-id">APP-001</td><td>Tauri 应用壳、窗口、托盘和权限配置</td><td>可签名桌面骨架</td><td>Windows/macOS 均可启动、退出和恢复状态</td></tr>
+        <tr><td class="task-id">APP-002</td><td>设计 tokens 与基础组件</td><td>导航、按钮、状态、表格、split pane、空错误态</td><td>明暗主题与键盘焦点通过检查</td></tr>
+        <tr><td class="task-id">APP-003</td><td>实时 Capture 工作台</td><td>Profile、筛选、虚拟化请求列表、健康状态</td><td>1,000 条请求滚动流畅，增量不抢焦点</td></tr>
+        <tr><td class="task-id">APP-004</td><td>Request Inspector</td><td>Anatomy、Timeline、Raw、Metadata</td><td>每个 IR 节点可回到原始证据位置</td></tr>
+        <tr><td class="task-id">APP-005</td><td>Compare 与搜索</td><td>结构 diff、文本 diff、全文查询与筛选</td><td>消息、工具、参数差异稳定可复现</td></tr>
+        <tr><td class="task-id">APP-006</td><td>设置、诊断与首次连接</td><td>Gateway/代理向导、证书状态、恢复入口</td><td>首次捕获 P50 小于 3 分钟</td></tr>
+      </tbody></table></div>
+
+      <h3>2.3 Capture 与网络</h3>
+      <div class="table-wrap"><table><thead><tr><th>ID</th><th>任务</th><th>主要产物</th><th>完成标准</th></tr></thead><tbody>
+        <tr><td class="task-id">CAP-001</td><td>实现 Local AI Gateway</td><td>OpenAI-compatible 本地转发端点</td><td>流式/非流式透明转发；取消和错误码保持</td></tr>
+        <tr><td class="task-id">CAP-002</td><td>实现请求/响应 tee 与背压</td><td>有界队列、截断和降级事件</td><td>记录压力不阻塞目标网络</td></tr>
+        <tr><td class="task-id">CAP-003</td><td>打包 mitmproxy sidecar 与最小 addon</td><td>签名 sidecar、IPC 协议、版本 manifest</td><td>sidecar 无数据库和工作区密钥权限</td></tr>
+        <tr><td class="task-id">CAP-004</td><td>显式代理与 TLS flow</td><td>HTTP/1.1、HTTP/2、SSE、gzip/brotli 支持</td><td>允许端点可捕获；非目标默认 tunnel</td></tr>
+        <tr><td class="task-id">CAP-005</td><td>证书生命周期</td><td>每设备 CA 生成、信任检查、卸载</td><td>用户可核验指纹；私钥不可导出</td></tr>
+        <tr><td class="task-id">CAP-006</td><td>系统代理快照与 watchdog</td><td>事务式设置、独立恢复程序</td><td>故障注入下代理恢复率 100%</td></tr>
+        <tr><td class="task-id">CAP-007</td><td>进程/应用归因与兼容诊断</td><td>PID、Gateway label、失败诊断树</td><td>归因带置信度；pinning 明确降级</td></tr>
+      </tbody></table></div>
+
+      <h3>2.4 Prompt IR 与厂商适配</h3>
+      <div class="table-wrap"><table><thead><tr><th>ID</th><th>任务</th><th>主要产物</th><th>完成标准</th></tr></thead><tbody>
+        <tr><td class="task-id">PAR-001</td><td>Prompt IR v1 与 schema codegen</td><td>instructions、messages、context、tools、evidence</td><td>IR 可版本化、验证和前后兼容</td></tr>
+        <tr><td class="task-id">PAR-002</td><td>解析器注册表与检测链</td><td>adapter trait、置信度、partial issues</td><td>适配器失败可隔离并降级 Raw</td></tr>
+        <tr><td class="task-id">PAR-003</td><td>OpenAI-compatible 适配器</td><td>Responses、Chat、流式、tools fixtures</td><td>固定样本全部通过 golden test</td></tr>
+        <tr><td class="task-id">PAR-004</td><td>Anthropic 适配器</td><td>Messages、system、tool use、SSE</td><td>请求与响应完整重组</td></tr>
+        <tr><td class="task-id">PAR-005</td><td>Gemini 适配器</td><td>contents、systemInstruction、function calling</td><td>多模态引用和 usage 正确映射</td></tr>
+        <tr><td class="task-id">PAR-006</td><td>Ollama 适配器</td><td>chat/generate、NDJSON、local model</td><td>本地流式和模型信息正确展示</td></tr>
+        <tr><td class="task-id">PAR-007</td><td>token、成本和语义指纹</td><td>reported/estimated 来源、价格版本、BLAKE3</td><td>估算值不伪装为 reported</td></tr>
+      </tbody></table></div>
+
+      <h3>2.5 数据、安全与导出</h3>
+      <div class="table-wrap"><table><thead><tr><th>ID</th><th>任务</th><th>主要产物</th><th>完成标准</th></tr></thead><tbody>
+        <tr><td class="task-id">DAT-001</td><td>SQLite/SQLCipher、迁移与 WAL</td><td>实体表、索引、FTS、备份恢复</td><td>数据库 key 位于 OS 凭据库</td></tr>
+        <tr><td class="task-id">DAT-002</td><td>写入、查询、保留与磁盘压力</td><td>批量事务、分页查询、清理任务</td><td>磁盘不足时可控降级，不损坏 DB</td></tr>
+        <tr><td class="task-id">SEC-001</td><td>范围策略和凭据 scrubber</td><td>host/path allowlist、header/query/body 规则</td><td>canary secret 在 DB、日志、临时文件中零命中</td></tr>
+        <tr><td class="task-id">SEC-002</td><td>脱敏与导出</td><td>Minimal、Reproducible、Forensic</td><td>所有复制/导出先扫描和预览</td></tr>
+        <tr><td class="task-id">SEC-003</td><td>本地 IPC 与插件隔离</td><td>ACL、短期 token、Origin 校验、WASI 权限</td><td>未授权本机进程不能读取请求</td></tr>
+        <tr><td class="task-id">SEC-004</td><td>更新与供应链</td><td>SBOM、组件 hash、签名更新</td><td>组件不匹配时拒绝捕获但允许恢复网络</td></tr>
+      </tbody></table></div>
+
+      <h3>2.6 测试、发布与支持</h3>
+      <div class="table-wrap"><table><thead><tr><th>ID</th><th>任务</th><th>主要产物</th><th>完成标准</th></tr></thead><tbody>
+        <tr><td class="task-id">TST-001</td><td>协议 fixture 与 golden tests</td><td>正常、流式、工具、多模态、错误样本</td><td>首发适配器覆盖所有声明能力</td></tr>
+        <tr><td class="task-id">TST-002</td><td>Gateway/Proxy 集成测试</td><td>fake provider、HTTP/2、取消、背压</td><td>转发响应与无捕获基线一致</td></tr>
+        <tr><td class="task-id">TST-003</td><td>平台故障注入</td><td>崩溃、重启、端口冲突、PAC、CA 拒绝</td><td>网络设置可自动或明确手工恢复</td></tr>
+        <tr><td class="task-id">TST-004</td><td>UI、性能与可访问性</td><td>截图回归、键盘、屏幕阅读器、压力测试</td><td>支持尺寸无重叠；关键性能达标</td></tr>
+        <tr><td class="task-id">REL-001</td><td>签名安装、升级和回滚</td><td>Windows/macOS 安装包与 updater</td><td>迁移失败可回退并只读打开历史数据</td></tr>
+        <tr><td class="task-id">REL-002</td><td>诊断与支持包</td><td>无 Prompt 日志、健康检查、用户预览包</td><td>支持包默认不含请求内容</td></tr>
+        <tr><td class="task-id">REL-003</td><td>Beta/GA 发布</td><td>发布说明、兼容矩阵、事故响应流程</td><td>所有发布阻断项清零</td></tr>
+      </tbody></table></div>
+
+      <h2 id="sprints">3. 双周迭代计划</h2>
+      <div class="table-wrap"><table><thead><tr><th>迭代</th><th>周次</th><th>核心目标</th><th>主要任务</th><th>退出条件</th></tr></thead><tbody>
+        <tr><td>S0</td><td>1–2</td><td>技术验证</td><td>ARC-001~004、PAR-001、SPIKE-001~004</td><td>两平台测试请求可捕获；风险与 ADR 明确</td></tr>
+        <tr><td>S1</td><td>3–4</td><td>基础设施</td><td>APP-001/002、ARC-003、DAT-001、SEC-001 骨架</td><td>合成事件进入加密 DB 并显示在桌面壳</td></tr>
+        <tr><td>S2</td><td>5–6</td><td>Gateway 闭环</td><td>CAP-001/002、PAR-001~003、APP-003</td><td>OpenAI-compatible 请求实时捕获和结构化</td></tr>
+        <tr><td>S3</td><td>7–8</td><td>请求检查器</td><td>PAR-004、APP-004、TST-001、DAT-002</td><td>Anthropic + OpenAI 的 Anatomy/Raw/Timeline 可用</td></tr>
+        <tr><td>S4</td><td>9–10</td><td>显式代理</td><td>CAP-003~005、TST-002</td><td>允许域名的 HTTPS 请求可安全捕获</td></tr>
+        <tr><td>S5</td><td>11–12</td><td>恢复与安全</td><td>CAP-006/007、SEC-002/003、APP-006、TST-003</td><td>强杀进程后代理恢复；脱敏导出可用</td></tr>
+        <tr><td>S6</td><td>13–14</td><td>协议与比较</td><td>PAR-005~007、APP-005</td><td>四类厂商解析；结构 diff 与搜索可用</td></tr>
+        <tr><td>S7</td><td>15–16</td><td>Beta 稳定性</td><td>TST-004、性能、可访问性、保留策略、诊断</td><td>Private Alpha 问题关闭；Beta 指标达标</td></tr>
+        <tr><td>S8</td><td>17–18</td><td>发布工程</td><td>SEC-004、REL-001/002、外部安全评审</td><td>签名安装、升级、回滚和支持流程通过</td></tr>
+        <tr><td>S9</td><td>19–20</td><td>GA</td><td>REL-003、回归、兼容矩阵、发布演练</td><td>发布阻断项为零，Stable 分阶段发布</td></tr>
+      </tbody></table></div>
+
+      <h2 id="dependencies">4. 关键依赖与关键路径</h2>
+      <div class="flow" aria-label="项目关键路径">
+        <div class="flow-step">IR 与事件契约</div><div class="flow-arrow">→</div><div class="flow-step">Gateway 闭环</div><div class="flow-arrow">→</div><div class="flow-step">代理与恢复</div><div class="flow-arrow">→</div><div class="flow-step">安全验证</div><div class="flow-arrow">→</div><div class="flow-step">签名发布</div>
+      </div>
+      <ul>
+        <li><span class="task-id">PAR-001</span> 阻塞所有解析器、Inspector、Compare 和导出。</li>
+        <li><span class="task-id">CAP-006</span> 是系统代理模式进入 Beta 的硬门槛。</li>
+        <li><span class="task-id">SEC-001</span> 必须在任何真实请求持久化前完成。</li>
+        <li><span class="task-id">REL-001</span> 依赖数据库迁移、sidecar 版本和 CA 生命周期稳定。</li>
+      </ul>
+
+      <h2 id="workflow">5. 工程工作流</h2>
+      <div class="two-column">
+        <section class="plain-panel"><h3>分支与评审</h3><ul><li>主分支保持可发布。</li><li>网络、安全、迁移和更新代码强制双人评审。</li><li>每个适配器提交必须包含 fixture 与 golden 结果。</li><li>所有行为变更更新对应设计文档或 ADR。</li></ul></section>
+        <section class="plain-panel"><h3>环境与制品</h3><ul><li>开发环境只使用合成 API key 和本地 fake provider。</li><li>Canary、Beta、Stable 使用独立签名 channel。</li><li>正式 sidecar 固定版本并记录 SBOM/hash。</li><li>测试数据禁止包含真实用户 Prompt。</li></ul></section>
+      </div>
+
+      <h2 id="quality">6. Definition of Ready / Done</h2>
+      <div class="two-column">
+        <section class="plain-panel"><h3>Ready</h3><ul class="checklist"><li>用户问题与验收结果明确</li><li>数据与权限影响已标注</li><li>依赖与 owner 已确认</li><li>涉及协议时 fixture 已准备</li><li>涉及风险时有回退方案</li></ul></section>
+        <section class="plain-panel"><h3>Done</h3><ul class="checklist"><li>代码、测试和文档已评审</li><li>错误、空、加载和降级状态完整</li><li>日志与持久化通过 secret 扫描</li><li>Windows/macOS 对应测试通过</li><li>指标可观测且回滚路径验证</li></ul></section>
+      </div>
+
+      <h2 id="gates">7. 质量与发布门槛</h2>
+      <div class="table-wrap"><table><thead><tr><th>阶段</th><th>必须通过</th></tr></thead><tbody>
+        <tr><td>PR</td><td>格式、静态检查、单测、schema、fixture、secret scan</td></tr>
+        <tr><td>迭代结束</td><td>演示、验收、跨模块回归、风险与进度更新</td></tr>
+        <tr><td>Alpha</td><td>Gateway 闭环、两厂商解析、代理恢复基础测试、无凭据落盘</td></tr>
+        <tr><td>Beta</td><td>四厂商、Compare、导出、性能、可访问性、故障注入、安全评审</td></tr>
+        <tr><td>GA</td><td>签名更新、迁移回滚、兼容矩阵、事故响应、阻断项清零</td></tr>
+      </tbody></table></div>
+
+      <h2 id="cadence">8. 管理节奏</h2>
+      <ul>
+        <li><strong>每日：</strong>更新当前任务状态、剩余工作与阻塞项。</li>
+        <li><strong>每周：</strong>刷新里程碑百分比、风险、质量指标和关键决策。</li>
+        <li><strong>每两周：</strong>迭代验收、复盘、调整下个迭代承诺。</li>
+        <li><strong>每个发布节点：</strong>冻结兼容矩阵，执行恢复演练和发布清单。</li>
+      </ul>
+
+      <footer class="doc-footer"><a href="delivery.html">← MVP 交付</a><a href="progress.html">下一篇：进度跟踪 →</a></footer>
+    </main>
+    <aside class="toc"><strong>本页</strong><a href="#team">团队</a><a href="#workstreams">工作分解</a><a href="#sprints">迭代计划</a><a href="#dependencies">依赖</a><a href="#workflow">工作流</a><a href="#quality">完成定义</a><a href="#gates">质量门槛</a><a href="#cadence">管理节奏</a></aside>
+  </div>
+</body>
+</html>
