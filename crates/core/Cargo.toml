@@ -8,8 +8,11 @@ description = "Trusted ingestion and lifecycle core for CodeIsCheap"
 [dependencies]
 codeischeap-capture-ipc = { path = "../capture-ipc" }
 codeischeap-capture-policy = { path = "../capture-policy" }
+codeischeap-prompt-ir = { path = "../prompt-ir" }
+codeischeap-storage = { path = "../storage" }
 tokio.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+tempfile.workspace = true
 tokio.workspace = true

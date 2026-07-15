@@ -31,9 +31,31 @@ pub struct CaptureTarget {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SanitizedCapture {
-    pub envelope: CaptureEnvelope,
-    pub target_id: String,
-    pub newly_redacted: usize,
+    envelope: CaptureEnvelope,
+    target_id: String,
+    newly_redacted: usize,
+}
+
+impl SanitizedCapture {
+    #[must_use]
+    pub const fn envelope(&self) -> &CaptureEnvelope {
+        &self.envelope
+    }
+
+    #[must_use]
+    pub fn target_id(&self) -> &str {
+        &self.target_id
+    }
+
+    #[must_use]
+    pub const fn newly_redacted(&self) -> usize {
+        self.newly_redacted
+    }
+
+    #[must_use]
+    pub fn into_envelope(self) -> CaptureEnvelope {
+        self.envelope
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

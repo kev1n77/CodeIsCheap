@@ -104,10 +104,10 @@ fn core_scrubber_removes_canaries_before_persistence() {
     let sanitized = policy
         .sanitize_envelope(envelope(request))
         .expect("supported request must be sanitized");
-    let encoded = serde_json::to_string(&sanitized.envelope).expect("envelope must encode");
+    let encoded = serde_json::to_string(sanitized.envelope()).expect("envelope must encode");
 
-    assert_eq!(sanitized.target_id, "openai");
-    assert_eq!(sanitized.newly_redacted, 4);
+    assert_eq!(sanitized.target_id(), "openai");
+    assert_eq!(sanitized.newly_redacted(), 4);
     for canary in [
         "header-canary",
         "query-canary",
@@ -131,8 +131,8 @@ fn sidecar_fixture_is_in_scope_and_needs_no_second_redaction() {
         .sanitize_envelope(fixture)
         .expect("fixture must be in scope");
 
-    assert_eq!(sanitized.target_id, "openai");
-    assert_eq!(sanitized.newly_redacted, 0);
+    assert_eq!(sanitized.target_id(), "openai");
+    assert_eq!(sanitized.newly_redacted(), 0);
 }
 
 #[test]

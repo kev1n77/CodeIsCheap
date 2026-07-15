@@ -8,7 +8,7 @@
 
 ## 当前实现
 
-当前实现包含版本化 Prompt IR、共享捕获策略、可信 Core 入口、可双向流式转发的本地 AI Gateway，以及 React + Tauri 桌面工作台。
+当前实现包含版本化 Prompt IR、共享捕获策略、可信 Core 入口、SQLCipher 加密存储、可双向流式转发的本地 AI Gateway，以及 React + Tauri 桌面工作台。
 
 启动桌面工作台：
 
@@ -34,6 +34,8 @@ cargo clippy --workspace --all-targets -- -D warnings
 ```
 
 Rust crate 位于 `crates/prompt-ir`，公开 JSON Schema 位于 `schemas/prompt-ir/v0.1.schema.json`。
+
+加密存储位于 `crates/storage`：使用 SQLCipher、WAL、版本化迁移与 FTS5，数据库 key 由 Windows Credential Manager 或 macOS Keychain 持有，并覆盖错误密钥拒绝、加密备份恢复与落盘明文 canary 测试。
 
 桌面应用位于 `apps/desktop`。当前以无真实凭据的合成请求展示三栏工作台、筛选、Anatomy / Timeline / Raw 检查器、明暗主题和托盘生命周期；实时捕获与持久化将在后续接入。
 
