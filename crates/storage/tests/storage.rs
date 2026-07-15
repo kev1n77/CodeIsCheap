@@ -8,7 +8,10 @@ use codeischeap_capture_ipc::{
 };
 use codeischeap_capture_policy::{CapturePolicy, SanitizedCapture};
 use codeischeap_prompt_ir::{Evidence, MessageRole, PromptIr, PromptPart, ResponseTrace};
-use codeischeap_storage::{CaptureCursor, DatabaseKey, EncryptedStore, SCHEMA_VERSION};
+use codeischeap_storage::{
+    CaptureCursor, CaptureWrite, DatabaseKey, EncryptedStore, RetentionPolicy, SCHEMA_VERSION,
+    StorageError, StorageOptions,
+};
 use tempfile::tempdir;
 
 const KEY_BYTES: [u8; 32] = [0x42; 32];
@@ -298,6 +301,139 @@ fn cursor_pagination_and_delete_are_stable() {
     assert!(store.delete_capture("capture_2").expect("delete capture"));
     assert!(!store.delete_capture("missing").expect("delete missing"));
     assert_eq!(store.capture_count().expect("capture count"), 2);
+}
+
+#[test]
+fn batch_writes_are_atomic_and_searchable() {
+    let directory = tempdir().expect("temp directory must be created");
+    let mut store = EncryptedStore::open(
+        directory.path().join("captures.db"),
+        DatabaseKey::from_bytes(KEY_BYTES),
+    )
+    .expect("encrypted store must open");
+    let first = sanitized_capture("batch_1", 10, "alpha batch marker");
+    let second = sanitized_capture("batch_2", 20, "beta batch marker");
+    let mut first_prompt = PromptIr::new("batch_1", "openai");
+    first_prompt.model = Some("gpt-batch".to_owned());
+
+    assert_eq!(
+        store
+            .upsert_captures(&[
+                CaptureWrite::new(&first, Some(&first_prompt)),
+                CaptureWrite::new(&second, None),
+            ])
+            .expect("batch must persist"),
+        2
+    );
+    assert_eq!(store.capture_count().expect("capture count"), 2);
+    assert_eq!(
+        store
+            .search_captures("beta marker", 10)
+            .expect("batch FTS must update")[0]
+            .capture_id,
+        "batch_2"
+    );
+
+    let invalid = sanitized_capture("batch_3", 30, "must roll back");
+    let mismatched_prompt = PromptIr::new("different_request", "openai");
+    let error = store
+        .upsert_captures(&[
+            CaptureWrite::new(&invalid, None),
+            CaptureWrite::new(&second, Some(&mismatched_prompt)),
+        ])
+        .expect_err("invalid batch must fail before writing");
+    assert!(matches!(error, StorageError::PromptRequestMismatch));
+    assert!(
+        store
+            .get_capture("batch_3")
+            .expect("capture query")
+            .is_none()
+    );
+    assert_eq!(store.capture_count().expect("capture count"), 2);
+}
+
+#[test]
+fn retention_removes_expired_and_excess_captures_in_bounded_transactions() {
+    let directory = tempdir().expect("temp directory must be created");
+    let mut store = EncryptedStore::open(
+        directory.path().join("captures.db"),
+        DatabaseKey::from_bytes(KEY_BYTES),
+    )
+    .expect("encrypted store must open");
+    let captures = (1..=5)
+        .map(|index| {
+            sanitized_capture(
+                &format!("retained_{index}"),
+                index * 10,
+                &format!("retention marker {index}"),
+            )
+        })
+        .collect::<Vec<_>>();
+    let writes = captures
+        .iter()
+        .map(|capture| CaptureWrite::new(capture, None))
+        .collect::<Vec<_>>();
+    store
+        .upsert_captures(&writes)
+        .expect("retention fixtures must persist");
+
+    let report = store
+        .enforce_retention(
+            &RetentionPolicy {
+                max_age: Some(std::time::Duration::from_millis(25)),
+                max_captures: Some(2),
+                batch_size: 1,
+            },
+            50,
+        )
+        .expect("retention must complete");
+
+    assert_eq!(report.deleted_by_age, 2);
+    assert_eq!(report.deleted_by_count, 1);
+    assert_eq!(report.remaining_captures, 2);
+    assert_eq!(report.transaction_count, 3);
+    assert!(
+        store
+            .search_captures("marker 1", 10)
+            .expect("expired FTS entries must be removed")
+            .is_empty()
+    );
+    assert_eq!(
+        store
+            .list_captures(10, None)
+            .expect("retained captures must list")
+            .iter()
+            .map(|capture| capture.capture_id.as_str())
+            .collect::<Vec<_>>(),
+        ["retained_5", "retained_4"]
+    );
+    store.integrity_check().expect("cleanup must preserve DB");
+}
+
+#[test]
+fn disk_pressure_rejects_writes_without_damaging_the_database() {
+    let directory = tempdir().expect("temp directory must be created");
+    let mut store = EncryptedStore::open_with_options(
+        directory.path().join("captures.db"),
+        DatabaseKey::from_bytes(KEY_BYTES),
+        StorageOptions {
+            minimum_free_space_bytes: u64::MAX,
+        },
+    )
+    .expect("encrypted store must open before pressure guard");
+
+    let error = store
+        .upsert_capture(
+            &sanitized_capture("pressure_1", 1, "must not persist"),
+            None,
+        )
+        .expect_err("pressure guard must reject the write");
+    assert!(error.is_disk_pressure());
+    assert!(matches!(error, StorageError::DiskPressure { .. }));
+    assert_eq!(store.capture_count().expect("capture count"), 0);
+    store
+        .integrity_check()
+        .expect("pressure rejection must preserve DB");
 }
 
 fn assert_files_do_not_contain(directory: &Path, needle: &[u8]) {

@@ -9,6 +9,7 @@ description = "Encrypted SQLCipher persistence for CodeIsCheap"
 codeischeap-capture-ipc = { path = "../capture-ipc" }
 codeischeap-capture-policy = { path = "../capture-policy" }
 codeischeap-prompt-ir = { path = "../prompt-ir" }
+fs2.workspace = true
 getrandom.workspace = true
 rusqlite.workspace = true
 serde_json.workspace = true

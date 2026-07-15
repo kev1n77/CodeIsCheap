@@ -12,18 +12,31 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, pa
 use crate::StorageError;
 use crate::key::{DatabaseKey, DatabaseKeyStore};
 use crate::migrations::{migrate, validate_schema};
-use crate::model::{CaptureCursor, CaptureSummary, StoredCapture};
+use crate::model::{
+    CaptureCursor, CaptureSummary, CaptureWrite, RetentionPolicy, RetentionReport, StorageOptions,
+    StoredCapture,
+};
 
 pub const MAX_PAGE_SIZE: usize = 200;
+const MAX_RETENTION_BATCH_SIZE: usize = 10_000;
 
 pub struct EncryptedStore {
     connection: Connection,
     key: DatabaseKey,
     path: PathBuf,
+    options: StorageOptions,
 }
 
 impl EncryptedStore {
     pub fn open(path: impl AsRef<Path>, key: DatabaseKey) -> Result<Self, StorageError> {
+        Self::open_with_options(path, key, StorageOptions::default())
+    }
+
+    pub fn open_with_options(
+        path: impl AsRef<Path>,
+        key: DatabaseKey,
+        options: StorageOptions,
+    ) -> Result<Self, StorageError> {
         let path = path.as_ref().to_path_buf();
         prepare_parent(&path)?;
         let mut connection = open_writable_connection(&path, &key)?;
@@ -33,6 +46,7 @@ impl EncryptedStore {
             connection,
             key,
             path,
+            options,
         })
     }
 
@@ -40,8 +54,16 @@ impl EncryptedStore {
         path: impl AsRef<Path>,
         key_store: &impl DatabaseKeyStore,
     ) -> Result<Self, StorageError> {
+        Self::open_with_key_store_and_options(path, key_store, StorageOptions::default())
+    }
+
+    pub fn open_with_key_store_and_options(
+        path: impl AsRef<Path>,
+        key_store: &impl DatabaseKeyStore,
+        options: StorageOptions,
+    ) -> Result<Self, StorageError> {
         let key = key_store.load_or_create()?;
-        Self::open(path, key)
+        Self::open_with_options(path, key, options)
     }
 
     #[must_use]
@@ -74,92 +96,46 @@ impl EncryptedStore {
         capture: &SanitizedCapture,
         prompt_ir: Option<&PromptIr>,
     ) -> Result<(), StorageError> {
-        if let Some(prompt_ir) = prompt_ir {
-            prompt_ir.validate()?;
-            if prompt_ir.request_id != capture.envelope().capture_id {
-                return Err(StorageError::PromptRequestMismatch);
-            }
-        }
+        self.upsert_captures(&[CaptureWrite::new(capture, prompt_ir)])?;
+        Ok(())
+    }
 
-        let envelope = capture.envelope();
-        let observed_at = i64::try_from(envelope.observed_at_unix_ms)
-            .map_err(|_| StorageError::NumericOutOfRange)?;
-        let redaction_count = i64::try_from(envelope.redactions.len())
-            .map_err(|_| StorageError::NumericOutOfRange)?;
-        let request_json = serde_json::to_string(envelope)?;
-        let prompt_ir_json = prompt_ir.map(serde_json::to_string).transpose()?;
-        let provider_id = prompt_ir.map(|prompt| prompt.provider.id.as_str());
-        let model = prompt_ir.and_then(|prompt| prompt.model.as_deref());
-        let operation = prompt_ir.and_then(|prompt| prompt.operation.as_deref());
-        let outcome = outcome_columns(envelope)?;
-        let searchable_text = searchable_text(envelope, prompt_ir)?;
+    pub fn upsert_captures(&mut self, writes: &[CaptureWrite<'_>]) -> Result<usize, StorageError> {
+        if writes.is_empty() {
+            return Ok(0);
+        }
+        let prepared = writes
+            .iter()
+            .map(prepare_capture)
+            .collect::<Result<Vec<_>, _>>()?;
+        self.ensure_disk_headroom()?;
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-
-        transaction.execute(
-            "
-            INSERT INTO captures (
-                capture_id, observed_at_unix_ms, target_id, source, method, scheme,
-                host, port, path, provider_id, model, operation, request_json,
-                prompt_ir_json, redaction_count, policy_version, outcome_kind,
-                status_code, duration_ms
-            ) VALUES (
-                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
-                ?17, ?18, ?19
-            )
-            ON CONFLICT(capture_id) DO UPDATE SET
-                observed_at_unix_ms = excluded.observed_at_unix_ms,
-                target_id = excluded.target_id,
-                source = excluded.source,
-                method = excluded.method,
-                scheme = excluded.scheme,
-                host = excluded.host,
-                port = excluded.port,
-                path = excluded.path,
-                provider_id = excluded.provider_id,
-                model = excluded.model,
-                operation = excluded.operation,
-                request_json = excluded.request_json,
-                prompt_ir_json = excluded.prompt_ir_json,
-                redaction_count = excluded.redaction_count,
-                policy_version = excluded.policy_version,
-                outcome_kind = excluded.outcome_kind,
-                status_code = excluded.status_code,
-                duration_ms = excluded.duration_ms
-            ",
-            params![
-                envelope.capture_id,
-                observed_at,
-                capture.target_id(),
-                source_name(envelope.source),
-                envelope.request.method,
-                envelope.request.scheme,
-                envelope.request.host,
-                i64::from(envelope.request.port),
-                envelope.request.path,
-                provider_id,
-                model,
-                operation,
-                request_json,
-                prompt_ir_json,
-                redaction_count,
-                CAPTURE_POLICY_VERSION,
-                outcome.kind,
-                outcome.status_code,
-                outcome.duration_ms,
-            ],
-        )?;
-        transaction.execute(
-            "DELETE FROM capture_search WHERE capture_id = ?1",
-            [&envelope.capture_id],
-        )?;
-        transaction.execute(
-            "INSERT INTO capture_search (capture_id, searchable_text) VALUES (?1, ?2)",
-            params![envelope.capture_id, searchable_text],
-        )?;
+        for capture in &prepared {
+            upsert_prepared(&transaction, capture)?;
+        }
         transaction.commit()?;
-        Ok(())
+        Ok(prepared.len())
+    }
+
+    pub fn available_space_bytes(&self) -> Result<u64, StorageError> {
+        let parent = self
+            .path
+            .parent()
+            .ok_or(StorageError::InvalidBackupTarget)?;
+        fs2::available_space(parent).map_err(Into::into)
+    }
+
+    pub fn ensure_disk_headroom(&self) -> Result<u64, StorageError> {
+        let available_bytes = self.available_space_bytes()?;
+        if available_bytes < self.options.minimum_free_space_bytes {
+            return Err(StorageError::DiskPressure {
+                available_bytes,
+                required_bytes: self.options.minimum_free_space_bytes,
+            });
+        }
+        Ok(available_bytes)
     }
 
     pub fn get_capture(&self, capture_id: &str) -> Result<Option<StoredCapture>, StorageError> {
@@ -288,6 +264,57 @@ impl EncryptedStore {
         u64::try_from(count).map_err(|_| StorageError::NumericOutOfRange)
     }
 
+    pub fn enforce_retention(
+        &mut self,
+        policy: &RetentionPolicy,
+        now_unix_ms: u64,
+    ) -> Result<RetentionReport, StorageError> {
+        validate_retention_policy(policy)?;
+        let mut report = RetentionReport {
+            deleted_by_age: 0,
+            deleted_by_count: 0,
+            remaining_captures: self.capture_count()?,
+            transaction_count: 0,
+        };
+
+        if let Some(max_age) = policy.max_age {
+            let max_age_ms = u64::try_from(max_age.as_millis()).unwrap_or(u64::MAX);
+            let cutoff = now_unix_ms.saturating_sub(max_age_ms);
+            let cutoff = i64::try_from(cutoff).map_err(|_| StorageError::NumericOutOfRange)?;
+            loop {
+                let ids = select_oldest_before(&self.connection, cutoff, policy.batch_size)?;
+                if ids.is_empty() {
+                    break;
+                }
+                let deleted = delete_capture_ids(&mut self.connection, &ids)?;
+                report.deleted_by_age += deleted;
+                report.transaction_count += 1;
+            }
+        }
+
+        if let Some(max_captures) = policy.max_captures {
+            loop {
+                let count = self.capture_count()?;
+                let excess = count.saturating_sub(max_captures);
+                if excess == 0 {
+                    break;
+                }
+                let limit = usize::try_from(excess.min(policy.batch_size as u64))
+                    .map_err(|_| StorageError::NumericOutOfRange)?;
+                let ids = select_oldest(&self.connection, limit)?;
+                let deleted = delete_capture_ids(&mut self.connection, &ids)?;
+                report.deleted_by_count += deleted;
+                report.transaction_count += 1;
+            }
+        }
+
+        report.remaining_captures = self.capture_count()?;
+        if report.deleted_by_age + report.deleted_by_count > 0 {
+            self.checkpoint()?;
+        }
+        Ok(report)
+    }
+
     pub fn checkpoint(&self) -> Result<(), StorageError> {
         self.connection
             .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
@@ -341,8 +368,196 @@ impl EncryptedStore {
             connection: destination,
             key,
             path: destination_path,
+            options: StorageOptions::default(),
         })
     }
+}
+
+struct PreparedCapture {
+    capture_id: String,
+    observed_at: i64,
+    target_id: String,
+    source: &'static str,
+    method: String,
+    scheme: String,
+    host: String,
+    port: i64,
+    path: String,
+    provider_id: Option<String>,
+    model: Option<String>,
+    operation: Option<String>,
+    request_json: String,
+    prompt_ir_json: Option<String>,
+    redaction_count: i64,
+    outcome: OutcomeColumns,
+    searchable_text: String,
+}
+
+fn prepare_capture(write: &CaptureWrite<'_>) -> Result<PreparedCapture, StorageError> {
+    if let Some(prompt_ir) = write.prompt_ir {
+        prompt_ir.validate()?;
+        if prompt_ir.request_id != write.capture.envelope().capture_id {
+            return Err(StorageError::PromptRequestMismatch);
+        }
+    }
+
+    let envelope = write.capture.envelope();
+    Ok(PreparedCapture {
+        capture_id: envelope.capture_id.clone(),
+        observed_at: i64::try_from(envelope.observed_at_unix_ms)
+            .map_err(|_| StorageError::NumericOutOfRange)?,
+        target_id: write.capture.target_id().to_owned(),
+        source: source_name(envelope.source),
+        method: envelope.request.method.clone(),
+        scheme: envelope.request.scheme.clone(),
+        host: envelope.request.host.clone(),
+        port: i64::from(envelope.request.port),
+        path: envelope.request.path.clone(),
+        provider_id: write.prompt_ir.map(|prompt| prompt.provider.id.clone()),
+        model: write.prompt_ir.and_then(|prompt| prompt.model.clone()),
+        operation: write.prompt_ir.and_then(|prompt| prompt.operation.clone()),
+        request_json: serde_json::to_string(envelope)?,
+        prompt_ir_json: write.prompt_ir.map(serde_json::to_string).transpose()?,
+        redaction_count: i64::try_from(envelope.redactions.len())
+            .map_err(|_| StorageError::NumericOutOfRange)?,
+        outcome: outcome_columns(envelope)?,
+        searchable_text: searchable_text(envelope, write.prompt_ir)?,
+    })
+}
+
+fn upsert_prepared(
+    transaction: &rusqlite::Transaction<'_>,
+    capture: &PreparedCapture,
+) -> Result<(), StorageError> {
+    transaction.execute(
+        "
+        INSERT INTO captures (
+            capture_id, observed_at_unix_ms, target_id, source, method, scheme,
+            host, port, path, provider_id, model, operation, request_json,
+            prompt_ir_json, redaction_count, policy_version, outcome_kind,
+            status_code, duration_ms
+        ) VALUES (
+            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
+            ?17, ?18, ?19
+        )
+        ON CONFLICT(capture_id) DO UPDATE SET
+            observed_at_unix_ms = excluded.observed_at_unix_ms,
+            target_id = excluded.target_id,
+            source = excluded.source,
+            method = excluded.method,
+            scheme = excluded.scheme,
+            host = excluded.host,
+            port = excluded.port,
+            path = excluded.path,
+            provider_id = excluded.provider_id,
+            model = excluded.model,
+            operation = excluded.operation,
+            request_json = excluded.request_json,
+            prompt_ir_json = excluded.prompt_ir_json,
+            redaction_count = excluded.redaction_count,
+            policy_version = excluded.policy_version,
+            outcome_kind = excluded.outcome_kind,
+            status_code = excluded.status_code,
+            duration_ms = excluded.duration_ms
+        ",
+        params![
+            capture.capture_id.as_str(),
+            capture.observed_at,
+            capture.target_id.as_str(),
+            capture.source,
+            capture.method.as_str(),
+            capture.scheme.as_str(),
+            capture.host.as_str(),
+            capture.port,
+            capture.path.as_str(),
+            capture.provider_id.as_deref(),
+            capture.model.as_deref(),
+            capture.operation.as_deref(),
+            capture.request_json.as_str(),
+            capture.prompt_ir_json.as_deref(),
+            capture.redaction_count,
+            CAPTURE_POLICY_VERSION,
+            capture.outcome.kind,
+            capture.outcome.status_code,
+            capture.outcome.duration_ms,
+        ],
+    )?;
+    transaction.execute(
+        "DELETE FROM capture_search WHERE capture_id = ?1",
+        [capture.capture_id.as_str()],
+    )?;
+    transaction.execute(
+        "INSERT INTO capture_search (capture_id, searchable_text) VALUES (?1, ?2)",
+        params![
+            capture.capture_id.as_str(),
+            capture.searchable_text.as_str()
+        ],
+    )?;
+    Ok(())
+}
+
+fn validate_retention_policy(policy: &RetentionPolicy) -> Result<(), StorageError> {
+    if !(1..=MAX_RETENTION_BATCH_SIZE).contains(&policy.batch_size) {
+        return Err(StorageError::InvalidRetentionPolicy);
+    }
+    Ok(())
+}
+
+fn select_oldest_before(
+    connection: &Connection,
+    cutoff_unix_ms: i64,
+    limit: usize,
+) -> Result<Vec<String>, StorageError> {
+    let limit = i64::try_from(limit).map_err(|_| StorageError::InvalidRetentionPolicy)?;
+    let mut statement = connection.prepare(
+        "
+        SELECT capture_id
+        FROM captures
+        WHERE observed_at_unix_ms < ?1
+        ORDER BY observed_at_unix_ms ASC, capture_id ASC
+        LIMIT ?2
+        ",
+    )?;
+    statement
+        .query_map(params![cutoff_unix_ms, limit], |row| row.get(0))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(Into::into)
+}
+
+fn select_oldest(connection: &Connection, limit: usize) -> Result<Vec<String>, StorageError> {
+    let limit = i64::try_from(limit).map_err(|_| StorageError::InvalidRetentionPolicy)?;
+    let mut statement = connection.prepare(
+        "
+        SELECT capture_id
+        FROM captures
+        ORDER BY observed_at_unix_ms ASC, capture_id ASC
+        LIMIT ?1
+        ",
+    )?;
+    statement
+        .query_map([limit], |row| row.get(0))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(Into::into)
+}
+
+fn delete_capture_ids(
+    connection: &mut Connection,
+    capture_ids: &[String],
+) -> Result<u64, StorageError> {
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let mut deleted = 0_u64;
+    for capture_id in capture_ids {
+        transaction.execute(
+            "DELETE FROM capture_search WHERE capture_id = ?1",
+            [capture_id],
+        )?;
+        deleted += u64::try_from(
+            transaction.execute("DELETE FROM captures WHERE capture_id = ?1", [capture_id])?,
+        )
+        .map_err(|_| StorageError::NumericOutOfRange)?;
+    }
+    transaction.commit()?;
+    Ok(deleted)
 }
 
 fn open_writable_connection(path: &Path, key: &DatabaseKey) -> Result<Connection, StorageError> {
