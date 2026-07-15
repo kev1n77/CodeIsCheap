@@ -16,13 +16,13 @@
       <p class="lead">本页是项目状态的单一入口。开发计划定义“应该做什么”，本页只记录“当前做到哪里、是否健康、下一步是什么”。</p>
 
       <div class="meta-grid">
-        <div class="meta-item"><span>工程进度</span><strong>42%</strong></div>
+        <div class="meta-item"><span>工程进度</span><strong>43%</strong></div>
         <div class="meta-item"><span>当前阶段</span><strong>显式代理与证书生命周期</strong></div>
         <div class="meta-item"><span>当前迭代</span><strong>S4 · 进行中</strong></div>
         <div class="meta-item"><span>最后更新</span><strong>2026-07-15</strong></div>
       </div>
 
-      <div class="decision"><strong>当前结论</strong>CAP-003 已完成 bundle、SBOM、原子安装、Tauri 资源嵌入、运行时 hash/contract 复核和最小环境进程边界；仅剩真实平台签名制品。下一项进入 CAP-004 显式代理运行闭环。</div>
+      <div class="decision"><strong>当前结论</strong>CAP-003 已完成 bundle、SBOM、原子安装、Tauri 资源嵌入、运行时 hash/contract 复核和最小环境进程边界；仅剩真实平台签名制品。CAP-004 已打通 sidecar 请求、响应与上游失败事件，下一步接入桌面运行时、认证 IPC 入库和模式控制。</div>
 
       <h2 id="usage">1. 更新规则</h2>
       <ol>
@@ -59,7 +59,7 @@
       <div class="table-wrap"><table><thead><tr><th>工作流</th><th>任务范围</th><th>进度</th><th>状态</th><th>Owner</th><th>本周重点</th></tr></thead><tbody>
         <tr><td>架构与工程基础</td><td>ARC-001~004</td><td>100%</td><td><span class="status done">Done</span></td><td>Codex / TBD</td><td>保持 schema、事件与 command 契约同步</td></tr>
         <tr><td>Desktop / Frontend</td><td>APP-001~006</td><td>75%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>准备 Compare 与设置诊断交互</td></tr>
-        <tr><td>Capture / Network</td><td>CAP-001~007</td><td>42%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>推进显式代理运行时；生产签名随发布凭据补齐</td></tr>
+        <tr><td>Capture / Network</td><td>CAP-001~007</td><td>45%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>接入桌面显式代理运行时、认证 IPC 入库与模式控制；生产签名随发布凭据补齐</td></tr>
         <tr><td>Prompt / Adapters</td><td>PAR-001~007</td><td>57%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>准备 Gemini 适配器与 token 来源模型</td></tr>
         <tr><td>Data / Security</td><td>DAT-001~002、SEC-001~004</td><td>48%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>继续日志与临时文件 canary</td></tr>
         <tr><td>Test / Release</td><td>TST-001~004、REL-001~003</td><td>25%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>准备 TST-002 sidecar 与证书生命周期测试</td></tr>
@@ -79,7 +79,7 @@
         <tr><td class="task-id">CAP-001</td><td>实现 Local AI Gateway</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>OpenAI-compatible 本地端点保持双向流式、取消传播、头清理与稳定 502</td></tr>
         <tr><td class="task-id">CAP-002</td><td>实现请求/响应 tee 与背压</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>有界前缀、非阻塞队列、截断/取消/降级指标和暂停控制通过集成测试</td></tr>
         <tr><td class="task-id">CAP-003</td><td>打包 mitmproxy sidecar 与最小 addon</td><td><span class="status active">In progress</span></td><td>95%</td><td>Codex / Release Owner TBD</td><td>2026-08-25</td><td>三平台 bundle、manifest、SBOM、原子安装、Tauri 资源、运行时校验与最小环境启动完成；正式 Authenticode/Developer ID 制品待发布凭据</td></tr>
-        <tr><td class="task-id">CAP-004</td><td>显式代理与 TLS flow</td><td><span class="status">Not started</span></td><td>0%</td><td>Codex / TBD</td><td>2026-08-25</td><td>HTTP/1.1、HTTP/2、SSE、压缩与非目标 tunnel 待实现</td></tr>
+        <tr><td class="task-id">CAP-004</td><td>显式代理与 TLS flow</td><td><span class="status active">In progress</span></td><td>25%</td><td>Codex / TBD</td><td>2026-08-25</td><td>sidecar 已发送同一 capture_id 的请求、响应和上游失败事件，并在 IPC 前清洗响应凭据；桌面运行时、持久化、模式控制及 HTTP/2/压缩覆盖待实现</td></tr>
         <tr><td class="task-id">CAP-005</td><td>证书生命周期</td><td><span class="status">Not started</span></td><td>0%</td><td>Codex / TBD</td><td>2026-08-25</td><td>每设备 CA、指纹、信任检查和卸载流程待实现</td></tr>
         <tr><td class="task-id">DAT-001</td><td>SQLCipher、迁移、WAL 与 OS 凭据库</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>schema v2 可从 v0/v1 升级，响应类型、状态码和耗时可查询；备份恢复、DB/WAL canary 与 OS 凭据库均通过</td></tr>
         <tr><td class="task-id">DAT-002</td><td>写入、查询、保留与磁盘压力</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>批量写入原子提交；默认保留 30 天/50,000 条并以 500 条事务清理；低于 256 MiB 或 SQLITE_FULL 时暂停记录但保持 Gateway 转发</td></tr>

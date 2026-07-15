@@ -18,6 +18,7 @@ sys.path.insert(0, str(SIDECAR_DIR))
 from codeischeap_addon import (
     IpcConfig,
     build_envelope,
+    build_failure_envelope,
     load_policy,
     send_envelope,
     should_capture,
@@ -71,6 +72,26 @@ class FakeFlow:
     request = FakeRequest()
 
 
+class FakeResponse:
+    status_code = 429
+    timestamp_end = FakeRequest.timestamp_start + 0.875
+    headers = FakeHeaders(
+        [
+            ("content-type", "application/json"),
+            ("set-cookie", "response-cookie-canary"),
+            ("x-request-id", "response_1"),
+        ]
+    )
+    content = json.dumps(
+        {"error": "rate limited", "access_token": "response-body-canary"}
+    ).encode()
+    raw_content = content
+
+
+class FakeError:
+    timestamp = FakeRequest.timestamp_start + 0.125
+
+
 class AddonTests(unittest.TestCase):
     def test_output_matches_the_shared_rust_fixture(self) -> None:
         expected = json.loads(FIXTURE.read_text(encoding="utf-8"))
@@ -107,6 +128,59 @@ class AddonTests(unittest.TestCase):
             {"state": "omitted_unsupported_content_type", "content": None},
         )
         self.assertNotIn("opaque-canary", json.dumps(envelope))
+
+    def test_response_outcome_preserves_json_and_removes_response_credentials(self) -> None:
+        flow = FakeFlow()
+        flow.response = FakeResponse()
+
+        envelope = build_envelope(flow)
+        encoded = json.dumps(envelope)
+
+        self.assertEqual(envelope["outcome"]["kind"], "response")
+        result = envelope["outcome"]["result"]
+        self.assertEqual(result["status"], 429)
+        self.assertEqual(result["duration_ms"], 875)
+        self.assertEqual(result["body"]["content"], {"error": "rate limited"})
+        self.assertEqual(
+            result["headers"],
+            [
+                {"name": "content-type", "value": "application/json"},
+                {"name": "x-request-id", "value": "response_1"},
+            ],
+        )
+        self.assertNotIn("response-cookie-canary", encoded)
+        self.assertNotIn("response-body-canary", encoded)
+        self.assertIn(
+            {"location": "response_header", "name": "set-cookie"},
+            envelope["redactions"],
+        )
+        self.assertIn(
+            {"location": "response_body", "name": "access_token"},
+            envelope["redactions"],
+        )
+
+    def test_sse_response_is_preserved_as_utf8_text(self) -> None:
+        flow = FakeFlow()
+        flow.response = FakeResponse()
+        flow.response.headers = FakeHeaders([("content-type", "text/event-stream")])
+        flow.response.content = b'event: message\ndata: {"delta":"done"}\n\n'
+
+        body = build_envelope(flow)["outcome"]["result"]["body"]
+
+        self.assertEqual(body["state"], "text")
+        self.assertIn("event: message", body["content"])
+
+    def test_upstream_failure_retains_the_request_and_duration(self) -> None:
+        flow = FakeFlow()
+        flow.error = FakeError()
+
+        envelope = build_failure_envelope(flow)
+
+        self.assertEqual(envelope["capture_id"], "flow_1")
+        self.assertEqual(
+            envelope["outcome"],
+            {"kind": "upstream_failure", "result": {"duration_ms": 125}},
+        )
 
     def test_only_explicit_target_hosts_are_captured(self) -> None:
         self.assertTrue(
