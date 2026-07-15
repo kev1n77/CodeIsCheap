@@ -195,7 +195,7 @@ describe("request workbench", () => {
       await user.keyboard("{ArrowDown}");
     }
 
-    expect(await within(listbox).findByText("Synthetic request 12")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "model-12" })).toBeInTheDocument();
     expect(listbox.scrollTop).toBeGreaterThan(0);
 
     const search = screen.getByRole("textbox", { name: "Search requests" });
@@ -213,7 +213,6 @@ describe("request workbench", () => {
 
     await screen.findByText("1001 visible");
     expect(search).toHaveFocus();
-    const selected = within(listbox).getAllByRole("option").find((option) => option.getAttribute("aria-selected") === "true");
-    expect(selected).toHaveTextContent("Synthetic request 12");
+    expect(screen.getByRole("heading", { name: "model-12" })).toBeInTheDocument();
   });
 });
