@@ -1,0 +1,183 @@
+{
+  "ir_version": "0.1.0",
+  "request_id": "openai_responses_fixture",
+  "provider": {
+    "id": "openai",
+    "host": "api.openai.com",
+    "confidence": 1.0
+  },
+  "operation": "responses.create",
+  "model": "gpt-5.2",
+  "instructions": [
+    {
+      "id": "instruction_0",
+      "role": "developer",
+      "parts": [
+        {
+          "kind": "text",
+          "id": "instruction_0_part_0",
+          "text": "Act as a precise repository maintainer.",
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/instructions"
+            },
+            "confidence": 1.0
+          }
+        }
+      ],
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/instructions"
+        },
+        "confidence": 1.0
+      }
+    }
+  ],
+  "messages": [
+    {
+      "id": "message_0",
+      "role": "user",
+      "parts": [
+        {
+          "kind": "text",
+          "id": "message_0_part_0",
+          "text": "Fix the parser without changing public behavior.",
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/input/0/content/0"
+            },
+            "confidence": 1.0
+          }
+        },
+        {
+          "kind": "image_ref",
+          "id": "message_0_part_1",
+          "location": "https://example.invalid/diagram.png",
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/input/0/content/1"
+            },
+            "confidence": 1.0
+          }
+        }
+      ],
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/input/0"
+        },
+        "confidence": 1.0
+      }
+    },
+    {
+      "id": "message_1",
+      "role": "assistant",
+      "parts": [
+        {
+          "kind": "tool_use",
+          "id": "call_read",
+          "name": "read_file",
+          "input": {
+            "path": "src/parser.rs"
+          },
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/input/1"
+            },
+            "confidence": 1.0
+          }
+        }
+      ],
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/input/1"
+        },
+        "confidence": 1.0
+      }
+    },
+    {
+      "id": "message_2",
+      "role": "tool",
+      "parts": [
+        {
+          "kind": "tool_result",
+          "id": "message_2_tool_result",
+          "tool_use_id": "call_read",
+          "value": {
+            "language": "rust",
+            "lines": 120
+          },
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/input/2"
+            },
+            "confidence": 1.0
+          }
+        }
+      ],
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/input/2"
+        },
+        "confidence": 1.0
+      }
+    }
+  ],
+  "context": [],
+  "tools": [
+    {
+      "id": "tool_0",
+      "name": "read_file",
+      "description": "Read a UTF-8 source file.",
+      "input_schema": {
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/tools/0"
+        },
+        "confidence": 1.0
+      }
+    }
+  ],
+  "generation": {
+    "temperature": 0.2,
+    "top_p": 0.9,
+    "max_output_tokens": 2048
+  },
+  "vendor": {
+    "parallel_tool_calls": false,
+    "stream": true
+  },
+  "completeness": {
+    "request_body": "complete",
+    "response_body": "missing"
+  }
+}

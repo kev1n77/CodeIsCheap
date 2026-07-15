@@ -1,18 +1,17 @@
 use std::error::Error;
 use std::sync::Mutex;
 
+use codeischeap_adapters::AdapterRegistry;
 use codeischeap_capture_ipc::CaptureEnvelope;
 use codeischeap_capture_policy::CapturePolicy;
 use codeischeap_core::persist_capture;
 use codeischeap_desktop_api::{WorkspaceBootstrap, load_workspace};
-use codeischeap_prompt_ir::PromptIr;
 use codeischeap_storage::{EncryptedStore, OsKeyStore};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, State, WindowEvent};
 
 const DEMO_CAPTURE: &str = include_str!("../fixtures/demo-capture.json");
-const DEMO_PROMPT_IR: &str = include_str!("../fixtures/demo-prompt-ir.json");
 const KEY_SERVICE: &str = "com.codeischeap.desktop";
 const KEY_ACCOUNT: &str = "capture-database-v1";
 
@@ -100,10 +99,10 @@ fn seed_demo_capture(store: &mut EncryptedStore) -> Result<(), Box<dyn Error>> {
     if store.get_capture(&envelope.capture_id)?.is_some() {
         return Ok(());
     }
-    let prompt_ir: PromptIr = serde_json::from_str(DEMO_PROMPT_IR)?;
     let policy = CapturePolicy::load_default()?;
     let sanitized = policy.sanitize_envelope(envelope)?;
-    persist_capture(store, &sanitized, Some(&prompt_ir))?;
+    let parsed = AdapterRegistry::default().parse(&sanitized);
+    persist_capture(store, &sanitized, parsed.prompt_ir.as_ref())?;
     Ok(())
 }
 
@@ -139,6 +138,18 @@ mod tests {
         assert_eq!(workspace.requests.len(), 1);
         assert_eq!(workspace.requests[0].id, "demo_openai_parser");
         assert_eq!(workspace.requests[0].provider, "OpenAI");
+        assert_eq!(
+            workspace.requests[0].prompt_preview,
+            "Fix the failing parser test."
+        );
+        assert!(workspace.requests[0].has_tools);
+        assert!(
+            workspace.requests[0]
+                .detail
+                .anatomy
+                .iter()
+                .any(|section| section.id == "messages" && section.count == 1)
+        );
         let encoded = serde_json::to_string(&workspace).expect("workspace must encode");
         for forbidden in ["Bearer ", "sk-", "x-api-key"] {
             assert!(

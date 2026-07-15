@@ -14,11 +14,11 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.5.3", features = [] }
 
 [dependencies]
+codeischeap-adapters = { path = "../../../crates/adapters" }
 codeischeap-capture-ipc = { path = "../../../crates/capture-ipc" }
 codeischeap-capture-policy = { path = "../../../crates/capture-policy" }
 codeischeap-core = { path = "../../../crates/core" }
 codeischeap-desktop-api = { path = "../../../crates/desktop-api" }
-codeischeap-prompt-ir = { path = "../../../crates/prompt-ir" }
 codeischeap-storage = { path = "../../../crates/storage" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

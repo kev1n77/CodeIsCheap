@@ -1,0 +1,66 @@
+{
+  "version": "0.1",
+  "capture_id": "openai_chat_fixture",
+  "observed_at_unix_ms": 1784071001000,
+  "source": "mitmproxy",
+  "request": {
+    "method": "POST",
+    "scheme": "https",
+    "host": "api.openai.com",
+    "port": 443,
+    "path": "/v1/chat/completions",
+    "query": [],
+    "headers": [{ "name": "content-type", "value": "application/json" }],
+    "body": {
+      "state": "json",
+      "content": {
+        "model": "gpt-4.1",
+        "messages": [
+          { "role": "system", "content": "You are a coding assistant." },
+          {
+            "role": "developer",
+            "content": [{ "type": "text", "text": "Cite concrete evidence." }]
+          },
+          {
+            "role": "user",
+            "content": [
+              { "type": "text", "text": "Review this patch." },
+              { "type": "image_url", "image_url": { "url": "https://example.invalid/diff.png" } }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "call_search",
+                "type": "function",
+                "function": { "name": "search", "arguments": "{\"query\":\"TODO\"}" }
+              }
+            ]
+          },
+          { "role": "tool", "tool_call_id": "call_search", "content": "3 matches" }
+        ],
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "search",
+              "description": "Search repository text.",
+              "parameters": {
+                "type": "object",
+                "properties": { "query": { "type": "string" } },
+                "required": ["query"]
+              }
+            }
+          }
+        ],
+        "temperature": 0,
+        "max_completion_tokens": 1024,
+        "stream": true,
+        "tool_choice": "auto"
+      }
+    }
+  },
+  "redactions": [{ "location": "header", "name": "authorization" }]
+}
