@@ -157,7 +157,11 @@ kbd { min-width: 18px; padding: 1px 5px; border: 1px solid var(--border); border
 .anatomy-item { padding: 13px 0 14px 24px; border-bottom: 1px solid var(--border); }
 .anatomy-item:last-child { border-bottom: 0; }
 .anatomy-item > div { display: flex; align-items: center; gap: 8px; }
-.anatomy-item code { margin-left: auto; color: var(--text-tertiary); font-size: 9px; }
+.evidence-link { min-width: 0; margin-left: auto; display: flex; align-items: center; gap: 4px; padding: 3px 5px; border: 0; border-radius: 4px; background: transparent; color: var(--text-tertiary); cursor: pointer; }
+.evidence-link:hover { background: var(--accent-soft); color: var(--accent-strong); }
+.evidence-link:disabled { cursor: not-allowed; opacity: 0.55; }
+.evidence-link:disabled:hover { background: transparent; color: var(--text-tertiary); }
+.evidence-link code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; }
 .anatomy-item p { margin: 8px 0 0; color: var(--text-secondary); line-height: 1.55; white-space: pre-wrap; }
 .role-label { padding: 2px 6px; border-radius: 3px; background: var(--bg); color: var(--text-secondary); font-size: 10px; font-weight: 700; }
 .role-system { color: var(--danger); background: var(--danger-soft); }.role-developer { color: var(--amber); background: var(--amber-soft); }.role-user { color: var(--blue); background: var(--blue-soft); }.role-assistant { color: var(--accent); background: var(--accent-soft); }
@@ -170,10 +174,14 @@ kbd { min-width: 18px; padding: 1px 5px; border: 1px solid var(--border); border
 .event-security { background: var(--accent); }.event-error { background: var(--danger); }.event-stream { background: var(--blue); }.event-tool { background: var(--amber); }.event-complete { background: var(--accent); }
 .timeline-event time { color: var(--text-tertiary); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 10px; }
 .timeline-event strong { font-size: 12px; }.timeline-event p { margin: 5px 0 0; color: var(--text-secondary); }
-.raw-view { padding: 14px 16px 28px; }
+.raw-view { height: 100%; min-height: 0; display: flex; flex-direction: column; padding: 14px 16px 18px; }
 .raw-banner { display: flex; align-items: center; gap: 7px; margin-bottom: 12px; padding: 9px 10px; border: 1px solid var(--border); border-radius: 5px; color: var(--text-secondary); background: var(--surface-subtle); font-size: 11px; }
 .raw-banner svg { color: var(--accent); }
-.raw-view pre { min-height: 100%; margin: 0; padding: 16px; overflow: auto; border: 1px solid var(--border); border-radius: 5px; background: #151815; color: #dfe7df; font: 11px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; tab-size: 2; }
+.raw-location { min-width: 0; display: flex; align-items: center; gap: 7px; margin: -4px 0 10px; color: var(--accent-strong); font-size: 11px; }
+.raw-location code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
+.raw-view pre { flex: 1; min-height: 0; margin: 0; padding: 16px; overflow: auto; border: 1px solid var(--border); border-radius: 5px; background: #151815; color: #dfe7df; font: 11px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; tab-size: 2; }
+.raw-line { display: block; width: max-content; min-width: 100%; }
+.raw-line.is-highlighted { margin-left: -8px; padding-left: 6px; border-left: 2px solid #74d6a8; background: #244d3b; color: #ffffff; }
 .empty-inspector { background: var(--surface); }
 .loading-state { height: 100%; display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--text-secondary); }
 .load-failure { height: 100%; display: grid; place-items: center; align-content: center; gap: 9px; padding: 24px; color: var(--danger); text-align: center; }
