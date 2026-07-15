@@ -11,6 +11,16 @@
       "format": "uint64",
       "minimum": 0
     },
+    "outcome": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CaptureOutcome"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "redactions": {
       "type": "array",
       "default": [],
@@ -37,6 +47,42 @@
     "request"
   ],
   "$defs": {
+    "CaptureOutcome": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "response"
+            },
+            "result": {
+              "$ref": "#/$defs/CapturedResponse"
+            }
+          },
+          "required": [
+            "kind",
+            "result"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "upstream_failure"
+            },
+            "result": {
+              "$ref": "#/$defs/CapturedUpstreamFailure"
+            }
+          },
+          "required": [
+            "kind",
+            "result"
+          ]
+        }
+      ]
+    },
     "CaptureRedaction": {
       "type": "object",
       "properties": {
@@ -78,6 +124,7 @@
       "enum": [
         "empty",
         "json",
+        "text",
         "invalid_json",
         "invalid_utf8",
         "truncated",
@@ -149,12 +196,72 @@
         "body"
       ]
     },
+    "CapturedResponse": {
+      "type": "object",
+      "properties": {
+        "body": {
+          "$ref": "#/$defs/CapturedBody"
+        },
+        "completeness": {
+          "$ref": "#/$defs/ResponseCompleteness"
+        },
+        "duration_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "headers": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/CapturedField"
+          }
+        },
+        "status": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "body",
+        "duration_ms",
+        "completeness"
+      ]
+    },
+    "CapturedUpstreamFailure": {
+      "type": "object",
+      "properties": {
+        "duration_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "duration_ms"
+      ]
+    },
     "RedactionLocation": {
       "type": "string",
       "enum": [
         "header",
         "query",
-        "body"
+        "body",
+        "response_header",
+        "response_body"
+      ]
+    },
+    "ResponseCompleteness": {
+      "type": "string",
+      "enum": [
+        "complete",
+        "truncated",
+        "incomplete"
       ]
     }
   }

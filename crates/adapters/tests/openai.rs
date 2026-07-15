@@ -291,6 +291,7 @@ fn sanitized(capture_id: &str, host: &str, path: &str, body: CapturedBody) -> Sa
             headers: Vec::new(),
             body,
         },
+        outcome: None,
         redactions: Vec::new(),
     };
     CapturePolicy::load_default()

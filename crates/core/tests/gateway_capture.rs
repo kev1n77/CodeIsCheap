@@ -7,11 +7,13 @@ use axum::body::{Body, to_bytes};
 use axum::extract::State;
 use axum::http::{Request, Response};
 use codeischeap_adapters::{AdapterRegistry, OPENAI_ADAPTER_ID};
-use codeischeap_capture_ipc::CaptureSource;
+use codeischeap_capture_ipc::{
+    CaptureOutcome, CaptureSource, CapturedBodyState, ResponseCompleteness,
+};
 use codeischeap_capture_policy::CapturePolicy;
 use codeischeap_core::{GatewayCaptureOutcome, process_gateway_event};
-use codeischeap_desktop_api::load_workspace;
-use codeischeap_gateway::{Gateway, GatewayCapture, GatewayCaptureEvent};
+use codeischeap_desktop_api::{CaptureStatus, load_workspace};
+use codeischeap_gateway::{Gateway, GatewayCapture};
 use codeischeap_storage::{DatabaseKey, EncryptedStore};
 use serde_json::json;
 use tempfile::tempdir;
@@ -59,6 +61,9 @@ struct ObservedRequest {
     body: Vec<u8>,
 }
 
+const RESPONSE_HEADER_SECRET: &str = "gateway-response-header-canary";
+const RESPONSE_BODY_SECRET: &str = "gateway-response-body-canary";
+
 async fn fake_openai(State(probe): State<ProviderProbe>, request: Request<Body>) -> Response<Body> {
     let authorization = request
         .headers()
@@ -78,7 +83,10 @@ async fn fake_openai(State(probe): State<ProviderProbe>, request: Request<Body>)
     });
     Response::builder()
         .header("content-type", "application/json")
-        .body(Body::from(r#"{"id":"response_1","status":"completed"}"#))
+        .header("set-cookie", RESPONSE_HEADER_SECRET)
+        .body(Body::from(format!(
+            r#"{{"id":"response_1","status":"completed","token":"{RESPONSE_BODY_SECRET}"}}"#
+        )))
         .expect("provider response must build")
 }
 
@@ -98,7 +106,7 @@ async fn gateway_request_reaches_openai_adapter_sqlcipher_and_desktop_api() {
     )
     .await;
     let (capture, mut receiver, metrics) =
-        GatewayCapture::channel(1, 64 * 1024).expect("capture must build");
+        GatewayCapture::channel(8, 64 * 1024).expect("capture must build");
     let gateway = Gateway::new(upstream.base_url.clone())
         .expect("gateway must build")
         .with_capture(capture);
@@ -133,7 +141,8 @@ async fn gateway_request_reaches_openai_adapter_sqlcipher_and_desktop_api() {
         .expect("gateway response must be readable");
     assert_eq!(
         response.as_ref(),
-        br#"{"id":"response_1","status":"completed"}"#
+        format!(r#"{{"id":"response_1","status":"completed","token":"{RESPONSE_BODY_SECRET}"}}"#)
+            .as_bytes()
     );
 
     let observed = probe
@@ -145,10 +154,7 @@ async fn gateway_request_reaches_openai_adapter_sqlcipher_and_desktop_api() {
     assert_eq!(observed.authorization, format!("Bearer {HEADER_SECRET}"));
     assert_eq!(observed.query, format!("api-key={QUERY_SECRET}"));
     assert_eq!(observed.body, encoded_request);
-    assert_eq!(metrics.snapshot().dropped_queue_full, 1);
-
-    let event = receiver.recv().await.expect("request capture must arrive");
-    assert!(matches!(event, GatewayCaptureEvent::Request(_)));
+    assert_eq!(metrics.snapshot().dropped_queue_full, 0);
     let directory = tempdir().expect("temp directory must be created");
     let database_path = directory.path().join("captures.db");
     let mut store = EncryptedStore::open(&database_path, DatabaseKey::from_bytes([0x62; 32]))
@@ -159,35 +165,89 @@ async fn gateway_request_reaches_openai_adapter_sqlcipher_and_desktop_api() {
             .host_str()
             .expect("upstream must have a host"),
     );
-    let outcome = process_gateway_event(&mut store, &policy, &AdapterRegistry::default(), event)
-        .expect("gateway capture must persist");
-    let GatewayCaptureOutcome::Persisted(outcome) = outcome else {
-        panic!("request event must produce a persisted outcome");
-    };
-    assert_eq!(outcome.adapter_id.as_deref(), Some(OPENAI_ADAPTER_ID));
-    assert!(!outcome.raw_fallback);
+    let mut capture_id = None;
+    let mut response_persisted = false;
+    for _ in 0..2 {
+        let event = receiver.recv().await.expect("capture event must arrive");
+        match process_gateway_event(&mut store, &policy, &AdapterRegistry::default(), event)
+            .expect("gateway capture must persist")
+        {
+            GatewayCaptureOutcome::Persisted(outcome) => {
+                assert_eq!(outcome.adapter_id.as_deref(), Some(OPENAI_ADAPTER_ID));
+                assert!(!outcome.raw_fallback);
+                capture_id = Some(outcome.capture_id);
+            }
+            GatewayCaptureOutcome::ResponseObserved(outcome) => {
+                assert_eq!(outcome.status, 200);
+                assert!(outcome.complete);
+                assert!(!outcome.truncated);
+                assert!(outcome.persisted);
+                response_persisted = true;
+            }
+            GatewayCaptureOutcome::UpstreamFailed(_) => {
+                panic!("successful upstream must not fail")
+            }
+        }
+    }
+    let capture_id = capture_id.expect("request event must persist");
+    assert!(response_persisted);
 
     let stored = store
-        .get_capture(&outcome.capture_id)
+        .get_capture(&capture_id)
         .expect("capture query must succeed")
         .expect("capture must exist");
     assert_eq!(stored.envelope.source, CaptureSource::Gateway);
-    assert_eq!(stored.envelope.redactions.len(), 4);
+    assert_eq!(stored.envelope.redactions.len(), 6);
     assert!(stored.prompt_ir.is_some());
+    let CaptureOutcome::Response(stored_response) = stored
+        .envelope
+        .outcome
+        .as_ref()
+        .expect("response must be attached")
+    else {
+        panic!("stored outcome must be a response");
+    };
+    assert_eq!(stored_response.status, 200);
+    assert_eq!(stored_response.completeness, ResponseCompleteness::Complete);
+    assert_eq!(stored_response.body.state, CapturedBodyState::Json);
+    assert!(
+        stored_response
+            .headers
+            .iter()
+            .all(|header| header.name != "set-cookie")
+    );
     let stored_json = serde_json::to_string(&(&stored.envelope, &stored.prompt_ir))
         .expect("stored capture must encode");
     assert!(!stored_json.contains(HEADER_SECRET));
     assert!(!stored_json.contains(QUERY_SECRET));
     assert!(!stored_json.contains(BODY_SECRET));
     assert!(!stored_json.contains(NESTED_SECRET));
+    assert!(!stored_json.contains(RESPONSE_HEADER_SECRET));
+    assert!(!stored_json.contains(RESPONSE_BODY_SECRET));
     assert!(stored_json.contains(PROMPT));
 
     let workspace = load_workspace(&store).expect("desktop workspace must load");
     assert_eq!(workspace.capture.request_count, 1);
     assert_eq!(workspace.requests[0].provider, "OpenAI");
     assert_eq!(workspace.requests[0].prompt_preview, PROMPT);
+    assert_eq!(workspace.requests[0].status, CaptureStatus::Complete);
+    assert!(workspace.requests[0].duration_ms.is_some());
+    assert!(
+        workspace.requests[0]
+            .detail
+            .timeline
+            .iter()
+            .any(|event| event.id == "response_observed")
+    );
     let workspace_json = serde_json::to_string(&workspace).expect("desktop workspace must encode");
-    for secret in [HEADER_SECRET, QUERY_SECRET, BODY_SECRET, NESTED_SECRET] {
+    for secret in [
+        HEADER_SECRET,
+        QUERY_SECRET,
+        BODY_SECRET,
+        NESTED_SECRET,
+        RESPONSE_HEADER_SECRET,
+        RESPONSE_BODY_SECRET,
+    ] {
         assert!(!workspace_json.contains(secret));
         assert_file_excludes(&database_path, secret);
         assert_file_excludes(&database_path.with_extension("db-wal"), secret);
@@ -204,7 +264,7 @@ fn test_policy(host: &str) -> CapturePolicy {
                 "methods": ["POST"],
                 "paths": ["/v1/responses"]
             }],
-            "sensitive_names": ["authorization", "api-key", "password", "token"]
+            "sensitive_names": ["authorization", "set-cookie", "api-key", "password", "token"]
         })
         .to_string(),
     )

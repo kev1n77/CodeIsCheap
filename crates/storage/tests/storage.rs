@@ -2,8 +2,8 @@ use std::fs;
 use std::path::Path;
 
 use codeischeap_capture_ipc::{
-    CAPTURE_ENVELOPE_VERSION, CaptureEnvelope, CaptureSource, CapturedBody, CapturedBodyState,
-    CapturedField, CapturedRequest,
+    CAPTURE_ENVELOPE_VERSION, CaptureEnvelope, CaptureOutcome, CaptureSource, CapturedBody,
+    CapturedBodyState, CapturedField, CapturedRequest, CapturedResponse, ResponseCompleteness,
 };
 use codeischeap_capture_policy::{CapturePolicy, SanitizedCapture};
 use codeischeap_prompt_ir::PromptIr;
@@ -37,6 +37,7 @@ fn sanitized_capture(id: &str, observed_at: u64, prompt: &str) -> SanitizedCaptu
                 content: Some(serde_json::json!({"input": prompt})),
             },
         },
+        outcome: None,
         redactions: Vec::new(),
     };
     policy
@@ -90,6 +91,69 @@ fn sqlcipher_wal_fts_and_round_trip_keep_plaintext_off_disk() {
     assert_files_do_not_contain(directory.path(), PROMPT_CANARY.as_bytes());
     let header = fs::read(&database_path).expect("database must be readable");
     assert!(!header.starts_with(b"SQLite format 3\0"));
+}
+
+#[test]
+fn response_outcomes_round_trip_into_queryable_encrypted_columns() {
+    const RESPONSE_SECRET: &str = "response-storage-secret-canary";
+    let directory = tempdir().expect("temp directory must be created");
+    let database_path = directory.path().join("captures.db");
+    let mut store = EncryptedStore::open(&database_path, DatabaseKey::from_bytes(KEY_BYTES))
+        .expect("encrypted store must open");
+    let policy = CapturePolicy::load_default().expect("policy must load");
+    let mut envelope =
+        sanitized_capture("capture_response", 50, "retry this request").into_envelope();
+    envelope.outcome = Some(CaptureOutcome::Response(CapturedResponse {
+        status: 429,
+        headers: vec![CapturedField {
+            name: "set-cookie".to_owned(),
+            value: RESPONSE_SECRET.to_owned(),
+        }],
+        body: CapturedBody {
+            state: CapturedBodyState::Json,
+            content: Some(serde_json::json!({
+                "error": "rate limited",
+                "token": RESPONSE_SECRET
+            })),
+        },
+        duration_ms: 87,
+        completeness: ResponseCompleteness::Complete,
+    }));
+    let capture = policy
+        .sanitize_envelope(envelope)
+        .expect("response must be sanitized");
+
+    store
+        .upsert_capture(&capture, None)
+        .expect("response outcome must persist");
+
+    let stored = store
+        .get_capture("capture_response")
+        .expect("capture query must succeed")
+        .expect("capture must exist");
+    let CaptureOutcome::Response(response) = stored
+        .envelope
+        .outcome
+        .expect("response outcome must round trip")
+    else {
+        panic!("stored outcome must be a response");
+    };
+    assert_eq!(response.status, 429);
+    assert_eq!(response.duration_ms, 87);
+    assert!(response.headers.is_empty());
+    assert_eq!(
+        response.body.content,
+        Some(serde_json::json!({"error": "rate limited"}))
+    );
+    let summary = store
+        .list_captures(1, None)
+        .expect("summary must load")
+        .pop()
+        .expect("summary must exist");
+    assert_eq!(summary.outcome_kind.as_deref(), Some("response"));
+    assert_eq!(summary.status_code, Some(429));
+    assert_eq!(summary.duration_ms, Some(87));
+    assert_files_do_not_contain(directory.path(), RESPONSE_SECRET.as_bytes());
 }
 
 #[test]

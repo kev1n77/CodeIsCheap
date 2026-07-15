@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use codeischeap_capture_ipc::{CaptureEnvelope, CaptureSource};
+use codeischeap_capture_ipc::{CaptureEnvelope, CaptureOutcome, CaptureSource};
 use codeischeap_capture_policy::{CAPTURE_POLICY_VERSION, SanitizedCapture};
 use codeischeap_prompt_ir::{PromptIr, Validate};
 use rusqlite::backup::Backup;
@@ -91,6 +91,7 @@ impl EncryptedStore {
         let provider_id = prompt_ir.map(|prompt| prompt.provider.id.as_str());
         let model = prompt_ir.and_then(|prompt| prompt.model.as_deref());
         let operation = prompt_ir.and_then(|prompt| prompt.operation.as_deref());
+        let outcome = outcome_columns(envelope)?;
         let searchable_text = searchable_text(envelope, prompt_ir)?;
         let transaction = self
             .connection
@@ -101,9 +102,11 @@ impl EncryptedStore {
             INSERT INTO captures (
                 capture_id, observed_at_unix_ms, target_id, source, method, scheme,
                 host, port, path, provider_id, model, operation, request_json,
-                prompt_ir_json, redaction_count, policy_version
+                prompt_ir_json, redaction_count, policy_version, outcome_kind,
+                status_code, duration_ms
             ) VALUES (
-                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16
+                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
+                ?17, ?18, ?19
             )
             ON CONFLICT(capture_id) DO UPDATE SET
                 observed_at_unix_ms = excluded.observed_at_unix_ms,
@@ -120,7 +123,10 @@ impl EncryptedStore {
                 request_json = excluded.request_json,
                 prompt_ir_json = excluded.prompt_ir_json,
                 redaction_count = excluded.redaction_count,
-                policy_version = excluded.policy_version
+                policy_version = excluded.policy_version,
+                outcome_kind = excluded.outcome_kind,
+                status_code = excluded.status_code,
+                duration_ms = excluded.duration_ms
             ",
             params![
                 envelope.capture_id,
@@ -139,6 +145,9 @@ impl EncryptedStore {
                 prompt_ir_json,
                 redaction_count,
                 CAPTURE_POLICY_VERSION,
+                outcome.kind,
+                outcome.status_code,
+                outcome.duration_ms,
             ],
         )?;
         transaction.execute(
@@ -195,7 +204,8 @@ impl EncryptedStore {
             let mut statement = self.connection.prepare(
                 "
                 SELECT capture_id, observed_at_unix_ms, target_id, provider_id, model,
-                       method, host, path, prompt_ir_json IS NOT NULL, redaction_count
+                       method, host, path, prompt_ir_json IS NOT NULL, redaction_count,
+                       outcome_kind, status_code, duration_ms
                 FROM captures
                 WHERE observed_at_unix_ms < ?1
                    OR (observed_at_unix_ms = ?1 AND capture_id < ?2)
@@ -214,7 +224,8 @@ impl EncryptedStore {
             let mut statement = self.connection.prepare(
                 "
                 SELECT capture_id, observed_at_unix_ms, target_id, provider_id, model,
-                       method, host, path, prompt_ir_json IS NOT NULL, redaction_count
+                       method, host, path, prompt_ir_json IS NOT NULL, redaction_count,
+                       outcome_kind, status_code, duration_ms
                 FROM captures
                 ORDER BY observed_at_unix_ms DESC, capture_id DESC
                 LIMIT ?1
@@ -238,7 +249,8 @@ impl EncryptedStore {
         let mut statement = self.connection.prepare(
             "
             SELECT c.capture_id, c.observed_at_unix_ms, c.target_id, c.provider_id, c.model,
-                   c.method, c.host, c.path, c.prompt_ir_json IS NOT NULL, c.redaction_count
+                   c.method, c.host, c.path, c.prompt_ir_json IS NOT NULL, c.redaction_count,
+                   c.outcome_kind, c.status_code, c.duration_ms
             FROM capture_search
             JOIN captures c ON c.capture_id = capture_search.capture_id
             WHERE capture_search MATCH ?1
@@ -435,6 +447,8 @@ fn plain_fts_query(query: &str) -> Result<String, StorageError> {
 fn row_to_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<CaptureSummary> {
     let observed_at: i64 = row.get(1)?;
     let redaction_count: i64 = row.get(9)?;
+    let status_code: Option<i64> = row.get(11)?;
+    let duration_ms: Option<i64> = row.get(12)?;
     Ok(CaptureSummary {
         capture_id: row.get(0)?,
         observed_at_unix_ms: u64::try_from(observed_at).map_err(|error| {
@@ -450,7 +464,50 @@ fn row_to_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<CaptureSummary> {
         redaction_count: usize::try_from(redaction_count).map_err(|error| {
             rusqlite::Error::FromSqlConversionFailure(9, Type::Integer, Box::new(error))
         })?,
+        outcome_kind: row.get(10)?,
+        status_code: status_code
+            .map(u16::try_from)
+            .transpose()
+            .map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(11, Type::Integer, Box::new(error))
+            })?,
+        duration_ms: duration_ms
+            .map(u64::try_from)
+            .transpose()
+            .map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(12, Type::Integer, Box::new(error))
+            })?,
     })
+}
+
+struct OutcomeColumns {
+    kind: Option<&'static str>,
+    status_code: Option<i64>,
+    duration_ms: Option<i64>,
+}
+
+fn outcome_columns(envelope: &CaptureEnvelope) -> Result<OutcomeColumns, StorageError> {
+    match envelope.outcome.as_ref() {
+        None => Ok(OutcomeColumns {
+            kind: None,
+            status_code: None,
+            duration_ms: None,
+        }),
+        Some(CaptureOutcome::Response(response)) => Ok(OutcomeColumns {
+            kind: Some("response"),
+            status_code: Some(i64::from(response.status)),
+            duration_ms: Some(
+                i64::try_from(response.duration_ms).map_err(|_| StorageError::NumericOutOfRange)?,
+            ),
+        }),
+        Some(CaptureOutcome::UpstreamFailure(failure)) => Ok(OutcomeColumns {
+            kind: Some("upstream_failure"),
+            status_code: None,
+            duration_ms: Some(
+                i64::try_from(failure.duration_ms).map_err(|_| StorageError::NumericOutOfRange)?,
+            ),
+        }),
+    }
 }
 
 fn searchable_text(

@@ -19,6 +19,9 @@ pub struct CaptureSummary {
     pub path: String,
     pub has_prompt_ir: bool,
     pub redaction_count: usize,
+    pub outcome_kind: Option<String>,
+    pub status_code: Option<u16>,
+    pub duration_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

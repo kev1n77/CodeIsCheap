@@ -25,6 +25,8 @@ pub struct CaptureEnvelope {
     pub observed_at_unix_ms: u64,
     pub source: CaptureSource,
     pub request: CapturedRequest,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<CaptureOutcome>,
     #[serde(default)]
     pub redactions: Vec<CaptureRedaction>,
 }
@@ -70,10 +72,43 @@ pub struct CapturedBody {
 pub enum CapturedBodyState {
     Empty,
     Json,
+    Text,
     InvalidJson,
     InvalidUtf8,
     Truncated,
     OmittedUnsupportedContentType,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", content = "result", rename_all = "snake_case")]
+pub enum CaptureOutcome {
+    Response(CapturedResponse),
+    UpstreamFailure(CapturedUpstreamFailure),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CapturedResponse {
+    pub status: u16,
+    #[serde(default)]
+    pub headers: Vec<CapturedField>,
+    pub body: CapturedBody,
+    pub duration_ms: u64,
+    pub completeness: ResponseCompleteness,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CapturedUpstreamFailure {
+    pub duration_ms: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ResponseCompleteness {
+    Complete,
+    Truncated,
+    Incomplete,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -89,6 +124,8 @@ pub enum RedactionLocation {
     Header,
     Query,
     Body,
+    ResponseHeader,
+    ResponseBody,
 }
 
 #[derive(Debug, Deserialize)]
