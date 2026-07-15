@@ -11,7 +11,7 @@ import queue
 import socket
 import threading
 import time
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 from urllib.parse import parse_qsl, urlsplit
 
 
@@ -121,12 +121,14 @@ def _redaction(location: str, name: str) -> dict[str, str]:
     return {"location": location, "name": name}
 
 
-def _sanitize_headers(headers: Any) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+def _sanitize_headers(
+    headers: Any, location: str = "header"
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
     captured = []
     redactions = []
     for name, value in _header_items(headers):
         if _is_sensitive(name):
-            redactions.append(_redaction("header", name))
+            redactions.append(_redaction(location, name))
         else:
             captured.append({"name": name.lower(), "value": value})
     return captured, redactions
@@ -143,37 +145,57 @@ def _sanitize_query(query: str) -> tuple[list[dict[str, str]], list[dict[str, st
     return captured, redactions
 
 
-def _sanitize_json(value: Any, redactions: list[dict[str, str]]) -> Any:
+def _sanitize_json(
+    value: Any, redactions: list[dict[str, str]], location: str
+) -> Any:
     if isinstance(value, dict):
         sanitized = {}
         for key, child in value.items():
             key_text = _text(key)
             if _is_sensitive(key_text):
-                redactions.append(_redaction("body", key_text))
+                redactions.append(_redaction(location, key_text))
             else:
-                sanitized[key_text] = _sanitize_json(child, redactions)
+                sanitized[key_text] = _sanitize_json(child, redactions, location)
         return sanitized
     if isinstance(value, list):
-        return [_sanitize_json(item, redactions) for item in value]
+        return [_sanitize_json(item, redactions, location) for item in value]
     return value
 
 
-def _capture_body(raw_content: bytes | None, content_type: str) -> tuple[dict[str, Any], list[dict[str, str]]]:
+def _capture_body(
+    raw_content: bytes | None,
+    content_type: str,
+    *,
+    allow_text: bool = False,
+    redaction_location: str = "body",
+) -> tuple[dict[str, Any], list[dict[str, str]]]:
     if not raw_content:
         return {"state": "empty", "content": None}, []
-    if "application/json" not in content_type.lower() and "+json" not in content_type.lower():
+    media_type = content_type.lower().partition(";")[0].strip()
+    is_json = media_type == "application/json" or media_type.endswith("+json")
+    is_text = media_type.startswith("text/") or media_type in {
+        "application/x-ndjson",
+        "application/json-seq",
+        "application/ndjson",
+    }
+    if not is_json and not (allow_text and is_text):
         return {"state": "omitted_unsupported_content_type", "content": None}, []
     try:
         decoded = raw_content.decode("utf-8")
     except UnicodeDecodeError:
         return {"state": "invalid_utf8", "content": None}, []
+    if allow_text and is_text and not is_json:
+        return {"state": "text", "content": decoded}, []
+
+    redactions: list[dict[str, str]] = []
     try:
         value = json.loads(decoded)
     except json.JSONDecodeError:
         return {"state": "invalid_json", "content": None}, []
-
-    redactions: list[dict[str, str]] = []
-    return {"state": "json", "content": _sanitize_json(value, redactions)}, redactions
+    return {
+        "state": "json",
+        "content": _sanitize_json(value, redactions, redaction_location),
+    }, redactions
 
 
 def target_hosts() -> frozenset[str]:
@@ -219,7 +241,7 @@ def build_envelope(flow: Any) -> dict[str, Any]:
     )
     timestamp = getattr(request, "timestamp_start", None) or time.time()
 
-    return {
+    envelope = {
         "version": CAPTURE_ENVELOPE_VERSION,
         "capture_id": _text(flow.id),
         "observed_at_unix_ms": int(timestamp * 1000),
@@ -236,6 +258,45 @@ def build_envelope(flow: Any) -> dict[str, Any]:
         },
         "redactions": header_redactions + query_redactions + body_redactions,
     }
+    response = getattr(flow, "response", None)
+    if response is not None:
+        response_headers, response_header_redactions = _sanitize_headers(
+            response.headers, "response_header"
+        )
+        response_body, response_body_redactions = _capture_body(
+            getattr(response, "content", None)
+            or getattr(response, "raw_content", None),
+            _header_value(response.headers, "content-type"),
+            allow_text=True,
+            redaction_location="response_body",
+        )
+        ended_at = getattr(response, "timestamp_end", None) or time.time()
+        duration_ms = max(0, round((ended_at - timestamp) * 1000))
+        envelope["outcome"] = {
+            "kind": "response",
+            "result": {
+                "status": int(response.status_code),
+                "headers": response_headers,
+                "body": response_body,
+                "duration_ms": duration_ms,
+                "completeness": "complete",
+            },
+        }
+        envelope["redactions"].extend(
+            response_header_redactions + response_body_redactions
+        )
+    return envelope
+
+
+def build_failure_envelope(flow: Any) -> dict[str, Any]:
+    envelope = build_envelope(flow)
+    started_at = getattr(flow.request, "timestamp_start", None) or time.time()
+    ended_at = getattr(getattr(flow, "error", None), "timestamp", None) or time.time()
+    envelope["outcome"] = {
+        "kind": "upstream_failure",
+        "result": {"duration_ms": max(0, round((ended_at - started_at) * 1000))},
+    }
+    return envelope
 
 
 class IpcConfig:
@@ -325,7 +386,12 @@ class CaptureAddon:
         self._emitter: IpcEmitter | None = None
         self._configuration_failed = False
 
-    def request(self, flow: Any) -> None:
+    def _submit(
+        self,
+        flow: Any,
+        builder: Callable[[Any], dict[str, Any]],
+        failure_message: str,
+    ) -> None:
         request = flow.request
         split = urlsplit(_text(getattr(request, "pretty_url", request.url)))
         if not should_capture(
@@ -348,12 +414,33 @@ class CaptureAddon:
             self._emitter = IpcEmitter(config)
 
         try:
-            envelope = build_envelope(flow)
+            envelope = builder(flow)
         except (AttributeError, TypeError, ValueError):
-            _warn("CodeIsCheap could not sanitize this target request; the request was not recorded")
+            _warn(failure_message)
             return
         if not self._emitter.submit(envelope):
             _warn("CodeIsCheap capture queue is full; the request was not recorded")
+
+    def request(self, flow: Any) -> None:
+        self._submit(
+            flow,
+            build_envelope,
+            "CodeIsCheap could not sanitize this target request; the request was not recorded",
+        )
+
+    def response(self, flow: Any) -> None:
+        self._submit(
+            flow,
+            build_envelope,
+            "CodeIsCheap could not sanitize this target response; the response was not recorded",
+        )
+
+    def error(self, flow: Any) -> None:
+        self._submit(
+            flow,
+            build_failure_envelope,
+            "CodeIsCheap could not record this upstream failure",
+        )
 
     def done(self) -> None:
         if self._emitter is not None:

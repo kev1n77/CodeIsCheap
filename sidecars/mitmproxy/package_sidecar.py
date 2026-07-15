@@ -286,7 +286,12 @@ def main() -> None:
     signature = signature_info(executable)
     probe_passed = all(
         probe_result.get(field)
-        for field in ("started", "forwarding_preserved", "prompt_preserved")
+        for field in (
+            "started",
+            "forwarding_preserved",
+            "prompt_preserved",
+            "response_preserved",
+        )
     ) and probe_result.get("credential_canaries_in_envelope") == 0
     manifest = {
         "schema_version": MANIFEST_VERSION,

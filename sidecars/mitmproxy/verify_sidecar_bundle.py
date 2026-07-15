@@ -78,7 +78,12 @@ def validate_bundle(bundle: Path, require_signature: bool = False) -> dict[str, 
     probe = manifest.get("integration_probe")
     if not isinstance(probe, dict) or not all(
         probe.get(field)
-        for field in ("started", "forwarding_preserved", "prompt_preserved")
+        for field in (
+            "started",
+            "forwarding_preserved",
+            "prompt_preserved",
+            "response_preserved",
+        )
     ):
         raise ValueError("sidecar integration probe did not pass")
     if probe.get("credential_canaries_in_envelope") != 0:

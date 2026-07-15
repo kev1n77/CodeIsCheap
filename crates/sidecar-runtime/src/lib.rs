@@ -415,6 +415,7 @@ struct IntegrationProbe {
     forwarding_preserved: bool,
     credential_canaries_in_envelope: u64,
     prompt_preserved: bool,
+    response_preserved: bool,
 }
 
 fn validate_manifest(
@@ -467,6 +468,7 @@ fn validate_manifest(
         || !probe.started
         || !probe.forwarding_preserved
         || !probe.prompt_preserved
+        || !probe.response_preserved
         || probe.credential_canaries_in_envelope != 0
     {
         return Err(SidecarError::InvalidManifest(
@@ -640,7 +642,8 @@ mod tests {
                 "started": true,
                 "forwarding_preserved": true,
                 "credential_canaries_in_envelope": 0,
-                "prompt_preserved": true
+                "prompt_preserved": true,
+                "response_preserved": true
             },
             "bundle_ready": true,
             "release_ready": signature == "valid"

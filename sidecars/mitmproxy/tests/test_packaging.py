@@ -63,6 +63,7 @@ def write_bundle(bundle: Path) -> dict:
             "forwarding_preserved": True,
             "credential_canaries_in_envelope": 0,
             "prompt_preserved": True,
+            "response_preserved": True,
         },
     }
     (bundle / "sidecar-manifest.json").write_text(json.dumps(manifest))

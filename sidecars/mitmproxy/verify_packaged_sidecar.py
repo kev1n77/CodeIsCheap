@@ -21,6 +21,8 @@ CANARIES = {
     "header_api_key": "header-api-key-canary",
     "query": "query-canary",
     "body": "body-canary",
+    "response_cookie": "response-cookie-canary",
+    "response_body": "response-body-canary",
 }
 
 
@@ -39,8 +41,13 @@ class UpstreamHandler(BaseHTTPRequestHandler):
         type(self).received_event.set()
         self.send_response(200)
         self.send_header("content-type", "application/json")
+        self.send_header("set-cookie", CANARIES["response_cookie"])
         self.end_headers()
-        self.wfile.write(b'{"ok":true}')
+        self.wfile.write(
+            json.dumps(
+                {"ok": True, "access_token": CANARIES["response_body"]}
+            ).encode()
+        )
 
     def log_message(self, format: str, *args: object) -> None:
         del format, args
@@ -98,14 +105,15 @@ def main() -> None:
 
     ipc_listener = socket.socket()
     ipc_listener.bind(("127.0.0.1", 0))
-    ipc_listener.listen(1)
-    ipc_frames: list[bytes] = []
+    ipc_listener.listen(2)
+    ipc_frames: list[tuple[bytes, bytes]] = []
 
     def receive_ipc() -> None:
-        connection, _ = ipc_listener.accept()
-        with connection:
-            stream = connection.makefile("rb")
-            ipc_frames.extend([stream.readline(), stream.readline()])
+        for _ in range(2):
+            connection, _ = ipc_listener.accept()
+            with connection:
+                stream = connection.makefile("rb")
+                ipc_frames.append((stream.readline(), stream.readline()))
 
     ipc_thread = threading.Thread(target=receive_ipc, daemon=True)
     ipc_thread.start()
@@ -162,7 +170,8 @@ def main() -> None:
                 },
             )
             response = client.getresponse()
-            response.read()
+            forwarded_response_body = response.read().decode()
+            forwarded_response_cookie = response.getheader("set-cookie")
             client.close()
             if response.status != 200:
                 raise RuntimeError(f"unexpected proxy response status: {response.status}")
@@ -170,17 +179,32 @@ def main() -> None:
                 raise TimeoutError("upstream did not receive the forwarded request")
             ipc_thread.join(timeout=5)
             if ipc_thread.is_alive() or len(ipc_frames) != 2:
-                raise TimeoutError("addon did not deliver an IPC envelope")
+                raise TimeoutError("addon did not deliver request and response IPC envelopes")
 
-            auth = json.loads(ipc_frames[0])
-            envelope = json.loads(ipc_frames[1])
-            encoded_envelope = json.dumps(envelope)
-            if auth.get("token") != token:
-                raise RuntimeError("IPC auth token was not preserved in the auth frame")
-            if any(canary in encoded_envelope for canary in CANARIES.values()):
+            frames = [(json.loads(auth), json.loads(envelope)) for auth, envelope in ipc_frames]
+            if any(auth.get("token") != token for auth, _ in frames):
+                raise RuntimeError("IPC auth token was not preserved in every auth frame")
+            envelopes = [envelope for _, envelope in frames]
+            encoded_envelopes = json.dumps(envelopes)
+            if any(canary in encoded_envelopes for canary in CANARIES.values()):
                 raise RuntimeError("a credential canary crossed the sidecar IPC boundary")
-            if "preserved prompt" not in encoded_envelope:
+            if "preserved prompt" not in encoded_envelopes:
                 raise RuntimeError("the prompt was lost during capture")
+            request_envelope = next(
+                envelope for envelope in envelopes if "outcome" not in envelope
+            )
+            response_envelope = next(
+                envelope
+                for envelope in envelopes
+                if envelope.get("outcome", {}).get("kind") == "response"
+            )
+            if request_envelope["capture_id"] != response_envelope["capture_id"]:
+                raise RuntimeError("request and response capture IDs differ")
+            response_result = response_envelope["outcome"]["result"]
+            if response_result["status"] != 200 or response_result["body"]["content"] != {
+                "ok": True
+            }:
+                raise RuntimeError("the sanitized response outcome was not preserved")
 
             forwarded = UpstreamHandler.received
             if forwarded["authorization"] != CANARIES["authorization"]:
@@ -191,6 +215,10 @@ def main() -> None:
                 raise RuntimeError("query was changed on the forwarded request")
             if CANARIES["body"] not in forwarded["body"]:
                 raise RuntimeError("body was changed on the forwarded request")
+            if forwarded_response_cookie != CANARIES["response_cookie"]:
+                raise RuntimeError("set-cookie was changed on the forwarded response")
+            if CANARIES["response_body"] not in forwarded_response_body:
+                raise RuntimeError("body was changed on the forwarded response")
 
             print(
                 json.dumps(
@@ -200,6 +228,7 @@ def main() -> None:
                         "forwarding_preserved": True,
                         "credential_canaries_in_envelope": 0,
                         "prompt_preserved": True,
+                        "response_preserved": True,
                     }
                 )
             )
