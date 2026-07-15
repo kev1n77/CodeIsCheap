@@ -5,7 +5,7 @@ use std::ffi::OsStr;
 use std::fmt;
 use std::fs::{self, File};
 use std::io::{self, Read};
-use std::net::{SocketAddr, TcpStream};
+use std::net::{IpAddr, SocketAddr, TcpStream};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::thread;
@@ -244,6 +244,9 @@ impl SidecarBundle {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
+        for host in &config.target_hosts {
+            command.arg("--allow-hosts").arg(allow_host_pattern(host));
+        }
         #[cfg(unix)]
         command.process_group(0);
         Ok(command)
@@ -433,15 +436,13 @@ impl SidecarLaunchConfig {
             ));
         }
         if self.target_hosts.is_empty()
-            || self.target_hosts.iter().any(|host| {
-                host.is_empty()
-                    || host.contains(',')
-                    || host.chars().any(char::is_whitespace)
-                    || host != &host.to_ascii_lowercase()
-            })
+            || self
+                .target_hosts
+                .iter()
+                .any(|host| host != &host.to_ascii_lowercase() || !is_valid_target_host(host))
         {
             return Err(SidecarError::InvalidLaunchConfig(
-                "capture hosts must be lowercase non-empty host names".to_owned(),
+                "capture hosts must be lowercase DNS names or IP addresses".to_owned(),
             ));
         }
         if !self.confdir.is_absolute() {
@@ -451,6 +452,39 @@ impl SidecarLaunchConfig {
         }
         Ok(())
     }
+}
+
+fn allow_host_pattern(host: &str) -> String {
+    format!(r"^{}:\d+$", regex::escape(host))
+}
+
+fn is_valid_target_host(host: &str) -> bool {
+    if host.is_empty()
+        || host.len() > 253
+        || host.contains(',')
+        || host.chars().any(char::is_whitespace)
+        || host.ends_with('.')
+    {
+        return false;
+    }
+    if host.parse::<IpAddr>().is_ok() {
+        return true;
+    }
+    host.split('.').all(|label| {
+        !label.is_empty()
+            && label.len() <= 63
+            && label
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+            && label
+                .as_bytes()
+                .first()
+                .is_some_and(u8::is_ascii_alphanumeric)
+            && label
+                .as_bytes()
+                .last()
+                .is_some_and(u8::is_ascii_alphanumeric)
+    })
 }
 
 impl fmt::Debug for SidecarLaunchConfig {
@@ -518,6 +552,9 @@ struct IntegrationProbe {
     credential_canaries_in_envelope: u64,
     prompt_preserved: bool,
     response_preserved: bool,
+    compressed_response_preserved: bool,
+    stream_credentials_removed: bool,
+    non_target_tunnel: bool,
 }
 
 fn validate_manifest(
@@ -571,6 +608,9 @@ fn validate_manifest(
         || !probe.forwarding_preserved
         || !probe.prompt_preserved
         || !probe.response_preserved
+        || !probe.compressed_response_preserved
+        || !probe.stream_credentials_removed
+        || !probe.non_target_tunnel
         || probe.credential_canaries_in_envelope != 0
     {
         return Err(SidecarError::InvalidManifest(
@@ -745,7 +785,10 @@ mod tests {
                 "forwarding_preserved": true,
                 "credential_canaries_in_envelope": 0,
                 "prompt_preserved": true,
-                "response_preserved": true
+                "response_preserved": true,
+                "compressed_response_preserved": true,
+                "stream_credentials_removed": true,
+                "non_target_tunnel": true
             },
             "bundle_ready": true,
             "release_ready": signature == "valid"
@@ -817,6 +860,20 @@ mod tests {
             environment.get(OsStr::new("CIC_CAPTURE_HOSTS")),
             Some(&OsString::from("api.openai.com,api.anthropic.com"))
         );
+        let arguments = command
+            .get_args()
+            .map(|argument| argument.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        assert!(
+            arguments
+                .windows(2)
+                .any(|pair| pair == ["--allow-hosts", r"^api\.openai\.com:\d+$"])
+        );
+        assert!(
+            arguments
+                .windows(2)
+                .any(|pair| pair == ["--allow-hosts", r"^api\.anthropic\.com:\d+$"])
+        );
         let allowed = inherited_environment_keys()
             .iter()
             .copied()
@@ -846,6 +903,29 @@ mod tests {
             loaded.command(&invalid),
             Err(SidecarError::InvalidLaunchConfig(_))
         ));
+
+        for host in ["-api.openai.com", "api.openai.com|.*", "api..openai.com"] {
+            let invalid_host = SidecarLaunchConfig::new(
+                "127.0.0.1:41001".parse().unwrap(),
+                "synthetic-token-123456",
+                vec![host.to_owned()],
+                "127.0.0.1:41002".parse().unwrap(),
+                &root,
+            );
+            assert!(matches!(
+                loaded.command(&invalid_host),
+                Err(SidecarError::InvalidLaunchConfig(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn allow_host_patterns_are_anchored_and_escape_regex_metacharacters() {
+        assert_eq!(
+            allow_host_pattern("api.openai.com"),
+            r"^api\.openai\.com:\d+$"
+        );
+        assert_eq!(allow_host_pattern("127.0.0.1"), r"^127\.0\.0\.1:\d+$");
     }
 
     #[test]

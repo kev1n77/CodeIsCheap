@@ -163,12 +163,48 @@ class AddonTests(unittest.TestCase):
         flow = FakeFlow()
         flow.response = FakeResponse()
         flow.response.headers = FakeHeaders([("content-type", "text/event-stream")])
-        flow.response.content = b'event: message\ndata: {"delta":"done"}\n\n'
+        flow.response.content = (
+            b'event: message\ndata: {"delta":"done","access_token":"sse-canary"}\n\n'
+            b"data: [DONE]\n\n"
+        )
 
-        body = build_envelope(flow)["outcome"]["result"]["body"]
+        envelope = build_envelope(flow)
+        body = envelope["outcome"]["result"]["body"]
 
         self.assertEqual(body["state"], "text")
         self.assertIn("event: message", body["content"])
+        self.assertIn('data: {"delta":"done"}', body["content"])
+        self.assertIn("data: [DONE]", body["content"])
+        self.assertNotIn("sse-canary", json.dumps(envelope))
+        self.assertIn(
+            {"location": "response_body", "name": "access_token"},
+            envelope["redactions"],
+        )
+
+    def test_ndjson_and_json_sequence_response_credentials_are_removed(self) -> None:
+        cases = [
+            (
+                "application/x-ndjson",
+                b'{"delta":"one","token":"ndjson-canary"}\n{"delta":"two"}\n',
+                "ndjson-canary",
+            ),
+            (
+                "application/json-seq",
+                b'\x1e{"delta":"one","secret":"json-seq-canary"}\x1e{"delta":"two"}',
+                "json-seq-canary",
+            ),
+        ]
+        for content_type, content, canary in cases:
+            with self.subTest(content_type=content_type):
+                flow = FakeFlow()
+                flow.response = FakeResponse()
+                flow.response.headers = FakeHeaders([("content-type", content_type)])
+                flow.response.content = content
+
+                envelope = build_envelope(flow)
+
+                self.assertNotIn(canary, json.dumps(envelope))
+                self.assertIn("delta", envelope["outcome"]["result"]["body"]["content"])
 
     def test_upstream_failure_retains_the_request_and_duration(self) -> None:
         flow = FakeFlow()

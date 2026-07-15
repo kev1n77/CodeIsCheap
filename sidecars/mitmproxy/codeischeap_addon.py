@@ -162,6 +162,60 @@ def _sanitize_json(
     return value
 
 
+def _sanitize_json_text(
+    text: str, redactions: list[dict[str, str]], location: str
+) -> str:
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError:
+        return text
+    sanitized = _sanitize_json(value, redactions, location)
+    return json.dumps(sanitized, ensure_ascii=False, separators=(",", ":"))
+
+
+def _sanitize_sse(
+    text: str, redactions: list[dict[str, str]], location: str
+) -> str:
+    sanitized_lines = []
+    for line in text.splitlines(keepends=True):
+        content = line.rstrip("\r\n")
+        ending = line[len(content) :]
+        if not content.startswith("data:"):
+            sanitized_lines.append(line)
+            continue
+        prefix = "data: " if content.startswith("data: ") else "data:"
+        payload = content[len(prefix) :]
+        if payload and payload != "[DONE]":
+            payload = _sanitize_json_text(payload, redactions, location)
+        sanitized_lines.append(f"{prefix}{payload}{ending}")
+    return "".join(sanitized_lines)
+
+
+def _sanitize_json_lines(
+    text: str, redactions: list[dict[str, str]], location: str
+) -> str:
+    sanitized_lines = []
+    for line in text.splitlines(keepends=True):
+        content = line.rstrip("\r\n")
+        ending = line[len(content) :]
+        sanitized_lines.append(
+            _sanitize_json_text(content, redactions, location) + ending
+            if content
+            else line
+        )
+    return "".join(sanitized_lines)
+
+
+def _sanitize_json_sequence(
+    text: str, redactions: list[dict[str, str]], location: str
+) -> str:
+    records = text.split("\x1e")
+    return "\x1e".join(
+        _sanitize_json_text(record, redactions, location) if record else record
+        for record in records
+    )
+
+
 def _capture_body(
     raw_content: bytes | None,
     content_type: str,
@@ -184,10 +238,16 @@ def _capture_body(
         decoded = raw_content.decode("utf-8")
     except UnicodeDecodeError:
         return {"state": "invalid_utf8", "content": None}, []
-    if allow_text and is_text and not is_json:
-        return {"state": "text", "content": decoded}, []
-
     redactions: list[dict[str, str]] = []
+    if allow_text and is_text and not is_json:
+        if media_type == "text/event-stream":
+            decoded = _sanitize_sse(decoded, redactions, redaction_location)
+        elif media_type in {"application/x-ndjson", "application/ndjson"}:
+            decoded = _sanitize_json_lines(decoded, redactions, redaction_location)
+        elif media_type == "application/json-seq":
+            decoded = _sanitize_json_sequence(decoded, redactions, redaction_location)
+        return {"state": "text", "content": decoded}, redactions
+
     try:
         value = json.loads(decoded)
     except json.JSONDecodeError:

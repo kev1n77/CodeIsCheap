@@ -271,11 +271,14 @@ def main() -> None:
     ).stdout.strip()
     probe = subprocess.run(
         [sys.executable, str(ROOT / "verify_packaged_sidecar.py"), str(executable)],
-        check=True,
+        check=False,
         capture_output=True,
         text=True,
         timeout=45,
     )
+    if probe.returncode != 0:
+        detail = probe.stderr.strip() or probe.stdout.strip() or "no probe output"
+        raise RuntimeError(f"packaged sidecar integration probe failed: {detail}")
     probe_result = json.loads(probe.stdout)
     artifact_hash = sha256_file(executable)
     sbom_path = DIST / SBOM_FILENAME
@@ -291,6 +294,9 @@ def main() -> None:
             "forwarding_preserved",
             "prompt_preserved",
             "response_preserved",
+            "compressed_response_preserved",
+            "stream_credentials_removed",
+            "non_target_tunnel",
         )
     ) and probe_result.get("credential_canaries_in_envelope") == 0
     manifest = {
