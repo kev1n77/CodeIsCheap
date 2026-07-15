@@ -111,7 +111,8 @@ kbd { min-width: 18px; padding: 1px 5px; border: 1px solid var(--border); border
 .select-row { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
 .select-row select { min-width: 0; height: 29px; border: 1px solid var(--border); border-radius: 5px; padding: 0 7px; background: var(--surface); color: var(--text-secondary); }
 .request-list { overflow: auto; scrollbar-gutter: stable; }
-.request-row { width: 100%; min-height: 116px; display: block; padding: 11px 14px; border: 0; border-bottom: 1px solid var(--border); background: var(--surface); text-align: left; cursor: pointer; }
+.request-virtualizer { position: relative; width: 100%; }
+.request-row { position: absolute; top: 0; left: 0; width: 100%; height: 116px; display: block; padding: 11px 14px; border: 0; border-bottom: 1px solid var(--border); background: var(--surface); text-align: left; cursor: pointer; }
 .request-row:hover { background: var(--surface-subtle); }
 .request-row[aria-selected="true"] { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
 .request-row-top { display: grid; grid-template-columns: 8px 1fr auto; align-items: center; gap: 7px; }
