@@ -313,6 +313,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeischeap-adapters"
+version = "0.1.0"
+dependencies = [
+ "codeischeap-capture-ipc",
+ "codeischeap-capture-policy",
+ "codeischeap-prompt-ir",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "codeischeap-capture-ipc"
 version = "0.1.0"
 dependencies = [
@@ -347,11 +358,11 @@ dependencies = [
 name = "codeischeap-desktop"
 version = "0.1.0"
 dependencies = [
+ "codeischeap-adapters",
  "codeischeap-capture-ipc",
  "codeischeap-capture-policy",
  "codeischeap-core",
  "codeischeap-desktop-api",
- "codeischeap-prompt-ir",
  "codeischeap-storage",
  "serde",
  "serde_json",

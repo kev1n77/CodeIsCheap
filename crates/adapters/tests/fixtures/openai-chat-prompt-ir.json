@@ -1,0 +1,206 @@
+{
+  "ir_version": "0.1.0",
+  "request_id": "openai_chat_fixture",
+  "provider": {
+    "id": "openai",
+    "host": "api.openai.com",
+    "confidence": 1.0
+  },
+  "operation": "chat.completions.create",
+  "model": "gpt-4.1",
+  "instructions": [
+    {
+      "id": "instruction_0",
+      "role": "system",
+      "parts": [
+        {
+          "kind": "text",
+          "id": "instruction_0_part_0",
+          "text": "You are a coding assistant.",
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/messages/0/content"
+            },
+            "confidence": 1.0
+          }
+        }
+      ],
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/messages/0"
+        },
+        "confidence": 1.0
+      }
+    },
+    {
+      "id": "instruction_1",
+      "role": "developer",
+      "parts": [
+        {
+          "kind": "text",
+          "id": "instruction_1_part_0",
+          "text": "Cite concrete evidence.",
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/messages/1/content/0"
+            },
+            "confidence": 1.0
+          }
+        }
+      ],
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/messages/1"
+        },
+        "confidence": 1.0
+      }
+    }
+  ],
+  "messages": [
+    {
+      "id": "message_2",
+      "role": "user",
+      "parts": [
+        {
+          "kind": "text",
+          "id": "message_2_part_0",
+          "text": "Review this patch.",
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/messages/2/content/0"
+            },
+            "confidence": 1.0
+          }
+        },
+        {
+          "kind": "image_ref",
+          "id": "message_2_part_1",
+          "location": "https://example.invalid/diff.png",
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/messages/2/content/1"
+            },
+            "confidence": 1.0
+          }
+        }
+      ],
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/messages/2"
+        },
+        "confidence": 1.0
+      }
+    },
+    {
+      "id": "message_3",
+      "role": "assistant",
+      "parts": [
+        {
+          "kind": "tool_use",
+          "id": "call_search",
+          "name": "search",
+          "input": {
+            "query": "TODO"
+          },
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/messages/3/tool_calls/0"
+            },
+            "confidence": 1.0
+          }
+        }
+      ],
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/messages/3"
+        },
+        "confidence": 1.0
+      }
+    },
+    {
+      "id": "message_4",
+      "role": "tool",
+      "parts": [
+        {
+          "kind": "tool_result",
+          "id": "message_4_tool_result",
+          "tool_use_id": "call_search",
+          "value": "3 matches",
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/messages/4/content"
+            },
+            "confidence": 1.0
+          }
+        }
+      ],
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/messages/4"
+        },
+        "confidence": 1.0
+      }
+    }
+  ],
+  "context": [],
+  "tools": [
+    {
+      "id": "tool_0",
+      "name": "search",
+      "description": "Search repository text.",
+      "input_schema": {
+        "properties": {
+          "query": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/tools/0"
+        },
+        "confidence": 1.0
+      }
+    }
+  ],
+  "generation": {
+    "temperature": 0.0,
+    "max_output_tokens": 1024
+  },
+  "vendor": {
+    "stream": true,
+    "tool_choice": "auto"
+  },
+  "completeness": {
+    "request_body": "complete",
+    "response_body": "missing"
+  }
+}
