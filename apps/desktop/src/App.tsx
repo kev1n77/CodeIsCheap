@@ -25,6 +25,7 @@ import type {
   AnatomySection,
   CaptureMode,
   CapturedRequest,
+  CertificateAuthority,
   EvidenceLocator,
   InspectorTab,
   WorkspaceBootstrap,
@@ -291,6 +292,7 @@ function CaptureSidebar({ workspace, active, canControl, proxyAvailable, mode, m
   onToolsOnly: (value: boolean) => void;
   onErrorsOnly: (value: boolean) => void;
 }) {
+  const showCertificate = proxyAvailable || workspace.capture.certificateAuthority.state !== "missing";
   return (
     <aside className="capture-sidebar" aria-label="Capture controls">
       <section className="sidebar-section capture-summary">
@@ -304,6 +306,8 @@ function CaptureSidebar({ workspace, active, canControl, proxyAvailable, mode, m
           <div><dt>Profile</dt><dd>{workspace.capture.profile}</dd></div>
           <div><dt>Endpoint</dt><dd>{workspace.capture.endpoint}</dd></div>
           <div><dt>Storage</dt><dd>{workspace.capture.storage}</dd></div>
+          {showCertificate && <div><dt>Local CA</dt><dd title={certificateDetail(workspace.capture.certificateAuthority)}>{certificateSummary(workspace.capture.certificateAuthority)}</dd></div>}
+          {showCertificate && workspace.capture.certificateAuthority.fingerprintSha256 && <div className="certificate-fingerprint"><dt>SHA-256 fingerprint</dt><dd><code>{workspace.capture.certificateAuthority.fingerprintSha256}</code></dd></div>}
         </dl>
       </section>
       <section className="sidebar-section">
@@ -507,6 +511,25 @@ function formatTokens(tokens: number | null) {
 
 function formatDuration(milliseconds: number) {
   return milliseconds >= 1000 ? `${(milliseconds / 1000).toFixed(1)} s` : `${milliseconds} ms`;
+}
+
+function certificateSummary(certificate: CertificateAuthority) {
+  if (certificate.state === "missing") return "Not generated";
+  if (certificate.state === "invalid") return "Invalid";
+  if (certificate.trust === "trusted") return "Ready · trusted";
+  if (certificate.trust === "not_trusted") return "Ready · not trusted";
+  if (certificate.trust === "unsupported") return "Ready · trust unsupported";
+  return "Ready · trust unchecked";
+}
+
+function certificateDetail(certificate: CertificateAuthority) {
+  return [
+    certificate.detail,
+    certificate.subject,
+    certificate.fingerprintSha256,
+    certificate.validUntilUnixMs == null ? null : `Valid until ${new Date(certificate.validUntilUnixMs).toLocaleDateString()}`,
+    `Private material: ${certificate.privateMaterial}`,
+  ].filter(Boolean).join("\n");
 }
 
 function clamp(value: number, minimum: number, maximum: number) {

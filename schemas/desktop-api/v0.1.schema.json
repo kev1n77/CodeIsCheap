@@ -111,6 +111,9 @@
         "canControl": {
           "type": "boolean"
         },
+        "certificateAuthority": {
+          "$ref": "#/$defs/CertificateAuthority"
+        },
         "endpoint": {
           "type": "string"
         },
@@ -140,7 +143,8 @@
         "profile",
         "endpoint",
         "storage",
-        "requestCount"
+        "requestCount",
+        "certificateAuthority"
       ]
     },
     "CaptureStatus": {
@@ -214,6 +218,83 @@
         "hasTools",
         "promptPreview",
         "detail"
+      ]
+    },
+    "CertificateAuthority": {
+      "type": "object",
+      "properties": {
+        "detail": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "fingerprintSha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "privateMaterial": {
+          "$ref": "#/$defs/CertificatePrivateMaterial"
+        },
+        "state": {
+          "$ref": "#/$defs/CertificateAuthorityState"
+        },
+        "subject": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "trust": {
+          "$ref": "#/$defs/CertificateTrust"
+        },
+        "validFromUnixMs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "validUntilUnixMs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        }
+      },
+      "required": [
+        "state",
+        "privateMaterial",
+        "trust"
+      ]
+    },
+    "CertificateAuthorityState": {
+      "type": "string",
+      "enum": [
+        "missing",
+        "ready",
+        "invalid"
+      ]
+    },
+    "CertificatePrivateMaterial": {
+      "type": "string",
+      "enum": [
+        "missing",
+        "restricted",
+        "unchecked",
+        "insecure"
+      ]
+    },
+    "CertificateTrust": {
+      "type": "string",
+      "enum": [
+        "unchecked",
+        "trusted",
+        "not_trusted",
+        "unsupported"
       ]
     },
     "EvidenceLevel": {

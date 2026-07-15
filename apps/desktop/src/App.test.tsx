@@ -196,6 +196,16 @@ describe("request workbench", () => {
         mode: "proxy",
         profile: "Explicit TLS proxy",
         endpoint: "http://127.0.0.1:43125",
+        certificateAuthority: {
+          state: "ready",
+          fingerprintSha256: "AA:BB:CC:DD",
+          subject: "mitmproxy",
+          validFromUnixMs: 1_577_836_800_000,
+          validUntilUnixMs: 4_070_908_800_000,
+          privateMaterial: "unchecked",
+          trust: "unchecked",
+          detail: null,
+        },
       },
     };
     vi.mocked(invoke).mockImplementation(async (command, args) => {
@@ -214,8 +224,36 @@ describe("request workbench", () => {
     expect(invoke).toHaveBeenCalledWith("set_capture_mode", { mode: "proxy" });
     expect(await screen.findByText("Explicit TLS proxy")).toBeInTheDocument();
     expect(screen.getByText("http://127.0.0.1:43125")).toBeInTheDocument();
+    expect(screen.getByText("Ready · trust unchecked")).toBeInTheDocument();
+    expect(screen.getByText("AA:BB:CC:DD")).toBeInTheDocument();
     expect(proxyButton).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText("Healthy").parentElement).toHaveTextContent("Proxy");
+  });
+
+  it("keeps residual certificate details visible when the proxy bundle is unavailable", async () => {
+    window.__TAURI_INTERNALS__ = {};
+    const workspace = structuredClone(fixture) as unknown as WorkspaceBootstrap;
+    workspace.capture = {
+      ...workspace.capture,
+      proxyAvailable: false,
+      certificateAuthority: {
+        state: "ready",
+        fingerprintSha256: "11:22:33:44",
+        subject: "mitmproxy",
+        validFromUnixMs: 1_577_836_800_000,
+        validUntilUnixMs: 4_070_908_800_000,
+        privateMaterial: "unchecked",
+        trust: "unchecked",
+        detail: null,
+      },
+    };
+    vi.mocked(invoke).mockResolvedValue(structuredClone(workspace));
+
+    render(<App />);
+
+    expect(await screen.findByText("Ready · trust unchecked")).toBeInTheDocument();
+    expect(screen.getByText("11:22:33:44")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Proxy" })).toBeDisabled();
   });
 
   it("shows disk pressure as a paused capture state", async () => {

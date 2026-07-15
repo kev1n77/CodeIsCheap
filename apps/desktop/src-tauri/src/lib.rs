@@ -15,10 +15,15 @@ use codeischeap_core::{
     GatewayCaptureError, GatewayCaptureOutcome, IngestError, ingest_one, persist_capture,
     process_gateway_event,
 };
-use codeischeap_desktop_api::{CaptureMode, WorkspaceBootstrap, load_workspace};
+use codeischeap_desktop_api::{
+    CaptureMode, CertificateAuthority, CertificateAuthorityState, CertificatePrivateMaterial,
+    CertificateTrust, WorkspaceBootstrap, load_workspace,
+};
 use codeischeap_gateway::{Gateway, GatewayCapture, GatewayCaptureEvent};
 use codeischeap_sidecar_runtime::{
-    BundleRequirements, MANIFEST_FILENAME, SidecarBundle, SidecarLaunchConfig, SidecarProcess,
+    BundleRequirements, CertificateAuthorityState as SidecarCertificateAuthorityState,
+    MANIFEST_FILENAME, PrivateMaterialState as SidecarPrivateMaterialState, SidecarBundle,
+    SidecarLaunchConfig, SidecarProcess, inspect_certificate_authority,
 };
 use codeischeap_storage::{
     EncryptedStore, OsKeyStore, RetentionPolicy, RetentionReport, StorageError,
@@ -90,6 +95,7 @@ struct RuntimeSnapshot {
     proxy_available: bool,
     gateway_endpoint: Option<String>,
     proxy_endpoint: Option<String>,
+    certificate_authority: CertificateAuthority,
 }
 
 #[derive(Debug)]
@@ -147,7 +153,7 @@ async fn bootstrap_workspace(
 ) -> Result<WorkspaceBootstrap, String> {
     initialize_store(&app, &state.store)?;
     ensure_gateway(&app, &state).await?;
-    let workspace = load_runtime_workspace(&state).await?;
+    let workspace = load_runtime_workspace(&app, &state).await?;
     emit_sidecar_error_once(&app, &state);
     Ok(workspace)
 }
@@ -182,7 +188,7 @@ async fn set_capture_mode(
     initialize_store(&app, &state.store)?;
     ensure_gateway(&app, &state).await?;
     switch_capture_mode(&app, &state, mode).await?;
-    load_runtime_workspace(&state).await
+    load_runtime_workspace(&app, &state).await
 }
 
 pub fn run() {
@@ -306,7 +312,10 @@ fn remove_legacy_demo_capture(
     store.delete_capture(LEGACY_DEMO_CAPTURE_ID)
 }
 
-async fn load_runtime_workspace(state: &DesktopState) -> Result<WorkspaceBootstrap, String> {
+async fn load_runtime_workspace(
+    app: &AppHandle,
+    state: &DesktopState,
+) -> Result<WorkspaceBootstrap, String> {
     let mut workspace = {
         let store = state
             .store
@@ -319,11 +328,11 @@ async fn load_runtime_workspace(state: &DesktopState) -> Result<WorkspaceBootstr
         )
         .map_err(|error| error.to_string())?
     };
-    apply_runtime_state(&mut workspace, runtime_snapshot(state).await);
+    apply_runtime_state(&mut workspace, runtime_snapshot(app, state).await);
     Ok(workspace)
 }
 
-async fn runtime_snapshot(state: &DesktopState) -> RuntimeSnapshot {
+async fn runtime_snapshot(app: &AppHandle, state: &DesktopState) -> RuntimeSnapshot {
     let mode = *state.mode.lock().await;
     let gateway_endpoint = state
         .gateway
@@ -343,6 +352,7 @@ async fn runtime_snapshot(state: &DesktopState) -> RuntimeSnapshot {
         proxy_available: state.sidecar_bundle.is_some(),
         gateway_endpoint,
         proxy_endpoint,
+        certificate_authority: application_certificate_authority(app),
     }
 }
 
@@ -360,6 +370,45 @@ fn apply_runtime_state(workspace: &mut WorkspaceBootstrap, snapshot: RuntimeSnap
     workspace.capture.mode = snapshot.mode;
     workspace.capture.profile = profile.to_owned();
     workspace.capture.endpoint = endpoint.unwrap_or("Not connected").to_owned();
+    workspace.capture.certificate_authority = snapshot.certificate_authority;
+}
+
+fn application_certificate_authority(app: &AppHandle) -> CertificateAuthority {
+    let confdir = match app.path().app_data_dir() {
+        Ok(path) => path.join("mitmproxy"),
+        Err(error) => {
+            return CertificateAuthority {
+                state: CertificateAuthorityState::Invalid,
+                fingerprint_sha256: None,
+                subject: None,
+                valid_from_unix_ms: None,
+                valid_until_unix_ms: None,
+                private_material: CertificatePrivateMaterial::Missing,
+                trust: CertificateTrust::Unchecked,
+                detail: Some(format!("certificate directory is unavailable: {error}")),
+            };
+        }
+    };
+    let status = inspect_certificate_authority(confdir);
+    CertificateAuthority {
+        state: match status.state {
+            SidecarCertificateAuthorityState::Missing => CertificateAuthorityState::Missing,
+            SidecarCertificateAuthorityState::Ready => CertificateAuthorityState::Ready,
+            SidecarCertificateAuthorityState::Invalid => CertificateAuthorityState::Invalid,
+        },
+        fingerprint_sha256: status.fingerprint_sha256,
+        subject: status.subject,
+        valid_from_unix_ms: status.valid_from_unix_ms,
+        valid_until_unix_ms: status.valid_until_unix_ms,
+        private_material: match status.private_material {
+            SidecarPrivateMaterialState::Missing => CertificatePrivateMaterial::Missing,
+            SidecarPrivateMaterialState::Restricted => CertificatePrivateMaterial::Restricted,
+            SidecarPrivateMaterialState::Unchecked => CertificatePrivateMaterial::Unchecked,
+            SidecarPrivateMaterialState::Insecure => CertificatePrivateMaterial::Insecure,
+        },
+        trust: CertificateTrust::Unchecked,
+        detail: status.detail,
+    }
 }
 
 async fn ensure_gateway(app: &AppHandle, state: &DesktopState) -> Result<(), String> {
@@ -905,6 +954,7 @@ mod tests {
                 proxy_available: true,
                 gateway_endpoint: Some("http://127.0.0.1:8787".to_owned()),
                 proxy_endpoint: None,
+                certificate_authority: CertificateAuthority::missing(),
             },
         );
 
@@ -925,6 +975,16 @@ mod tests {
         )
         .expect("encrypted store must open");
         let mut workspace = load_workspace(&store).expect("workspace must load");
+        let certificate_authority = CertificateAuthority {
+            state: CertificateAuthorityState::Ready,
+            fingerprint_sha256: Some("AA:BB:CC:DD".to_owned()),
+            subject: Some("mitmproxy".to_owned()),
+            valid_from_unix_ms: Some(1_577_836_800_000),
+            valid_until_unix_ms: Some(4_070_908_800_000),
+            private_material: CertificatePrivateMaterial::Unchecked,
+            trust: CertificateTrust::Unchecked,
+            detail: None,
+        };
 
         apply_runtime_state(
             &mut workspace,
@@ -934,6 +994,7 @@ mod tests {
                 proxy_available: true,
                 gateway_endpoint: Some("http://127.0.0.1:8787".to_owned()),
                 proxy_endpoint: Some("http://127.0.0.1:43125".to_owned()),
+                certificate_authority: certificate_authority.clone(),
             },
         );
 
@@ -943,6 +1004,10 @@ mod tests {
         assert_eq!(workspace.capture.mode, CaptureMode::Proxy);
         assert_eq!(workspace.capture.endpoint, "http://127.0.0.1:43125");
         assert_eq!(workspace.capture.profile, "Explicit TLS proxy");
+        assert_eq!(
+            workspace.capture.certificate_authority,
+            certificate_authority
+        );
     }
 
     #[test]

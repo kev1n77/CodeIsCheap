@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
+use x509_parser::{parse_x509_certificate, pem::parse_x509_pem};
 
 #[cfg(unix)]
 use std::os::unix::process::CommandExt as _;
@@ -32,6 +33,9 @@ pub const CAPTURE_CONTRACT_VERSION: &str = "0.1";
 pub const MITMPROXY_VERSION: &str = "12.2.3";
 pub const SIDECAR_NAME: &str = "codeischeap-mitmproxy";
 pub const MANIFEST_FILENAME: &str = "sidecar-manifest.json";
+pub const CA_CERTIFICATE_FILENAME: &str = "mitmproxy-ca-cert.pem";
+pub const CA_PRIVATE_PEM_FILENAME: &str = "mitmproxy-ca.pem";
+pub const CA_PRIVATE_P12_FILENAME: &str = "mitmproxy-ca.p12";
 
 const CAPTURE_ENVIRONMENT: [&str; 4] = [
     "CIC_CAPTURE_HOSTS",
@@ -39,6 +43,191 @@ const CAPTURE_ENVIRONMENT: [&str; 4] = [
     "CIC_CAPTURE_IPC_TOKEN",
     "CIC_CAPTURE_POLICY_PATH",
 ];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CertificateAuthorityState {
+    Missing,
+    Ready,
+    Invalid,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrivateMaterialState {
+    Missing,
+    Restricted,
+    Unchecked,
+    Insecure,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CertificateAuthorityStatus {
+    pub state: CertificateAuthorityState,
+    pub fingerprint_sha256: Option<String>,
+    pub subject: Option<String>,
+    pub valid_from_unix_ms: Option<i64>,
+    pub valid_until_unix_ms: Option<i64>,
+    pub private_material: PrivateMaterialState,
+    pub detail: Option<String>,
+}
+
+impl CertificateAuthorityStatus {
+    #[must_use]
+    pub fn missing() -> Self {
+        Self {
+            state: CertificateAuthorityState::Missing,
+            fingerprint_sha256: None,
+            subject: None,
+            valid_from_unix_ms: None,
+            valid_until_unix_ms: None,
+            private_material: PrivateMaterialState::Missing,
+            detail: None,
+        }
+    }
+}
+
+#[must_use]
+pub fn inspect_certificate_authority(confdir: impl AsRef<Path>) -> CertificateAuthorityStatus {
+    let confdir = confdir.as_ref();
+    let certificate_path = confdir.join(CA_CERTIFICATE_FILENAME);
+    let private_paths = [
+        confdir.join(CA_PRIVATE_PEM_FILENAME),
+        confdir.join(CA_PRIVATE_P12_FILENAME),
+    ];
+    let certificate_exists = certificate_path.is_file();
+    let private_exists = private_paths.each_ref().map(|path| path.is_file());
+    if !certificate_exists && private_exists.iter().all(|exists| !exists) {
+        return CertificateAuthorityStatus::missing();
+    }
+
+    let private_material = private_material_state(&private_paths, private_exists);
+    if !certificate_exists || private_material == PrivateMaterialState::Missing {
+        return invalid_certificate_authority(
+            private_material,
+            "certificate authority files are incomplete",
+        );
+    }
+
+    let encoded = match fs::read(&certificate_path) {
+        Ok(encoded) => encoded,
+        Err(_) => {
+            return invalid_certificate_authority(
+                private_material,
+                "certificate authority certificate is unreadable",
+            );
+        }
+    };
+    let (remaining, pem) = match parse_x509_pem(&encoded) {
+        Ok(parsed) => parsed,
+        Err(_) => {
+            return invalid_certificate_authority(
+                private_material,
+                "certificate authority certificate is invalid PEM",
+            );
+        }
+    };
+    if !remaining.iter().all(u8::is_ascii_whitespace) || pem.label != "CERTIFICATE" {
+        return invalid_certificate_authority(
+            private_material,
+            "certificate authority certificate has unexpected PEM content",
+        );
+    }
+    let (der_remaining, certificate) = match parse_x509_certificate(&pem.contents) {
+        Ok(parsed) => parsed,
+        Err(_) => {
+            return invalid_certificate_authority(
+                private_material,
+                "certificate authority certificate is invalid X.509",
+            );
+        }
+    };
+    if !der_remaining.is_empty() {
+        return invalid_certificate_authority(
+            private_material,
+            "certificate authority certificate has trailing DER content",
+        );
+    }
+    let subject = certificate
+        .subject()
+        .iter_common_name()
+        .next()
+        .and_then(|attribute| attribute.as_str().ok())
+        .map(str::to_owned)
+        .unwrap_or_else(|| certificate.subject().to_string());
+    let validity = certificate.validity();
+    let private_material_secure = !matches!(private_material, PrivateMaterialState::Insecure);
+    let certificate_valid = validity.is_valid();
+    let (state, detail) = if !private_material_secure {
+        (
+            CertificateAuthorityState::Invalid,
+            Some("certificate authority private material permissions are too broad".to_owned()),
+        )
+    } else if !certificate_valid {
+        (
+            CertificateAuthorityState::Invalid,
+            Some("certificate authority certificate is outside its validity period".to_owned()),
+        )
+    } else {
+        (CertificateAuthorityState::Ready, None)
+    };
+    CertificateAuthorityStatus {
+        state,
+        fingerprint_sha256: Some(format_fingerprint(Sha256::digest(&pem.contents).as_slice())),
+        subject: Some(subject),
+        valid_from_unix_ms: Some(validity.not_before.timestamp().saturating_mul(1_000)),
+        valid_until_unix_ms: Some(validity.not_after.timestamp().saturating_mul(1_000)),
+        private_material,
+        detail,
+    }
+}
+
+fn invalid_certificate_authority(
+    private_material: PrivateMaterialState,
+    detail: &str,
+) -> CertificateAuthorityStatus {
+    CertificateAuthorityStatus {
+        state: CertificateAuthorityState::Invalid,
+        fingerprint_sha256: None,
+        subject: None,
+        valid_from_unix_ms: None,
+        valid_until_unix_ms: None,
+        private_material,
+        detail: Some(detail.to_owned()),
+    }
+}
+
+fn private_material_state(paths: &[PathBuf; 2], exists: [bool; 2]) -> PrivateMaterialState {
+    if !exists.into_iter().all(|exists| exists) {
+        return PrivateMaterialState::Missing;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let restricted = paths.iter().all(|path| {
+            fs::metadata(path)
+                .map(|metadata| metadata.permissions().mode() & 0o077 == 0)
+                .unwrap_or(false)
+        });
+        if restricted {
+            PrivateMaterialState::Restricted
+        } else {
+            PrivateMaterialState::Insecure
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = paths;
+        PrivateMaterialState::Unchecked
+    }
+}
+
+fn format_fingerprint(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .map(|byte| format!("{byte:02X}"))
+        .collect::<Vec<_>>()
+        .join(":")
+}
 
 #[derive(Debug)]
 pub enum SidecarError {
@@ -744,6 +933,88 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+
+    const TEST_CA_CERTIFICATE: &str = r#"-----BEGIN CERTIFICATE-----
+MIIBQjCB6aADAgECAgQHW80VMAoGCCqGSM49BAMCMB4xHDAaBgNVBAMME0NvZGVJ
+c0NoZWFwIFRlc3QgQ0EwIBcNMjAwMTAxMDAwMDAwWhgPMjA5OTAxMDEwMDAwMDBa
+MB4xHDAaBgNVBAMME0NvZGVJc0NoZWFwIFRlc3QgQ0EwWTATBgcqhkjOPQIBBggq
+hkjOPQMBBwNCAARpQZZ+uLCf4LSJkRYYbrRFyDZjxMEz6ICzavun2i9vIRApTRW3
+hYy+LoZKGeZqtqs6ElkjHfXoyv9NxVt/zmaaoxMwETAPBgNVHRMBAf8EBTADAQH/
+MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
+1oexSwIgPbdZbKBtb4YrSWCzD7WcGRJXvm7PBVLX+T7LZVzL7Q0=
+-----END CERTIFICATE-----
+"#;
+
+    #[test]
+    fn certificate_authority_status_distinguishes_missing_ready_and_invalid_assets() {
+        let directory = tempdir().expect("CA directory");
+        let root = directory.path();
+        assert_eq!(
+            inspect_certificate_authority(root),
+            CertificateAuthorityStatus::missing()
+        );
+
+        fs::write(root.join(CA_PRIVATE_PEM_FILENAME), b"private-pem").unwrap();
+        let incomplete = inspect_certificate_authority(root);
+        assert_eq!(incomplete.state, CertificateAuthorityState::Invalid);
+        assert_eq!(incomplete.private_material, PrivateMaterialState::Missing);
+
+        fs::write(root.join(CA_PRIVATE_P12_FILENAME), b"private-p12").unwrap();
+        fs::write(root.join(CA_CERTIFICATE_FILENAME), TEST_CA_CERTIFICATE).unwrap();
+        restrict_test_private_material(root);
+        let ready = inspect_certificate_authority(root);
+        assert_eq!(ready.state, CertificateAuthorityState::Ready);
+        assert_eq!(ready.subject.as_deref(), Some("CodeIsCheap Test CA"));
+        assert_eq!(ready.valid_from_unix_ms, Some(1_577_836_800_000));
+        assert_eq!(ready.valid_until_unix_ms, Some(4_070_908_800_000));
+        assert_eq!(
+            ready.fingerprint_sha256.as_deref(),
+            Some(
+                "4F:4C:45:B1:BF:86:99:E3:1C:5F:B7:23:3F:29:9E:47:80:1E:72:93:AB:11:99:6C:83:A7:15:00:55:2C:22:AA"
+            )
+        );
+        #[cfg(unix)]
+        assert_eq!(ready.private_material, PrivateMaterialState::Restricted);
+        #[cfg(not(unix))]
+        assert_eq!(ready.private_material, PrivateMaterialState::Unchecked);
+
+        fs::write(root.join(CA_CERTIFICATE_FILENAME), b"not a certificate").unwrap();
+        let invalid = inspect_certificate_authority(root);
+        assert_eq!(invalid.state, CertificateAuthorityState::Invalid);
+        assert!(invalid.detail.as_deref().unwrap().contains("invalid PEM"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn certificate_authority_rejects_private_material_visible_to_other_users() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let directory = tempdir().expect("CA directory");
+        let root = directory.path();
+        fs::write(root.join(CA_CERTIFICATE_FILENAME), TEST_CA_CERTIFICATE).unwrap();
+        for name in [CA_PRIVATE_PEM_FILENAME, CA_PRIVATE_P12_FILENAME] {
+            let path = root.join(name);
+            fs::write(&path, b"private").unwrap();
+            fs::set_permissions(path, fs::Permissions::from_mode(0o644)).unwrap();
+        }
+
+        let status = inspect_certificate_authority(root);
+        assert_eq!(status.state, CertificateAuthorityState::Invalid);
+        assert_eq!(status.private_material, PrivateMaterialState::Insecure);
+    }
+
+    fn restrict_test_private_material(root: &Path) {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+
+            for name in [CA_PRIVATE_PEM_FILENAME, CA_PRIVATE_P12_FILENAME] {
+                fs::set_permissions(root.join(name), fs::Permissions::from_mode(0o600)).unwrap();
+            }
+        }
+        #[cfg(not(unix))]
+        let _ = root;
+    }
 
     fn sha256(bytes: &[u8]) -> String {
         format!("{:x}", Sha256::digest(bytes))
