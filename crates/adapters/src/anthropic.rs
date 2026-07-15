@@ -7,6 +7,7 @@ use codeischeap_prompt_ir::{
 };
 use serde_json::{Map, Value, json};
 
+use crate::anthropic_response::parse_anthropic_response;
 use crate::model::{
     AdapterError, AdapterInput, AdapterOutput, ParseIssue, ParseIssueCode, PromptAdapter,
 };
@@ -84,6 +85,12 @@ impl PromptAdapter for AnthropicAdapter {
             }
         }
         prompt.tools = parse_tools(body.get("tools"), &mut issues);
+        parse_anthropic_response(
+            input.envelope.outcome.as_ref(),
+            &input.envelope.request.path,
+            &mut prompt,
+            &mut issues,
+        );
         Ok(AdapterOutput {
             prompt_ir: prompt,
             issues,

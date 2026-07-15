@@ -7,6 +7,7 @@ use codeischeap_gateway::{
     CapturedPayload, GatewayCaptureEvent, GatewayRequestCapture, GatewayResponseCapture,
     GatewayUpstreamFailure,
 };
+use codeischeap_prompt_ir::{BodyState, PromptPart};
 use codeischeap_storage::{DatabaseKey, EncryptedStore};
 use tempfile::tempdir;
 
@@ -23,6 +24,27 @@ fn request_event(capture_id: &str) -> GatewayCaptureEvent {
         headers: vec![("content-type".to_owned(), "application/json".to_owned())],
         body: CapturedPayload {
             bytes: br#"{"model":"gpt-5","input":"inspect the outcome"}"#.to_vec().into(),
+            truncated: false,
+            complete: true,
+        },
+    })
+}
+
+fn anthropic_request_event(capture_id: &str) -> GatewayCaptureEvent {
+    GatewayCaptureEvent::Request(GatewayRequestCapture {
+        capture_id: capture_id.to_owned(),
+        observed_at_unix_ms: 1_784_073_100_000,
+        method: "POST".to_owned(),
+        scheme: "https".to_owned(),
+        host: "api.anthropic.com".to_owned(),
+        port: 443,
+        path: "/v1/messages".to_owned(),
+        query: Vec::new(),
+        headers: vec![("content-type".to_owned(), "application/json".to_owned())],
+        body: CapturedPayload {
+            bytes: br#"{"model":"claude-sonnet-4-5","max_tokens":128,"messages":[{"role":"user","content":"Read Cargo.toml"}],"tools":[{"name":"read_file","input_schema":{"type":"object"}}],"stream":true}"#
+                .to_vec()
+                .into(),
             truncated: false,
             complete: true,
         },
@@ -241,5 +263,90 @@ fn outcomes_can_be_replayed_after_an_out_of_order_request() {
             .envelope
             .outcome
             .is_some()
+    );
+}
+
+#[test]
+fn anthropic_sse_is_reparsed_after_outcome_persistence_and_reaches_timeline() {
+    let (_directory, mut store) = store();
+    let capture_id = "anthropic_sse_core";
+    process(&mut store, anthropic_request_event(capture_id));
+    let sse = concat!(
+        "event: message_start\n",
+        "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_core\",\"role\":\"assistant\",\"model\":\"claude-sonnet-4-5\",\"content\":[],\"usage\":{\"input_tokens\":9}}}\n\n",
+        "event: content_block_start\n",
+        "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_core\",\"name\":\"read_file\",\"input\":{}}}\n\n",
+        "event: content_block_delta\n",
+        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"path\\\":\\\"Cargo.toml\\\"}\"}}\n\n",
+        "event: content_block_stop\n",
+        "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+        "event: message_delta\n",
+        "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":7}}\n\n",
+        "event: message_stop\n",
+        "data: {\"type\":\"message_stop\"}\n\n"
+    );
+
+    process(
+        &mut store,
+        response_event(capture_id, 200, "text/event-stream", sse.as_bytes(), true),
+    );
+
+    let stored = store
+        .get_capture(capture_id)
+        .expect("capture query must succeed")
+        .expect("capture must exist");
+    let prompt = stored
+        .prompt_ir
+        .expect("Anthropic Prompt IR must be refreshed");
+    assert_eq!(prompt.completeness.response_body, BodyState::Complete);
+    let response = prompt.response.expect("response trace must be persisted");
+    assert!(matches!(
+        &response.parts[0],
+        PromptPart::ToolUse { name, input, .. }
+            if name == "read_file" && input == &serde_json::json!({"path": "Cargo.toml"})
+    ));
+
+    let workspace = load_workspace(&store).expect("workspace must load");
+    let timeline = &workspace.requests[0].detail.timeline;
+    assert!(timeline.iter().any(|event| {
+        event.title == "Content block started"
+            && event.kind == "tool"
+            && event.sequence == Some(1)
+            && event.offset_ms.is_none()
+    }));
+    assert!(
+        timeline.iter().any(|event| {
+            event.title == "Response stream complete" && event.sequence == Some(5)
+        })
+    );
+}
+
+#[test]
+fn anthropic_sse_error_marks_the_desktop_capture_as_failed() {
+    let (_directory, mut store) = store();
+    let capture_id = "anthropic_sse_error";
+    process(&mut store, anthropic_request_event(capture_id));
+    let sse = "event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}\n\n";
+
+    process(
+        &mut store,
+        response_event(capture_id, 200, "text/event-stream", sse.as_bytes(), true),
+    );
+
+    let workspace = load_workspace(&store).expect("workspace must load");
+    assert_eq!(workspace.requests[0].status, CaptureStatus::Error);
+    assert!(
+        workspace.requests[0]
+            .detail
+            .timeline
+            .iter()
+            .any(|event| event.title == "Response stream failed")
+    );
+    assert!(
+        workspace.requests[0]
+            .detail
+            .timeline
+            .iter()
+            .any(|event| event.title == "Response stream error")
     );
 }

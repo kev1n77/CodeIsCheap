@@ -257,7 +257,18 @@
           "type": "string"
         },
         "offsetMs": {
-          "type": "integer",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "sequence": {
+          "type": [
+            "integer",
+            "null"
+          ],
           "format": "uint64",
           "minimum": 0
         },
@@ -267,7 +278,6 @@
       },
       "required": [
         "id",
-        "offsetMs",
         "kind",
         "title",
         "detail"

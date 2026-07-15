@@ -29,7 +29,7 @@
 
     <h2 id="limits">明确边界</h2>
     <ul><li>应用忽略代理、使用 HTTP/3、独立证书库或证书固定时，代理可能无法捕获。</li><li>服务端二次拼装的系统指令和 RAG 内容不可从客户端请求证明。</li><li>流式响应丢失、取消或截断必须显示为不完整，不伪造最终结果。</li><li>未知协议降级到 Raw，不阻塞请求转发。</li></ul>
-    <p class="note">解析器注册表按置信度选择候选并校验 Prompt IR。单个适配器错误或 panic 不影响其他候选；OpenAI Responses、Chat Completions 与 Completions 已由 golden fixtures 固定映射。</p>
+    <p class="note">解析器注册表按置信度选择候选并校验 Prompt IR。单个适配器错误或 panic 不影响其他候选；OpenAI 请求和 Anthropic JSON/SSE 请求响应均由 golden fixtures 固定映射。</p>
     <footer class="doc-footer"><a href="product.html">← 产品定义</a><a href="architecture.html">下一篇：系统架构 →</a></footer>
   </main><aside class="toc"><strong>本页</strong><a href="#modes">采集模式</a><a href="#pipeline">处理管线</a><a href="#ir">Prompt IR</a><a href="#limits">明确边界</a></aside></div>
 </body></html>

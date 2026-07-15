@@ -1,0 +1,298 @@
+{
+  "ir_version": "0.1.0",
+  "request_id": "anthropic_messages_sse_fixture",
+  "provider": {
+    "id": "anthropic",
+    "host": "api.anthropic.com",
+    "confidence": 1.0
+  },
+  "operation": "messages.create",
+  "model": "claude-sonnet-4-5",
+  "instructions": [],
+  "messages": [
+    {
+      "id": "message_0",
+      "role": "user",
+      "parts": [
+        {
+          "kind": "text",
+          "id": "message_0_part_0",
+          "text": "Inspect Cargo.toml and name the workspace root.",
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/messages/0/content"
+            },
+            "confidence": 1.0
+          }
+        }
+      ],
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/messages/0"
+        },
+        "confidence": 1.0
+      }
+    }
+  ],
+  "context": [],
+  "tools": [
+    {
+      "id": "tool_definition_0",
+      "name": "read_file",
+      "description": "Read a UTF-8 file.",
+      "input_schema": {
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/tools/0"
+        },
+        "confidence": 1.0
+      }
+    }
+  ],
+  "generation": {
+    "max_output_tokens": 512
+  },
+  "vendor": {
+    "anthropic_version": "2023-06-01",
+    "stream": true
+  },
+  "response": {
+    "id": "msg_fixture_1",
+    "model": "claude-sonnet-4-5",
+    "role": "assistant",
+    "parts": [
+      {
+        "kind": "text",
+        "id": "response_part_0",
+        "text": "I will inspect the workspace.",
+        "evidence": {
+          "level": "observed",
+          "source": {
+            "kind": "stream_event",
+            "index": 2
+          },
+          "confidence": 1.0
+        }
+      },
+      {
+        "kind": "tool_use",
+        "id": "toolu_fixture_1",
+        "name": "read_file",
+        "input": {
+          "path": "Cargo.toml"
+        },
+        "evidence": {
+          "level": "observed",
+          "source": {
+            "kind": "stream_event",
+            "index": 6
+          },
+          "confidence": 1.0
+        }
+      }
+    ],
+    "stop_reason": "tool_use",
+    "usage": {
+      "input_tokens": 42,
+      "output_tokens": 18
+    },
+    "events": [
+      {
+        "index": 0,
+        "kind": "message_start",
+        "evidence": {
+          "level": "observed",
+          "source": {
+            "kind": "stream_event",
+            "index": 0
+          },
+          "confidence": 1.0
+        }
+      },
+      {
+        "index": 1,
+        "kind": "ping",
+        "evidence": {
+          "level": "observed",
+          "source": {
+            "kind": "stream_event",
+            "index": 1
+          },
+          "confidence": 1.0
+        }
+      },
+      {
+        "index": 2,
+        "kind": "content_block_start",
+        "content_index": 0,
+        "evidence": {
+          "level": "observed",
+          "source": {
+            "kind": "stream_event",
+            "index": 2
+          },
+          "confidence": 1.0
+        }
+      },
+      {
+        "index": 3,
+        "kind": "content_block_delta",
+        "content_index": 0,
+        "delta_kind": "text_delta",
+        "evidence": {
+          "level": "observed",
+          "source": {
+            "kind": "stream_event",
+            "index": 3
+          },
+          "confidence": 1.0
+        }
+      },
+      {
+        "index": 4,
+        "kind": "content_block_delta",
+        "content_index": 0,
+        "delta_kind": "text_delta",
+        "evidence": {
+          "level": "observed",
+          "source": {
+            "kind": "stream_event",
+            "index": 4
+          },
+          "confidence": 1.0
+        }
+      },
+      {
+        "index": 5,
+        "kind": "content_block_stop",
+        "content_index": 0,
+        "evidence": {
+          "level": "observed",
+          "source": {
+            "kind": "stream_event",
+            "index": 5
+          },
+          "confidence": 1.0
+        }
+      },
+      {
+        "index": 6,
+        "kind": "content_block_start",
+        "content_index": 1,
+        "evidence": {
+          "level": "observed",
+          "source": {
+            "kind": "stream_event",
+            "index": 6
+          },
+          "confidence": 1.0
+        }
+      },
+      {
+        "index": 7,
+        "kind": "content_block_delta",
+        "content_index": 1,
+        "delta_kind": "input_json_delta",
+        "evidence": {
+          "level": "observed",
+          "source": {
+            "kind": "stream_event",
+            "index": 7
+          },
+          "confidence": 1.0
+        }
+      },
+      {
+        "index": 8,
+        "kind": "content_block_delta",
+        "content_index": 1,
+        "delta_kind": "input_json_delta",
+        "evidence": {
+          "level": "observed",
+          "source": {
+            "kind": "stream_event",
+            "index": 8
+          },
+          "confidence": 1.0
+        }
+      },
+      {
+        "index": 9,
+        "kind": "content_block_stop",
+        "content_index": 1,
+        "evidence": {
+          "level": "observed",
+          "source": {
+            "kind": "stream_event",
+            "index": 9
+          },
+          "confidence": 1.0
+        }
+      },
+      {
+        "index": 10,
+        "kind": "future_event",
+        "evidence": {
+          "level": "observed",
+          "source": {
+            "kind": "stream_event",
+            "index": 10
+          },
+          "confidence": 1.0
+        }
+      },
+      {
+        "index": 11,
+        "kind": "message_delta",
+        "evidence": {
+          "level": "observed",
+          "source": {
+            "kind": "stream_event",
+            "index": 11
+          },
+          "confidence": 1.0
+        }
+      },
+      {
+        "index": 12,
+        "kind": "message_stop",
+        "evidence": {
+          "level": "observed",
+          "source": {
+            "kind": "stream_event",
+            "index": 12
+          },
+          "confidence": 1.0
+        }
+      }
+    ],
+    "evidence": {
+      "level": "observed",
+      "source": {
+        "kind": "stream_event",
+        "index": 0
+      },
+      "confidence": 1.0
+    }
+  },
+  "completeness": {
+    "request_body": "complete",
+    "response_body": "complete"
+  }
+}

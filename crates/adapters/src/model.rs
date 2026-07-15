@@ -49,6 +49,7 @@ pub enum ParseIssueCode {
     AdapterPanicked,
     AllAdaptersFailed,
     InvalidBody,
+    InvalidStreamEvent,
     UnsupportedOperation,
     MissingField,
     UnsupportedContent,

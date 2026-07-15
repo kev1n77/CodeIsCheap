@@ -57,6 +57,7 @@ describe("request workbench", () => {
 
     await user.click(screen.getByRole("button", { name: /Timeline/ }));
     expect(screen.getByText("Credentials removed")).toBeInTheDocument();
+    expect(screen.getByText("#0")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /Raw/ }));
     expect(screen.getByText(/Authorization, cookies/)).toBeInTheDocument();

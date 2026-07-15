@@ -168,6 +168,39 @@ pub struct ToolDefinition {
     pub evidence: Evidence,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct ResponseTrace {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    pub role: MessageRole,
+    #[serde(default)]
+    pub parts: Vec<PromptPart>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_sequence: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub usage: BTreeMap<String, Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<Value>,
+    #[serde(default)]
+    pub events: Vec<ResponseEvent>,
+    pub evidence: Evidence,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct ResponseEvent {
+    pub index: u64,
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_index: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delta_kind: Option<String>,
+    pub evidence: Evidence,
+}
+
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema)]
 pub struct GenerationOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -228,6 +261,8 @@ pub struct PromptIr {
     pub generation: GenerationOptions,
     #[serde(default)]
     pub vendor: BTreeMap<String, Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response: Option<ResponseTrace>,
     #[serde(default)]
     pub completeness: Completeness,
 }
@@ -251,6 +286,7 @@ impl PromptIr {
             tools: Vec::new(),
             generation: GenerationOptions::default(),
             vendor: BTreeMap::new(),
+            response: None,
             completeness: Completeness::default(),
         }
     }

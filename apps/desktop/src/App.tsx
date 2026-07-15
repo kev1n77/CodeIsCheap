@@ -365,7 +365,7 @@ function AnatomyView({ sections }: { sections: AnatomySection[] }) {
 
 function TimelineView({ request }: { request: CapturedRequest }) {
   return <div className="timeline-view">{request.detail.timeline.map((event) => (
-    <article className="timeline-event" key={event.id}><div className={`timeline-dot event-${event.kind}`} /><time>+{event.offsetMs} ms</time><div><strong>{event.title}</strong><p>{event.detail}</p></div></article>
+    <article className="timeline-event" key={event.id}><div className={`timeline-dot event-${event.kind}`} /><time>{event.offsetMs == null ? `#${event.sequence ?? "?"}` : `+${event.offsetMs} ms`}</time><div><strong>{event.title}</strong><p>{event.detail}</p></div></article>
   ))}</div>;
 }
 

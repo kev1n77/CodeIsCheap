@@ -175,11 +175,11 @@ pub fn process_gateway_event(
             }))
         }
         GatewayCaptureEvent::Response(response) => {
-            let observed = response_outcome(store, policy, response)?;
+            let observed = response_outcome(store, policy, adapters, response)?;
             Ok(GatewayCaptureOutcome::ResponseObserved(observed))
         }
         GatewayCaptureEvent::UpstreamFailure(failure) => {
-            let observed = failure_outcome(store, policy, failure)?;
+            let observed = failure_outcome(store, policy, adapters, failure)?;
             Ok(GatewayCaptureOutcome::UpstreamFailed(observed))
         }
     }
@@ -312,6 +312,7 @@ fn media_type(content_type: &str) -> String {
 fn response_outcome(
     store: &mut EncryptedStore,
     policy: &CapturePolicy,
+    adapters: &AdapterRegistry,
     response: GatewayResponseCapture,
 ) -> Result<ObservedGatewayResponse, GatewayCaptureError> {
     let content_type = content_type(&response.headers).map(str::to_owned);
@@ -330,7 +331,7 @@ fn response_outcome(
             ResponseCompleteness::Incomplete
         },
     });
-    let persisted = persist_outcome(store, policy, &response.capture_id, outcome)?;
+    let persisted = persist_outcome(store, policy, adapters, &response.capture_id, outcome)?;
     Ok(ObservedGatewayResponse {
         capture_id: response.capture_id,
         status: response.status,
@@ -344,12 +345,13 @@ fn response_outcome(
 fn failure_outcome(
     store: &mut EncryptedStore,
     policy: &CapturePolicy,
+    adapters: &AdapterRegistry,
     failure: GatewayUpstreamFailure,
 ) -> Result<ObservedGatewayFailure, GatewayCaptureError> {
     let outcome = CaptureOutcome::UpstreamFailure(CapturedUpstreamFailure {
         duration_ms: failure.duration_ms,
     });
-    let persisted = persist_outcome(store, policy, &failure.capture_id, outcome)?;
+    let persisted = persist_outcome(store, policy, adapters, &failure.capture_id, outcome)?;
     Ok(ObservedGatewayFailure {
         capture_id: failure.capture_id,
         duration_ms: failure.duration_ms,
@@ -360,15 +362,19 @@ fn failure_outcome(
 fn persist_outcome(
     store: &mut EncryptedStore,
     policy: &CapturePolicy,
+    adapters: &AdapterRegistry,
     capture_id: &str,
     outcome: CaptureOutcome,
 ) -> Result<bool, GatewayCaptureError> {
-    let Some(mut stored) = store.get_capture(capture_id)? else {
+    let Some(stored) = store.get_capture(capture_id)? else {
         return Ok(false);
     };
-    stored.envelope.outcome = Some(outcome);
-    let sanitized = policy.sanitize_envelope(stored.envelope)?;
-    store.upsert_capture(&sanitized, stored.prompt_ir.as_ref())?;
+    let mut envelope = stored.envelope;
+    envelope.outcome = Some(outcome);
+    let sanitized = policy.sanitize_envelope(envelope)?;
+    let parsed = adapters.parse(&sanitized);
+    let prompt_ir = parsed.prompt_ir.as_ref().or(stored.prompt_ir.as_ref());
+    store.upsert_capture(&sanitized, prompt_ir)?;
     Ok(true)
 }
 
