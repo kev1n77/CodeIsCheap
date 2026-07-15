@@ -1,0 +1,81 @@
+{
+  "ir_version": "0.1.0",
+  "request_id": "openai_completions_fixture",
+  "provider": {
+    "id": "openai",
+    "host": "api.openai.com",
+    "confidence": 1.0
+  },
+  "operation": "completions.create",
+  "model": "gpt-3.5-turbo-instruct",
+  "instructions": [],
+  "messages": [
+    {
+      "id": "message_0",
+      "role": "user",
+      "parts": [
+        {
+          "kind": "text",
+          "id": "message_0_part_0",
+          "text": "first synthetic prompt",
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/prompt/0"
+            },
+            "confidence": 1.0
+          }
+        }
+      ],
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/prompt/0"
+        },
+        "confidence": 1.0
+      }
+    },
+    {
+      "id": "message_1",
+      "role": "user",
+      "parts": [
+        {
+          "kind": "text",
+          "id": "message_1_part_0",
+          "text": "second synthetic prompt",
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/prompt/1"
+            },
+            "confidence": 1.0
+          }
+        }
+      ],
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/prompt/1"
+        },
+        "confidence": 1.0
+      }
+    }
+  ],
+  "context": [],
+  "tools": [],
+  "generation": {
+    "temperature": 0.1,
+    "max_output_tokens": 256
+  },
+  "vendor": {
+    "stream": false
+  },
+  "completeness": {
+    "request_body": "complete",
+    "response_body": "missing"
+  }
+}

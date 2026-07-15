@@ -1,0 +1,26 @@
+{
+  "version": "0.1",
+  "capture_id": "openai_completions_fixture",
+  "observed_at_unix_ms": 1784071002000,
+  "source": "gateway",
+  "request": {
+    "method": "POST",
+    "scheme": "https",
+    "host": "api.openai.com",
+    "port": 443,
+    "path": "/v1/completions",
+    "query": [],
+    "headers": [{ "name": "content-type", "value": "application/json" }],
+    "body": {
+      "state": "json",
+      "content": {
+        "model": "gpt-3.5-turbo-instruct",
+        "prompt": ["first synthetic prompt", "second synthetic prompt"],
+        "temperature": 0.1,
+        "max_tokens": 256,
+        "stream": false
+      }
+    }
+  },
+  "redactions": []
+}

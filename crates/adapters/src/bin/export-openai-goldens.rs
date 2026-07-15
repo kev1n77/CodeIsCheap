@@ -4,24 +4,38 @@ use std::path::{Path, PathBuf};
 use codeischeap_adapters::AdapterRegistry;
 use codeischeap_capture_ipc::CaptureEnvelope;
 use codeischeap_capture_policy::CapturePolicy;
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct CapabilityMatrix {
+    adapters: Vec<AdapterCases>,
+}
+
+#[derive(Deserialize)]
+struct AdapterCases {
+    cases: Vec<CapabilityCase>,
+}
+
+#[derive(Deserialize)]
+struct CapabilityCase {
+    capture: String,
+    golden: Option<String>,
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
-    export(
-        &fixtures,
-        "openai-responses-capture.json",
-        "openai-responses-prompt-ir.json",
-    )?;
-    export(
-        &fixtures,
-        "openai-chat-capture.json",
-        "openai-chat-prompt-ir.json",
-    )?;
-    export(
-        &fixtures,
-        "anthropic-messages-sse-capture.json",
-        "anthropic-messages-sse-prompt-ir.json",
-    )?;
+    let matrix: CapabilityMatrix = serde_json::from_str(&fs::read_to_string(
+        fixtures.join("capability-matrix.json"),
+    )?)?;
+    for case in matrix
+        .adapters
+        .into_iter()
+        .flat_map(|adapter| adapter.cases)
+    {
+        if let Some(golden) = case.golden {
+            export(&fixtures, &case.capture, &golden)?;
+        }
+    }
     Ok(())
 }
 
