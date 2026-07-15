@@ -10,6 +10,20 @@ import type { WorkspaceBootstrap } from "./types";
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 
+function makeWorkspace(requestCount: number): WorkspaceBootstrap {
+  const workspace = structuredClone(fixture) as unknown as WorkspaceBootstrap;
+  const template = workspace.requests[0];
+  workspace.requests = Array.from({ length: requestCount }, (_, index) => ({
+    ...template,
+    id: `request-${index}`,
+    model: `model-${index}`,
+    promptPreview: `Synthetic request ${index}`,
+    observedAtUnixMs: template.observedAtUnixMs - index,
+  }));
+  workspace.capture = { ...workspace.capture, requestCount };
+  return workspace;
+}
+
 describe("request workbench", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -128,5 +142,77 @@ describe("request workbench", () => {
 
     expect(await screen.findByText("Live capture arrived")).toBeInTheDocument();
     expect(invoke).toHaveBeenCalledWith("bootstrap_workspace");
+  });
+
+  it("virtualizes one thousand requests and keeps filtered selection coherent", async () => {
+    const user = userEvent.setup();
+    window.__TAURI_INTERNALS__ = {};
+    const workspace = makeWorkspace(1_000);
+    vi.mocked(invoke).mockResolvedValue(structuredClone(workspace));
+
+    render(<App />);
+
+    await screen.findByText("1000 visible");
+    const listbox = screen.getByRole("listbox", { name: "Request results" });
+    const rendered = within(listbox).getAllByRole("option");
+    expect(rendered.length).toBeGreaterThan(0);
+    expect(rendered.length).toBeLessThan(25);
+    expect(rendered[0]).toHaveAttribute("aria-setsize", "1000");
+
+    await user.type(screen.getByRole("textbox", { name: "Search requests" }), "Synthetic request 999");
+
+    const filtered = within(listbox).getAllByRole("option");
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("heading", { name: "model-999" })).toBeInTheDocument();
+  });
+
+  it("scrolls keyboard selection into view without live refresh stealing search focus", async () => {
+    const user = userEvent.setup();
+    window.__TAURI_INTERNALS__ = {};
+    let workspace = makeWorkspace(1_000);
+    let notifyCaptureUpdated = () => {};
+    vi.mocked(listen).mockImplementation(async (event, handler) => {
+      if (event === "capture-updated") {
+        notifyCaptureUpdated = () => handler({
+          event: "capture-updated",
+          id: 1,
+          payload: { captureId: "live-capture" },
+        });
+      }
+      return () => {};
+    });
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === "bootstrap_workspace") return structuredClone(workspace);
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    render(<App />);
+    const listbox = await screen.findByRole("listbox", { name: "Request results" });
+    const first = within(listbox).getAllByRole("option")[0];
+    await user.click(first);
+    for (let index = 0; index < 12; index += 1) {
+      await user.keyboard("{ArrowDown}");
+    }
+
+    expect(await screen.findByRole("heading", { name: "model-12" })).toBeInTheDocument();
+    expect(listbox.scrollTop).toBeGreaterThan(0);
+
+    const search = screen.getByRole("textbox", { name: "Search requests" });
+    await user.click(search);
+    expect(search).toHaveFocus();
+    workspace = {
+      ...workspace,
+      capture: { ...workspace.capture, requestCount: 1_001 },
+      requests: [
+        { ...workspace.requests[0], id: "live-capture", promptPreview: "Live capture arrived" },
+        ...workspace.requests,
+      ],
+    };
+    await act(async () => notifyCaptureUpdated());
+
+    await screen.findByText("1001 visible");
+    expect(search).toHaveFocus();
+    expect(screen.getByRole("heading", { name: "model-12" })).toBeInTheDocument();
   });
 });

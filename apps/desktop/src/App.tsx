@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   Activity,
   AlertTriangle,
@@ -40,6 +41,7 @@ const clock = new Intl.DateTimeFormat(undefined, {
   second: "2-digit",
   hour12: false,
 });
+const REQUEST_ROW_HEIGHT = 116;
 
 export function App() {
   const [workspace, setWorkspace] = useState<WorkspaceBootstrap | null>(null);
@@ -117,6 +119,15 @@ export function App() {
     localStorage.setItem("codeischeap.theme", theme);
   }, [theme]);
 
+  const requests = useMemo(
+    () => workspace ? filteredRequests(workspace.requests, query, provider, application, toolsOnly, errorsOnly) : [],
+    [workspace, query, provider, application, toolsOnly, errorsOnly],
+  );
+  const effectiveSelectedId = requests.some((request) => request.id === selectedId)
+    ? selectedId
+    : (requests[0]?.id ?? "");
+  const selected = workspace?.requests.find((request) => request.id === effectiveSelectedId);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "/" && document.activeElement !== searchRef.current) {
@@ -128,21 +139,14 @@ export function App() {
       }
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
-        const visible = filteredRequests(workspace.requests, query, provider, application, toolsOnly, errorsOnly);
-        const current = Math.max(0, visible.findIndex((request) => request.id === selectedId));
-        const next = event.key === "ArrowDown" ? Math.min(visible.length - 1, current + 1) : Math.max(0, current - 1);
-        setSelectedId(visible[next]?.id ?? selectedId);
+        const current = Math.max(0, requests.findIndex((request) => request.id === effectiveSelectedId));
+        const next = event.key === "ArrowDown" ? Math.min(requests.length - 1, current + 1) : Math.max(0, current - 1);
+        setSelectedId(requests[next]?.id ?? effectiveSelectedId);
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [workspace, query, provider, application, toolsOnly, errorsOnly, selectedId]);
-
-  const requests = useMemo(
-    () => workspace ? filteredRequests(workspace.requests, query, provider, application, toolsOnly, errorsOnly) : [],
-    [workspace, query, provider, application, toolsOnly, errorsOnly],
-  );
-  const selected = workspace?.requests.find((request) => request.id === selectedId) ?? requests[0];
+  }, [workspace, requests, effectiveSelectedId]);
 
   const toggleCapture = () => {
     const next = !captureActive;
@@ -198,7 +202,7 @@ export function App() {
         <RequestPane
           requests={requests}
           allRequests={workspace.requests}
-          selectedId={selected?.id ?? ""}
+          selectedId={effectiveSelectedId}
           query={query}
           provider={provider}
           application={application}
@@ -296,8 +300,24 @@ function RequestPane({ requests, allRequests, selectedId, query, provider, appli
   onApplication: (value: string) => void;
   onSelect: (id: string) => void;
 }) {
+  const listRef = useRef<HTMLDivElement>(null);
   const providers = ["All providers", ...new Set(allRequests.map((request) => request.provider))];
   const applications = ["All apps", ...new Set(allRequests.map((request) => request.application))];
+  const selectedIndex = requests.findIndex((request) => request.id === selectedId);
+  const rowVirtualizer = useVirtualizer({
+    count: requests.length,
+    getScrollElement: () => listRef.current,
+    estimateSize: () => REQUEST_ROW_HEIGHT,
+    getItemKey: (index) => requests[index]?.id ?? index,
+    overscan: 5,
+  });
+
+  useEffect(() => {
+    if (selectedIndex >= 0) {
+      rowVirtualizer.scrollToIndex(selectedIndex, { align: "auto" });
+    }
+  }, [rowVirtualizer, selectedIndex]);
+
   return (
     <section className="request-pane" aria-label="Captured requests">
       <div className="pane-heading"><div><h1>Requests</h1><span>{requests.length} visible</span></div><button className="icon-button" title="Request list options" aria-label="Request list options"><Filter size={15} /></button></div>
@@ -308,15 +328,31 @@ function RequestPane({ requests, allRequests, selectedId, query, provider, appli
           <select aria-label="Application filter" value={application} onChange={(event) => onApplication(event.target.value)}>{applications.map((value) => <option key={value}>{value}</option>)}</select>
         </div>
       </div>
-      <div className="request-list" role="listbox" aria-label="Request results">
-        {requests.map((request) => (
-          <button key={request.id} role="option" aria-selected={request.id === selectedId} className="request-row" onClick={() => onSelect(request.id)}>
-            <div className="request-row-top"><span className={`status-mark status-${request.status}`} /><strong>{request.application}</strong><time>{clock.format(new Date(request.observedAtUnixMs))}</time></div>
-            <div className="request-operation"><span>{request.provider}</span><b>{request.operation}</b></div>
-            <p>{request.promptPreview}</p>
-            <div className="request-meta"><span>{request.model}</span><span>{formatTokens(request.tokens)}</span><span>{request.durationMs == null ? "Duration unknown" : formatDuration(request.durationMs)}</span>{request.hasTools && <Wrench size={12} aria-label="Uses tools" />}</div>
-          </button>
-        ))}
+      <div ref={listRef} className="request-list" role="listbox" aria-label="Request results">
+        {requests.length > 0 && <div className="request-virtualizer" style={{ height: rowVirtualizer.getTotalSize() }}>
+          {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+            const request = requests[virtualRow.index];
+            return (
+              <button
+                key={request.id}
+                role="option"
+                aria-posinset={virtualRow.index + 1}
+                aria-setsize={requests.length}
+                aria-selected={request.id === selectedId}
+                className="request-row"
+                data-index={virtualRow.index}
+                style={{ transform: `translateY(${virtualRow.start}px)` }}
+                tabIndex={request.id === selectedId ? 0 : -1}
+                onClick={() => onSelect(request.id)}
+              >
+                <div className="request-row-top"><span className={`status-mark status-${request.status}`} /><strong>{request.application}</strong><time>{clock.format(new Date(request.observedAtUnixMs))}</time></div>
+                <div className="request-operation"><span>{request.provider}</span><b>{request.operation}</b></div>
+                <p>{request.promptPreview}</p>
+                <div className="request-meta"><span>{request.model}</span><span>{formatTokens(request.tokens)}</span><span>{request.durationMs == null ? "Duration unknown" : formatDuration(request.durationMs)}</span>{request.hasTools && <Wrench size={12} aria-label="Uses tools" />}</div>
+              </button>
+            );
+          })}
+        </div>}
         {requests.length === 0 && <div className="empty-list"><Search size={22} /><strong>No matching requests</strong><span>Adjust search or filters.</span></div>}
       </div>
     </section>
