@@ -42,6 +42,7 @@ pub struct CaptureState {
     pub endpoint: String,
     pub storage: String,
     pub request_count: u64,
+    pub certificate_authority: CertificateAuthority,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
@@ -49,6 +50,61 @@ pub struct CaptureState {
 pub enum CaptureMode {
     Gateway,
     Proxy,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct CertificateAuthority {
+    pub state: CertificateAuthorityState,
+    pub fingerprint_sha256: Option<String>,
+    pub subject: Option<String>,
+    pub valid_from_unix_ms: Option<i64>,
+    pub valid_until_unix_ms: Option<i64>,
+    pub private_material: CertificatePrivateMaterial,
+    pub trust: CertificateTrust,
+    pub detail: Option<String>,
+}
+
+impl CertificateAuthority {
+    #[must_use]
+    pub fn missing() -> Self {
+        Self {
+            state: CertificateAuthorityState::Missing,
+            fingerprint_sha256: None,
+            subject: None,
+            valid_from_unix_ms: None,
+            valid_until_unix_ms: None,
+            private_material: CertificatePrivateMaterial::Missing,
+            trust: CertificateTrust::Unchecked,
+            detail: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum CertificateAuthorityState {
+    Missing,
+    Ready,
+    Invalid,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum CertificatePrivateMaterial {
+    Missing,
+    Restricted,
+    Unchecked,
+    Insecure,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum CertificateTrust {
+    Unchecked,
+    Trusted,
+    NotTrusted,
+    Unsupported,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
@@ -198,6 +254,7 @@ pub fn load_workspace(store: &EncryptedStore) -> Result<WorkspaceBootstrap, Desk
             endpoint: "Not connected".to_owned(),
             storage: format!("SQLCipher {cipher_version} / WAL"),
             request_count: store.capture_count()?,
+            certificate_authority: CertificateAuthority::missing(),
         },
         requests,
     })

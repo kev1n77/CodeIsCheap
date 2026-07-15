@@ -9,7 +9,17 @@
     "profile": "Local development",
     "endpoint": "127.0.0.1:3210",
     "storage": "Local only",
-    "requestCount": 6
+    "requestCount": 6,
+    "certificateAuthority": {
+      "state": "missing",
+      "fingerprintSha256": null,
+      "subject": null,
+      "validFromUnixMs": null,
+      "validUntilUnixMs": null,
+      "privateMaterial": "missing",
+      "trust": "unchecked",
+      "detail": null
+    }
   },
   "requests": [
     {

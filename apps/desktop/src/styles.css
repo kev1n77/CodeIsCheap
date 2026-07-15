@@ -84,6 +84,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, [role="separato
 .capture-facts div { min-width: 0; }
 .capture-facts dt { color: var(--text-tertiary); font-size: 10px; }
 .capture-facts dd { margin: 2px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.capture-facts .certificate-fingerprint dd { overflow: visible; white-space: normal; }
+.certificate-fingerprint code { overflow-wrap: anywhere; color: var(--text-secondary); font-size: 9px; line-height: 1.45; }
 .check-row { min-height: 31px; display: grid; grid-template-columns: 16px 16px 1fr auto; align-items: center; gap: 7px; color: var(--text-secondary); cursor: pointer; }
 .check-row input { accent-color: var(--accent); }
 .check-row b { color: var(--text-tertiary); font-size: 11px; }
