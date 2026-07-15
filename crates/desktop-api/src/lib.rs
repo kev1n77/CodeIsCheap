@@ -214,7 +214,6 @@ fn map_capture(capture: codeischeap_storage::StoredCapture) -> CapturedRequest {
                 .and_then(first_json_string)
         })
         .unwrap_or_else(|| "Prompt content unavailable".to_owned());
-    let anatomy = prompt_ir.as_ref().map_or_else(Vec::new, anatomy_sections);
     let has_tools = prompt_ir
         .as_ref()
         .is_some_and(|prompt| !prompt.tools.is_empty());
@@ -226,6 +225,9 @@ fn map_capture(capture: codeischeap_storage::StoredCapture) -> CapturedRequest {
         }
         state => json!({ "state": state, "content": envelope.request.body.content }),
     };
+    let anatomy = prompt_ir
+        .as_ref()
+        .map_or_else(Vec::new, |prompt| anatomy_sections(prompt, &raw_body));
     let mut timeline = vec![TimelineEvent {
         id: "request_observed".to_owned(),
         offset_ms: Some(0),
@@ -449,7 +451,7 @@ fn response_part(trace: &ResponseTrace, index: Option<u64>) -> Option<&PromptPar
         .and_then(|index| trace.parts.get(index))
 }
 
-fn anatomy_sections(prompt: &PromptIr) -> Vec<AnatomySection> {
+fn anatomy_sections(prompt: &PromptIr, raw_body: &Value) -> Vec<AnatomySection> {
     let mut sections = Vec::new();
     let instructions = prompt
         .instructions
@@ -516,16 +518,27 @@ fn anatomy_sections(prompt: &PromptIr) -> Vec<AnatomySection> {
 
     let mut parameters = Vec::new();
     if let Some(model) = &prompt.model {
-        parameters.push(parameter_item("model", "model", model));
+        parameters.push(parameter_item(
+            "model",
+            "model",
+            model,
+            parameter_source(raw_body, &["/model"]),
+        ));
     }
     if let Some(operation) = &prompt.operation {
-        parameters.push(parameter_item("operation", "operation", operation));
+        parameters.push(parameter_item(
+            "operation",
+            "operation",
+            operation,
+            "/request/path".to_owned(),
+        ));
     }
     if let Some(temperature) = prompt.generation.temperature {
         parameters.push(parameter_item(
             "temperature",
             "temperature",
             &temperature.to_string(),
+            parameter_source(raw_body, &["/temperature", "/generationConfig/temperature"]),
         ));
     }
     if let Some(max_output_tokens) = prompt.generation.max_output_tokens {
@@ -533,6 +546,14 @@ fn anatomy_sections(prompt: &PromptIr) -> Vec<AnatomySection> {
             "max_output_tokens",
             "max output tokens",
             &max_output_tokens.to_string(),
+            parameter_source(
+                raw_body,
+                &[
+                    "/max_output_tokens",
+                    "/max_tokens",
+                    "/generationConfig/maxOutputTokens",
+                ],
+            ),
         ));
     }
     sections.push(section(
@@ -570,14 +591,21 @@ fn anatomy_item(part: &PromptPart, label: &str, role: Option<String>) -> Anatomy
     }
 }
 
-fn parameter_item(id: &str, label: &str, content: &str) -> AnatomyItem {
+fn parameter_item(id: &str, label: &str, content: &str, source: String) -> AnatomyItem {
     AnatomyItem {
         id: id.to_owned(),
         label: label.to_owned(),
         role: None,
         content: content.to_owned(),
-        source: "Prompt IR".to_owned(),
+        source,
     }
+}
+
+fn parameter_source(raw_body: &Value, candidates: &[&str]) -> String {
+    candidates
+        .iter()
+        .find(|pointer| raw_body.pointer(pointer).is_some())
+        .map_or_else(|| "Prompt IR".to_owned(), |pointer| (*pointer).to_owned())
 }
 
 fn prompt_preview(prompt: &PromptIr) -> Option<String> {
@@ -769,7 +797,25 @@ mod tests {
                 }],
                 body: CapturedBody {
                     state: CapturedBodyState::Json,
-                    content: Some(json!({"input": "Fix the failing parser test."})),
+                    content: Some(json!({
+                        "model": "gpt-example",
+                        "instructions": "You are a coding assistant.",
+                        "input": [{
+                            "role": "user",
+                            "content": [{
+                                "type": "input_text",
+                                "text": "Fix the failing parser test."
+                            }]
+                        }],
+                        "tools": [{
+                            "type": "function",
+                            "name": "read_file",
+                            "description": "Read a UTF-8 file from the workspace.",
+                            "parameters": {"type": "object"}
+                        }],
+                        "temperature": 0.2,
+                        "max_output_tokens": 4096
+                    })),
                 },
             },
             outcome: Some(CaptureOutcome::Response(CapturedResponse {
@@ -812,6 +858,19 @@ mod tests {
         assert!(workspace.requests[0].has_tools);
         assert_eq!(workspace.requests[0].status, CaptureStatus::Complete);
         assert_eq!(workspace.requests[0].duration_ms, Some(58));
+        for item in workspace.requests[0]
+            .detail
+            .anatomy
+            .iter()
+            .flat_map(|section| &section.items)
+        {
+            assert!(
+                resolves_raw_source(&workspace.requests[0].detail.raw, &item.source),
+                "{} must resolve to raw evidence: {}",
+                item.id,
+                item.source
+            );
+        }
         assert!(
             workspace.requests[0]
                 .detail
@@ -872,5 +931,11 @@ mod tests {
         }
         bindings.sort_by(|left, right| left.0.cmp(&right.0));
         bindings
+    }
+
+    fn resolves_raw_source(raw: &Value, source: &str) -> bool {
+        source.starts_with('/')
+            && (raw.pointer(source).is_some()
+                || raw.pointer(&format!("/request/body{source}")).is_some())
     }
 }

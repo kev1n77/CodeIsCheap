@@ -9,6 +9,7 @@ import {
   CircleStop,
   Database,
   Filter,
+  LocateFixed,
   Moon,
   Network,
   Pause,
@@ -33,6 +34,7 @@ import {
   setGatewayCaptureActive,
   subscribeToCaptureEvents,
 } from "./workspace";
+import { formatRawJson, resolveEvidencePointer } from "./raw-evidence";
 
 const number = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
 const clock = new Intl.DateTimeFormat(undefined, {
@@ -360,6 +362,14 @@ function RequestPane({ requests, allRequests, selectedId, query, provider, appli
 }
 
 function Inspector({ request, tab, onTab }: { request: CapturedRequest; tab: InspectorTab; onTab: (tab: InspectorTab) => void }) {
+  const [rawPointer, setRawPointer] = useState<string | null>(null);
+  useEffect(() => { setRawPointer(null); }, [request.id]);
+  const locateRawEvidence = (source: string) => {
+    const pointer = resolveEvidencePointer(request.detail.raw, source);
+    if (!pointer) return;
+    setRawPointer(pointer);
+    onTab("raw");
+  };
   return (
     <section className="inspector" aria-label="Request inspector">
       <header className="inspector-header">
@@ -372,15 +382,15 @@ function Inspector({ request, tab, onTab }: { request: CapturedRequest; tab: Ins
         <button aria-selected={tab === "raw"} onClick={() => onTab("raw")}><TerminalSquare size={14} />Raw</button>
       </nav>
       <div className="inspector-content">
-        {tab === "anatomy" && <AnatomyView sections={request.detail.anatomy} />}
+        {tab === "anatomy" && <AnatomyView sections={request.detail.anatomy} raw={request.detail.raw} onLocate={locateRawEvidence} />}
         {tab === "timeline" && <TimelineView request={request} />}
-        {tab === "raw" && <RawView request={request} />}
+        {tab === "raw" && <RawView request={request} pointer={rawPointer} />}
       </div>
     </section>
   );
 }
 
-function AnatomyView({ sections }: { sections: AnatomySection[] }) {
+function AnatomyView({ sections, raw, onLocate }: { sections: AnatomySection[]; raw: CapturedRequest["detail"]["raw"]; onLocate: (source: string) => void }) {
   const [open, setOpen] = useState(() => new Set(["instructions", "messages"]));
   const toggle = (id: string) => setOpen((current) => {
     const next = new Set(current);
@@ -392,9 +402,10 @@ function AnatomyView({ sections }: { sections: AnatomySection[] }) {
       <button className="anatomy-heading" aria-expanded={open.has(section.id)} onClick={() => toggle(section.id)}>
         {open.has(section.id) ? <ChevronDown size={15} /> : <ChevronRight size={15} />}<strong>{section.title}</strong><span>{section.count}</span>{section.tokenCount != null && <b>{number.format(section.tokenCount)} tok</b>}<EvidenceBadge level={section.evidence} />
       </button>
-      {open.has(section.id) && <div className="anatomy-items">{section.items.length ? section.items.map((item) => (
-        <article className="anatomy-item" key={item.id}><div><span className={`role-label role-${item.role ?? "field"}`}>{item.label}</span><code>{item.source}</code></div><p>{item.content}</p></article>
-      )) : <div className="empty-section">No tools were included in this request.</div>}</div>}
+      {open.has(section.id) && <div className="anatomy-items">{section.items.length ? section.items.map((item) => {
+        const pointer = resolveEvidencePointer(raw, item.source);
+        return <article className="anatomy-item" key={item.id}><div><span className={`role-label role-${item.role ?? "field"}`}>{item.label}</span><button className="evidence-link" disabled={!pointer} title={pointer ? "Show raw evidence" : "Raw evidence is unavailable for this derived value"} aria-label={pointer ? `Show raw evidence for ${item.label}` : `Raw evidence unavailable for ${item.label}`} onClick={() => onLocate(item.source)}><LocateFixed size={12} /><code>{item.source}</code></button></div><p>{item.content}</p></article>;
+      }) : <div className="empty-section">No tools were included in this request.</div>}</div>}
     </section>
   ))}</div>;
 }
@@ -405,8 +416,15 @@ function TimelineView({ request }: { request: CapturedRequest }) {
   ))}</div>;
 }
 
-function RawView({ request }: { request: CapturedRequest }) {
-  return <div className="raw-view"><div className="raw-banner"><ShieldCheck size={14} /><span>Authorization, cookies, and API key headers are excluded before this view.</span></div><pre>{JSON.stringify(request.detail.raw, null, 2)}</pre></div>;
+function RawView({ request, pointer }: { request: CapturedRequest; pointer: string | null }) {
+  const highlightedRef = useRef<HTMLSpanElement>(null);
+  const lines = useMemo(() => formatRawJson(request.detail.raw), [request.detail.raw]);
+  useEffect(() => { highlightedRef.current?.scrollIntoView?.({ block: "center" }); }, [pointer]);
+  return <div className="raw-view">
+    <div className="raw-banner"><ShieldCheck size={14} /><span>Authorization, cookies, and API key headers are excluded before this view.</span></div>
+    {pointer && <div className="raw-location" role="status"><LocateFixed size={13} /><span>Evidence</span><code>{pointer}</code></div>}
+    <pre aria-label="Raw JSON evidence">{lines.map((line, index) => <span key={`${line.pointer}-${index}`} ref={line.pointer === pointer ? highlightedRef : undefined} className={`raw-line${line.pointer === pointer ? " is-highlighted" : ""}`} data-pointer={line.pointer}>{line.text}</span>)}</pre>
+  </div>;
 }
 
 function EvidenceBadge({ level }: { level: AnatomySection["evidence"] }) {

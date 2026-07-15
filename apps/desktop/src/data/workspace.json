@@ -83,15 +83,21 @@
         "raw": {
           "model": "claude-sonnet",
           "stream": true,
+          "temperature": 0.2,
+          "max_tokens": 8192,
           "system": [
-            { "type": "text", "text": "You are a coding assistant operating inside an existing repository." }
+            { "type": "text", "text": "You are a coding assistant operating inside an existing repository." },
+            { "type": "text", "text": "Preserve unrelated work and cite evidence for behavioral claims." }
           ],
           "messages": [
-            { "role": "user", "content": "Inspect the failing authentication flow and propose a minimal patch." }
+            { "role": "user", "content": "Inspect the failing authentication flow and propose a minimal patch." },
+            { "role": "assistant", "content": "I will inspect the route and its existing tests first." },
+            { "role": "tool", "content": "Synthetic repository search result: auth/session.ts and auth/session.test.ts" }
           ],
           "tools": [
             { "name": "read_file", "description": "Read a UTF-8 text file from the active workspace." },
-            { "name": "search", "description": "Search repository text with a bounded result count." }
+            { "name": "search", "description": "Search repository text with a bounded result count." },
+            { "name": "apply_patch", "description": "Apply a reviewable patch to workspace files." }
           ],
           "metadata": { "fixture": "synthetic", "credentials_persisted": false }
         }
@@ -120,7 +126,7 @@
           { "id": "request", "offsetMs": 0, "kind": "request", "title": "Request observed", "detail": "POST /v1/responses" },
           { "id": "complete", "offsetMs": 742, "kind": "complete", "title": "Response complete", "detail": "200 OK" }
         ],
-        "raw": { "model": "gpt-codex", "input": "Review this function for race conditions and missing cleanup.", "metadata": { "fixture": "synthetic" } }
+        "raw": { "model": "gpt-codex", "instructions": "Prioritize concrete correctness findings.", "input": [{ "role": "user", "content": [{ "type": "input_text", "text": "Review this function for race conditions and missing cleanup." }] }], "stream": false, "metadata": { "fixture": "synthetic" } }
       }
     },
     {
@@ -147,7 +153,7 @@
           { "id": "first", "offsetMs": 288, "kind": "stream", "title": "First token", "detail": "delta received" },
           { "id": "active", "offsetMs": 1260, "kind": "stream", "title": "Still streaming", "detail": "response body remains open" }
         ],
-        "raw": { "model": "gpt-4.1", "stream": true, "messages": [{ "role": "user", "content": "Generate a migration plan for the event schema." }] }
+        "raw": { "model": "gpt-4.1", "stream": true, "temperature": 0, "messages": [{ "role": "system", "content": "Return a staged migration with rollback points." }, { "role": "user", "content": "Generate a migration plan for the event schema." }], "tools": [{ "name": "read_schema", "description": "Read the current public schema revision." }] }
       }
     },
     {
@@ -170,7 +176,7 @@
           { "id": "parameters", "title": "Parameters", "count": 1, "evidence": "observed", "items": [{ "id": "model", "label": "model", "content": "claude-haiku", "source": "/model" }] }
         ],
         "timeline": [{ "id": "complete", "offsetMs": 524, "kind": "complete", "title": "Response complete", "detail": "200 OK" }],
-        "raw": { "model": "claude-haiku", "messages": [{ "role": "user", "content": "Summarize the selected changes in three bullets." }] }
+        "raw": { "model": "claude-haiku", "system": "Be concise and factual.", "messages": [{ "role": "user", "content": "Summarize the selected changes in three bullets." }] }
       }
     },
     {
@@ -196,7 +202,7 @@
           { "id": "request", "offsetMs": 0, "kind": "request", "title": "Request observed", "detail": "POST generateContent" },
           { "id": "error", "offsetMs": 918, "kind": "error", "title": "Upstream rejected request", "detail": "400 invalid argument" }
         ],
-        "raw": { "model": "gemini-pro", "error": { "code": 400, "status": "INVALID_ARGUMENT" }, "metadata": { "fixture": "synthetic" } }
+        "raw": { "model": "gemini-pro", "systemInstruction": { "parts": [{ "text": "Use the supplied build log as observed evidence." }] }, "contents": [{ "role": "user", "parts": [{ "text": "Explain why this build step fails only on Windows." }] }], "tools": [{ "name": "search_docs", "description": "Search synthetic build documentation." }], "generationConfig": { "state": "not_captured" }, "error": { "code": 400, "status": "INVALID_ARGUMENT" }, "metadata": { "fixture": "synthetic" } }
       }
     },
     {
@@ -219,7 +225,7 @@
           { "id": "parameters", "title": "Parameters", "count": 2, "evidence": "derived", "items": [{ "id": "safe", "label": "safe_prompt", "content": "false", "source": "/safe_prompt" }, { "id": "temp", "label": "temperature", "content": "0.1", "source": "/temperature" }] }
         ],
         "timeline": [{ "id": "complete", "offsetMs": 1104, "kind": "complete", "title": "Response complete", "detail": "200 OK" }],
-        "raw": { "model": "codestral", "messages": [{ "role": "user", "content": "Refactor the parser without changing its public output." }] }
+        "raw": { "model": "codestral", "messages": [{ "role": "system", "content": "Preserve public behavior and add focused tests." }, { "role": "user", "content": "Refactor the parser without changing its public output." }], "safe_prompt": false, "temperature": 0.1 }
       }
     }
   ]

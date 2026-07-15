@@ -78,6 +78,20 @@ describe("request workbench", () => {
     expect(screen.getByText(/credentials_persisted/)).toBeInTheDocument();
   });
 
+  it("locates an Anatomy item in highlighted raw JSON", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<App />);
+    await screen.findByRole("heading", { name: "claude-sonnet" });
+
+    await user.click(screen.getByRole("button", { name: "Show raw evidence for User" }));
+
+    expect(screen.getByRole("button", { name: "Raw" })).toHaveAttribute("aria-selected", "true");
+    expect(within(screen.getByRole("status")).getByText("/messages/0/content")).toBeInTheDocument();
+    const highlighted = container.querySelector('.raw-line.is-highlighted');
+    expect(highlighted).toHaveAttribute("data-pointer", "/messages/0/content");
+    expect(highlighted).toHaveTextContent("Inspect the failing authentication flow");
+  });
+
   it("shows a retryable failure when the encrypted workspace cannot open", async () => {
     window.__TAURI_INTERNALS__ = {};
     vi.mocked(invoke).mockRejectedValueOnce(new Error("OS credential store is locked"));
