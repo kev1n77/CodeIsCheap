@@ -25,13 +25,22 @@ import type {
   CapturedRequest,
   InspectorTab,
   WorkspaceBootstrap,
+  WorkspaceSource,
 } from "./types";
 import { loadWorkspace } from "./workspace";
 
 const number = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
+const clock = new Intl.DateTimeFormat(undefined, {
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false,
+});
 
 export function App() {
   const [workspace, setWorkspace] = useState<WorkspaceBootstrap | null>(null);
+  const [loadError, setLoadError] = useState("");
+  const [reloadToken, setReloadToken] = useState(0);
   const [selectedId, setSelectedId] = useState("");
   const [query, setQuery] = useState("");
   const [provider, setProvider] = useState("All providers");
@@ -49,13 +58,23 @@ export function App() {
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    loadWorkspace().then((value) => {
-      setWorkspace(value);
-      setSelectedId(value.requests[0]?.id ?? "");
-      setCaptureActive(value.capture.active);
-      setCaptureMode(value.capture.mode);
-    });
-  }, []);
+    let cancelled = false;
+    setLoadError("");
+    loadWorkspace()
+      .then((value) => {
+        if (cancelled) return;
+        setWorkspace(value);
+        setSelectedId(value.requests[0]?.id ?? "");
+        setCaptureActive(value.capture.active);
+        setCaptureMode(value.capture.mode);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setWorkspace(null);
+        setLoadError(error instanceof Error ? error.message : "The encrypted workspace could not be opened.");
+      });
+    return () => { cancelled = true; };
+  }, [reloadToken]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -89,6 +108,10 @@ export function App() {
   );
   const selected = workspace?.requests.find((request) => request.id === selectedId) ?? requests[0];
 
+  if (loadError) {
+    return <LoadFailure detail={loadError} onRetry={() => setReloadToken((value) => value + 1)} />;
+  }
+
   if (!workspace) {
     return <div className="loading-state"><span className="brand-glyph">C</span><span>Loading workspace</span></div>;
   }
@@ -97,6 +120,8 @@ export function App() {
     <div className="app-shell">
       <Titlebar
         active={captureActive}
+        canControl={workspace.capture.canControl}
+        source={workspace.source}
         theme={theme}
         onToggleCapture={() => setCaptureActive((active) => !active)}
         onToggleTheme={() => setTheme((value) => value === "light" ? "dark" : "light")}
@@ -108,6 +133,7 @@ export function App() {
         <CaptureSidebar
           workspace={workspace}
           active={captureActive}
+          canControl={workspace.capture.canControl}
           mode={captureMode}
           toolsOnly={toolsOnly}
           errorsOnly={errorsOnly}
@@ -136,18 +162,20 @@ export function App() {
   );
 }
 
-function Titlebar({ active, theme, onToggleCapture, onToggleTheme }: {
+function Titlebar({ active, canControl, source, theme, onToggleCapture, onToggleTheme }: {
   active: boolean;
+  canControl: boolean;
+  source: WorkspaceSource;
   theme: "light" | "dark";
   onToggleCapture: () => void;
   onToggleTheme: () => void;
 }) {
   return (
     <header className="titlebar">
-      <div className="brand-lockup"><span className="brand-glyph">C</span><strong>CodeIsCheap</strong><span className="fixture-label">Synthetic workspace</span></div>
+      <div className="brand-lockup"><span className="brand-glyph">C</span><strong>CodeIsCheap</strong><span className="fixture-label">{source === "encrypted_local" ? "Encrypted local workspace" : "Synthetic workspace"}</span></div>
       <div className="titlebar-actions">
         <span className={`capture-indicator ${active ? "is-live" : ""}`}><span />{active ? "Capturing" : "Paused"}</span>
-        <button className="icon-button" title={active ? "Pause capture" : "Resume capture"} aria-label={active ? "Pause capture" : "Resume capture"} onClick={onToggleCapture}>
+        <button className="icon-button" title={canControl ? (active ? "Pause capture" : "Resume capture") : "Capture controls are not connected"} aria-label={active ? "Pause capture" : "Resume capture"} disabled={!canControl} onClick={onToggleCapture}>
           {active ? <Pause size={16} /> : <Play size={16} />}
         </button>
         <button className="icon-button" title={`Use ${theme === "light" ? "dark" : "light"} theme`} aria-label="Toggle theme" onClick={onToggleTheme}>
@@ -159,9 +187,10 @@ function Titlebar({ active, theme, onToggleCapture, onToggleTheme }: {
   );
 }
 
-function CaptureSidebar({ workspace, active, mode, toolsOnly, errorsOnly, onModeChange, onToolsOnly, onErrorsOnly }: {
+function CaptureSidebar({ workspace, active, canControl, mode, toolsOnly, errorsOnly, onModeChange, onToolsOnly, onErrorsOnly }: {
   workspace: WorkspaceBootstrap;
   active: boolean;
+  canControl: boolean;
   mode: CaptureMode;
   toolsOnly: boolean;
   errorsOnly: boolean;
@@ -175,8 +204,8 @@ function CaptureSidebar({ workspace, active, mode, toolsOnly, errorsOnly, onMode
         <div className="section-label">Capture</div>
         <div className="capture-state"><span className={`state-dot ${active ? "is-live" : ""}`} /><strong>{active ? "Active" : "Paused"}</strong></div>
         <div className="segmented-control" aria-label="Capture mode">
-          <button aria-pressed={mode === "gateway"} onClick={() => onModeChange("gateway")}><Network size={14} />Gateway</button>
-          <button aria-pressed={mode === "proxy"} onClick={() => onModeChange("proxy")}><ShieldCheck size={14} />Proxy</button>
+          <button aria-pressed={mode === "gateway"} disabled={!canControl} onClick={() => onModeChange("gateway")}><Network size={14} />Gateway</button>
+          <button aria-pressed={mode === "proxy"} disabled={!canControl} onClick={() => onModeChange("proxy")}><ShieldCheck size={14} />Proxy</button>
         </div>
         <dl className="capture-facts">
           <div><dt>Profile</dt><dd>{workspace.capture.profile}</dd></div>
@@ -228,10 +257,10 @@ function RequestPane({ requests, allRequests, selectedId, query, provider, appli
       <div className="request-list" role="listbox" aria-label="Request results">
         {requests.map((request) => (
           <button key={request.id} role="option" aria-selected={request.id === selectedId} className="request-row" onClick={() => onSelect(request.id)}>
-            <div className="request-row-top"><span className={`status-mark status-${request.status}`} /><strong>{request.application}</strong><time>{request.time}</time></div>
+            <div className="request-row-top"><span className={`status-mark status-${request.status}`} /><strong>{request.application}</strong><time>{clock.format(new Date(request.observedAtUnixMs))}</time></div>
             <div className="request-operation"><span>{request.provider}</span><b>{request.operation}</b></div>
             <p>{request.promptPreview}</p>
-            <div className="request-meta"><span>{request.model}</span><span>{number.format(request.tokens)} tok</span><span>{formatDuration(request.durationMs)}</span>{request.hasTools && <Wrench size={12} aria-label="Uses tools" />}</div>
+            <div className="request-meta"><span>{request.model}</span><span>{formatTokens(request.tokens)}</span><span>{request.durationMs == null ? "Duration unknown" : formatDuration(request.durationMs)}</span>{request.hasTools && <Wrench size={12} aria-label="Uses tools" />}</div>
           </button>
         ))}
         {requests.length === 0 && <div className="empty-list"><Search size={22} /><strong>No matching requests</strong><span>Adjust search or filters.</span></div>}
@@ -245,7 +274,7 @@ function Inspector({ request, tab, onTab }: { request: CapturedRequest; tab: Ins
     <section className="inspector" aria-label="Request inspector">
       <header className="inspector-header">
         <div><div className="inspector-provider"><span className={`provider-mark provider-${request.provider.toLowerCase()}`}>{request.provider[0]}</span><strong>{request.provider}</strong><span>{request.operation}</span></div><h2>{request.model}</h2></div>
-        <div className="inspector-metrics"><span><b>{number.format(request.tokens)}</b> tokens</span><span><b>{formatDuration(request.durationMs)}</b> duration</span><span className={`request-state state-${request.status}`}>{request.status}</span></div>
+        <div className="inspector-metrics"><span><b>{request.tokens == null ? "Unknown" : number.format(request.tokens)}</b> tokens</span><span><b>{request.durationMs == null ? "Unknown" : formatDuration(request.durationMs)}</b> duration</span><span className={`request-state state-${request.status}`}>{request.status}</span></div>
       </header>
       <nav className="inspector-tabs" aria-label="Inspector views">
         <button aria-selected={tab === "anatomy"} onClick={() => onTab("anatomy")}><Braces size={14} />Anatomy</button>
@@ -271,7 +300,7 @@ function AnatomyView({ sections }: { sections: AnatomySection[] }) {
   return <div className="anatomy-view">{sections.map((section) => (
     <section className="anatomy-section" key={section.id}>
       <button className="anatomy-heading" aria-expanded={open.has(section.id)} onClick={() => toggle(section.id)}>
-        {open.has(section.id) ? <ChevronDown size={15} /> : <ChevronRight size={15} />}<strong>{section.title}</strong><span>{section.count}</span>{section.tokenCount !== undefined && <b>{number.format(section.tokenCount)} tok</b>}<EvidenceBadge level={section.evidence} />
+        {open.has(section.id) ? <ChevronDown size={15} /> : <ChevronRight size={15} />}<strong>{section.title}</strong><span>{section.count}</span>{section.tokenCount != null && <b>{number.format(section.tokenCount)} tok</b>}<EvidenceBadge level={section.evidence} />
       </button>
       {open.has(section.id) && <div className="anatomy-items">{section.items.length ? section.items.map((item) => (
         <article className="anatomy-item" key={item.id}><div><span className={`role-label role-${item.role ?? "field"}`}>{item.label}</span><code>{item.source}</code></div><p>{item.content}</p></article>
@@ -310,12 +339,20 @@ function EmptyInspector() {
   return <section className="empty-inspector"><Braces size={28} /><strong>Select a request</strong><span>Its Prompt Anatomy and raw evidence will appear here.</span></section>;
 }
 
+function LoadFailure({ detail, onRetry }: { detail: string; onRetry: () => void }) {
+  return <section className="load-failure" role="alert"><AlertTriangle size={26} /><strong>Workspace unavailable</strong><p>{detail}</p><button onClick={onRetry}>Retry</button></section>;
+}
+
 function filteredRequests(requests: CapturedRequest[], query: string, provider: string, application: string, toolsOnly: boolean, errorsOnly: boolean) {
   const normalized = query.trim().toLowerCase();
   return requests.filter((request) => {
     const matchesText = !normalized || [request.application, request.provider, request.operation, request.model, request.promptPreview].some((value) => value.toLowerCase().includes(normalized));
     return matchesText && (provider === "All providers" || request.provider === provider) && (application === "All apps" || request.application === application) && (!toolsOnly || request.hasTools) && (!errorsOnly || request.status === "error");
   });
+}
+
+function formatTokens(tokens: number | null) {
+  return tokens == null ? "Tokens unknown" : `${number.format(tokens)} tok`;
 }
 
 function formatDuration(milliseconds: number) {

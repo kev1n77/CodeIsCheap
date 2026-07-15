@@ -1,0 +1,284 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "WorkspaceBootstrap",
+  "type": "object",
+  "properties": {
+    "apiVersion": {
+      "type": "string"
+    },
+    "capture": {
+      "$ref": "#/$defs/CaptureState"
+    },
+    "requests": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/CapturedRequest"
+      }
+    },
+    "source": {
+      "$ref": "#/$defs/WorkspaceSource"
+    }
+  },
+  "required": [
+    "apiVersion",
+    "source",
+    "capture",
+    "requests"
+  ],
+  "$defs": {
+    "AnatomyItem": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "role": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "content",
+        "source"
+      ]
+    },
+    "AnatomySection": {
+      "type": "object",
+      "properties": {
+        "count": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "evidence": {
+          "$ref": "#/$defs/EvidenceLevel"
+        },
+        "id": {
+          "type": "string"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AnatomyItem"
+          }
+        },
+        "title": {
+          "type": "string"
+        },
+        "tokenCount": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "count",
+        "evidence",
+        "items"
+      ]
+    },
+    "CaptureMode": {
+      "type": "string",
+      "enum": [
+        "gateway",
+        "proxy"
+      ]
+    },
+    "CaptureState": {
+      "type": "object",
+      "properties": {
+        "active": {
+          "type": "boolean"
+        },
+        "canControl": {
+          "type": "boolean"
+        },
+        "endpoint": {
+          "type": "string"
+        },
+        "mode": {
+          "$ref": "#/$defs/CaptureMode"
+        },
+        "profile": {
+          "type": "string"
+        },
+        "requestCount": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "storage": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "active",
+        "canControl",
+        "mode",
+        "profile",
+        "endpoint",
+        "storage",
+        "requestCount"
+      ]
+    },
+    "CaptureStatus": {
+      "type": "string",
+      "enum": [
+        "complete",
+        "streaming",
+        "error"
+      ]
+    },
+    "CapturedRequest": {
+      "type": "object",
+      "properties": {
+        "application": {
+          "type": "string"
+        },
+        "detail": {
+          "$ref": "#/$defs/RequestDetail"
+        },
+        "durationMs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "hasTools": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "observedAtUnixMs": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "operation": {
+          "type": "string"
+        },
+        "promptPreview": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/CaptureStatus"
+        },
+        "tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "id",
+        "observedAtUnixMs",
+        "application",
+        "provider",
+        "operation",
+        "model",
+        "status",
+        "hasTools",
+        "promptPreview",
+        "detail"
+      ]
+    },
+    "EvidenceLevel": {
+      "type": "string",
+      "enum": [
+        "observed",
+        "derived",
+        "inferred",
+        "unknown"
+      ]
+    },
+    "RequestDetail": {
+      "type": "object",
+      "properties": {
+        "anatomy": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AnatomySection"
+          }
+        },
+        "raw": true,
+        "timeline": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TimelineEvent"
+          }
+        }
+      },
+      "required": [
+        "anatomy",
+        "timeline",
+        "raw"
+      ]
+    },
+    "TimelineEvent": {
+      "type": "object",
+      "properties": {
+        "detail": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "offsetMs": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "offsetMs",
+        "kind",
+        "title",
+        "detail"
+      ]
+    },
+    "WorkspaceSource": {
+      "type": "string",
+      "enum": [
+        "encrypted_local",
+        "synthetic_fixture"
+      ]
+    }
+  }
+}

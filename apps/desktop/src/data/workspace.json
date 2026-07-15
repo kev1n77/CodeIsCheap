@@ -1,7 +1,9 @@
 {
-  "fixture": "synthetic",
+  "apiVersion": "0.1",
+  "source": "synthetic_fixture",
   "capture": {
     "active": true,
+    "canControl": false,
     "mode": "gateway",
     "profile": "Local development",
     "endpoint": "127.0.0.1:3210",
@@ -11,7 +13,7 @@
   "requests": [
     {
       "id": "req_anthropic_tools",
-      "time": "10:42:18",
+      "observedAtUnixMs": 1784073738000,
       "application": "VS Code",
       "provider": "Anthropic",
       "operation": "messages.create",
@@ -97,7 +99,7 @@
     },
     {
       "id": "req_openai_review",
-      "time": "10:41:52",
+      "observedAtUnixMs": 1784073712000,
       "application": "Chrome",
       "provider": "OpenAI",
       "operation": "responses.create",
@@ -123,7 +125,7 @@
     },
     {
       "id": "req_openai_stream",
-      "time": "10:40:37",
+      "observedAtUnixMs": 1784073637000,
       "application": "Terminal",
       "provider": "OpenAI",
       "operation": "chat.completions",
@@ -150,7 +152,7 @@
     },
     {
       "id": "req_anthropic_small",
-      "time": "10:39:08",
+      "observedAtUnixMs": 1784073548000,
       "application": "Cursor",
       "provider": "Anthropic",
       "operation": "messages.create",
@@ -173,7 +175,7 @@
     },
     {
       "id": "req_google_error",
-      "time": "10:36:44",
+      "observedAtUnixMs": 1784073404000,
       "application": "JetBrains",
       "provider": "Google",
       "operation": "generateContent",
@@ -199,7 +201,7 @@
     },
     {
       "id": "req_mistral",
-      "time": "10:34:11",
+      "observedAtUnixMs": 1784073251000,
       "application": "Terminal",
       "provider": "Mistral",
       "operation": "chat.complete",

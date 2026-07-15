@@ -68,6 +68,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, [role="separato
 .capture-indicator.is-live > span, .state-dot.is-live { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .icon-button { width: 30px; height: 30px; display: inline-grid; place-items: center; padding: 0; border: 0; border-radius: 5px; background: transparent; cursor: pointer; }
 .icon-button:hover { background: var(--surface-subtle); }
+.icon-button:disabled, .segmented-control button:disabled { cursor: not-allowed; opacity: 0.45; }
+.icon-button:disabled:hover { background: transparent; }
 
 .workspace { min-width: 960px; min-height: 0; display: grid; overflow: hidden; }
 .capture-sidebar, .request-pane, .inspector { min-width: 0; min-height: 0; background: var(--surface); }
@@ -172,6 +174,11 @@ kbd { min-width: 18px; padding: 1px 5px; border: 1px solid var(--border); border
 .raw-view pre { min-height: 100%; margin: 0; padding: 16px; overflow: auto; border: 1px solid var(--border); border-radius: 5px; background: #151815; color: #dfe7df; font: 11px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; tab-size: 2; }
 .empty-inspector { background: var(--surface); }
 .loading-state { height: 100%; display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--text-secondary); }
+.load-failure { height: 100%; display: grid; place-items: center; align-content: center; gap: 9px; padding: 24px; color: var(--danger); text-align: center; }
+.load-failure strong { color: var(--text); font-size: 15px; }
+.load-failure p { max-width: 520px; margin: 0; color: var(--text-secondary); }
+.load-failure button { height: 32px; padding: 0 14px; border: 1px solid var(--border-strong); border-radius: 5px; background: var(--surface); cursor: pointer; }
+.load-failure button:hover { background: var(--surface-subtle); }
 
 @media (max-width: 1100px) {
   .workspace { min-width: 900px; }
