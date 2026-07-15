@@ -132,6 +132,9 @@ jobs:
       - name: Validate sidecar bundle contract
         run: python sidecars/mitmproxy/verify_sidecar_bundle.py sidecars/mitmproxy/dist
 
+      - name: Exercise atomic sidecar installation
+        run: python sidecars/mitmproxy/install_sidecar_bundle.py sidecars/mitmproxy/dist ${{ runner.temp }}/codeischeap-sidecar
+
       - uses: actions/upload-artifact@v4
         with:
           name: sidecar-bundle-${{ runner.os }}-${{ runner.arch }}
