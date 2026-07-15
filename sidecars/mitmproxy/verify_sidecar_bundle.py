@@ -86,6 +86,7 @@ def validate_bundle(bundle: Path, require_signature: bool = False) -> dict[str, 
             "compressed_response_preserved",
             "stream_credentials_removed",
             "non_target_tunnel",
+            "http2_preserved",
         )
     ):
         raise ValueError("sidecar integration probe did not pass")
