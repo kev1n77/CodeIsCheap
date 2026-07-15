@@ -19,10 +19,13 @@ codeischeap-capture-ipc = { path = "../../../crates/capture-ipc" }
 codeischeap-capture-policy = { path = "../../../crates/capture-policy" }
 codeischeap-core = { path = "../../../crates/core" }
 codeischeap-desktop-api = { path = "../../../crates/desktop-api" }
+codeischeap-gateway = { path = "../../../crates/gateway" }
 codeischeap-storage = { path = "../../../crates/storage" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tauri = { version = "2.11.5", features = ["tray-icon"] }
+tokio = { version = "1.45", features = ["net", "rt-multi-thread", "sync"] }
+url = "2.5"
 
 [dev-dependencies]
 tempfile = "3.27"

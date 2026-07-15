@@ -18,6 +18,8 @@ use axum::http::{HeaderMap, HeaderName, Request, Response, StatusCode, Uri};
 use futures_util::{StreamExt, TryStreamExt};
 use reqwest::redirect::Policy;
 use tokio::net::TcpListener;
+use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
 use url::Url;
 use uuid::Uuid;
 
@@ -30,6 +32,7 @@ pub use capture::{
 use capture::{RequestCaptureGuard, RequestMetadata, ResponseCaptureGuard, ResponseMetadata};
 
 const ERROR_HEADER: &str = "x-codeischeap-error";
+const REQUEST_FORWARD_QUEUE_CAPACITY: usize = 8;
 
 #[derive(Debug, Clone)]
 pub struct Gateway {
@@ -142,7 +145,11 @@ async fn forward_to_upstream(
     let target = gateway
         .target_url(&parts.uri)
         .map_err(ForwardError::InvalidTarget)?;
-    let capture_id = gateway.capture.as_ref().map(|_| Uuid::new_v4().to_string());
+    let capture_id = gateway
+        .capture
+        .as_ref()
+        .filter(|capture| capture.is_enabled())
+        .map(|_| Uuid::new_v4().to_string());
     let body =
         if let (Some(capture), Some(capture_id)) = (gateway.capture.clone(), capture_id.clone()) {
             let metadata = RequestMetadata {
@@ -163,22 +170,26 @@ async fn forward_to_upstream(
                 content_length(&parts.headers).or_else(|| body.size_hint().exact());
             let mut chunks = body.into_data_stream();
             let mut guard = RequestCaptureGuard::new(capture, metadata, expected_body_bytes);
-            let stream = async_stream::stream! {
+            let (sender, receiver) =
+                mpsc::channel::<Result<bytes::Bytes, io::Error>>(REQUEST_FORWARD_QUEUE_CAPACITY);
+            tokio::spawn(async move {
                 while let Some(result) = chunks.next().await {
                     match result {
                         Ok(chunk) => {
                             guard.push(&chunk);
-                            yield Ok::<_, io::Error>(chunk);
+                            if sender.send(Ok(chunk)).await.is_err() {
+                                return;
+                            }
                         }
                         Err(error) => {
-                            yield Err(io::Error::other(error));
+                            let _ = sender.send(Err(io::Error::other(error))).await;
                             return;
                         }
                     }
                 }
                 guard.complete();
-            };
-            reqwest::Body::wrap_stream(stream)
+            });
+            reqwest::Body::wrap_stream(ReceiverStream::new(receiver))
         } else {
             reqwest::Body::wrap_stream(body.into_data_stream().map_err(io::Error::other))
         };

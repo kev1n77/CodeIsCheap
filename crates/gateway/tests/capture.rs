@@ -163,6 +163,50 @@ async fn emits_events_for_empty_request_and_response_bodies() {
 }
 
 #[tokio::test]
+async fn capture_can_pause_without_stopping_forwarding() {
+    let upstream = spawn(Router::new().fallback(echo_body)).await;
+    let (capture, mut receiver, metrics) =
+        GatewayCapture::channel(4, 1024).expect("capture must build");
+    capture.set_enabled(false);
+    assert!(!capture.is_enabled());
+    let gateway = spawn_gateway(upstream.base_url.clone(), capture.clone()).await;
+
+    let paused_response = reqwest::Client::new()
+        .post(gateway.base_url.clone())
+        .body("paused")
+        .send()
+        .await
+        .expect("paused request must succeed")
+        .text()
+        .await
+        .expect("paused response must be readable");
+    assert_eq!(paused_response, "paused");
+    assert!(receiver.try_recv().is_err());
+    assert_eq!(metrics.snapshot().emitted_events, 0);
+
+    capture.set_enabled(true);
+    assert!(capture.is_enabled());
+    let resumed_response = reqwest::Client::new()
+        .post(gateway.base_url.clone())
+        .body("resumed")
+        .send()
+        .await
+        .expect("resumed request must succeed")
+        .text()
+        .await
+        .expect("resumed response must be readable");
+    assert_eq!(resumed_response, "resumed");
+    assert!(matches!(
+        receiver.recv().await,
+        Some(GatewayCaptureEvent::Request(_))
+    ));
+    assert!(matches!(
+        receiver.recv().await,
+        Some(GatewayCaptureEvent::Response(_))
+    ));
+}
+
+#[tokio::test]
 async fn forwards_full_bodies_while_capturing_only_the_bounded_prefix() {
     let upstream = spawn(Router::new().fallback(echo_body)).await;
     let (capture, mut receiver, metrics) =
@@ -244,6 +288,46 @@ async fn a_closed_capture_receiver_only_increments_metrics() {
 
     assert_eq!(response, "still forwarded");
     assert_eq!(metrics.snapshot().dropped_receiver_closed, 2);
+}
+
+#[tokio::test]
+async fn captures_the_request_when_the_upstream_connection_fails() {
+    let upstream = Url::parse("http://127.0.0.1:9").expect("URL must parse");
+    let (capture, mut receiver, _) = GatewayCapture::channel(4, 1024).expect("capture must build");
+    let gateway = spawn_gateway(upstream, capture).await;
+
+    let response = reqwest::Client::new()
+        .post(gateway.base_url.clone())
+        .header("content-type", "application/json")
+        .body(r#"{"model":"gpt-test","input":"preserve this request"}"#)
+        .send()
+        .await
+        .expect("gateway must return a response");
+    assert_eq!(response.status(), axum::http::StatusCode::BAD_GATEWAY);
+
+    let mut request = None;
+    let mut failure = None;
+    for _ in 0..2 {
+        match timeout(Duration::from_secs(2), receiver.recv())
+            .await
+            .expect("capture event must arrive")
+            .expect("capture channel must remain open")
+        {
+            GatewayCaptureEvent::Request(event) => request = Some(event),
+            GatewayCaptureEvent::UpstreamFailure(event) => failure = Some(event),
+            GatewayCaptureEvent::Response(_) => panic!("failed upstream must not emit a response"),
+        }
+    }
+
+    let request = request.expect("failed upstream must retain the request capture");
+    let failure = failure.expect("failed upstream must emit a failure event");
+    assert_eq!(request.capture_id, failure.capture_id);
+    assert_eq!(
+        request.body.bytes,
+        r#"{"model":"gpt-test","input":"preserve this request"}"#
+    );
+    assert!(request.body.complete);
+    assert!(!request.body.truncated);
 }
 
 #[derive(Clone, Default)]
