@@ -6,13 +6,15 @@ rust-version.workspace = true
 description = "Streaming local AI gateway for CodeIsCheap"
 
 [dependencies]
+async-stream.workspace = true
 axum.workspace = true
+bytes.workspace = true
 futures-util.workspace = true
 http.workspace = true
 reqwest.workspace = true
 tokio.workspace = true
 url.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
-bytes.workspace = true
 tokio-stream.workspace = true

@@ -6,13 +6,19 @@ rust-version.workspace = true
 description = "Trusted ingestion and lifecycle core for CodeIsCheap"
 
 [dependencies]
+codeischeap-adapters = { path = "../adapters" }
 codeischeap-capture-ipc = { path = "../capture-ipc" }
 codeischeap-capture-policy = { path = "../capture-policy" }
+codeischeap-gateway = { path = "../gateway" }
 codeischeap-prompt-ir = { path = "../prompt-ir" }
 codeischeap-storage = { path = "../storage" }
+serde_json.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
-serde_json.workspace = true
+axum.workspace = true
+codeischeap-desktop-api = { path = "../desktop-api" }
+reqwest.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
+url.workspace = true
