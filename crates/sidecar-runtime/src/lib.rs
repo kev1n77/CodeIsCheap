@@ -14,6 +14,19 @@ use std::time::{Duration, Instant};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
+#[cfg(unix)]
+use std::os::unix::process::CommandExt as _;
+#[cfg(windows)]
+use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+#[cfg(windows)]
+use windows_sys::Win32::Foundation::HANDLE;
+#[cfg(windows)]
+use windows_sys::Win32::System::JobObjects::{
+    AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+    SetInformationJobObject,
+};
+
 pub const SIDECAR_MANIFEST_VERSION: &str = "0.1";
 pub const CAPTURE_CONTRACT_VERSION: &str = "0.1";
 pub const MITMPROXY_VERSION: &str = "12.2.3";
@@ -231,6 +244,8 @@ impl SidecarBundle {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
+        #[cfg(unix)]
+        command.process_group(0);
         Ok(command)
     }
 
@@ -240,21 +255,33 @@ impl SidecarBundle {
         startup_timeout: Duration,
     ) -> Result<SidecarProcess, SidecarError> {
         let mut child = self.command(config)?.spawn()?;
+        #[cfg(windows)]
+        let job = match WindowsJob::assign(&child) {
+            Ok(job) => job,
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(SidecarError::Io(error));
+            }
+        };
         let started = Instant::now();
         while started.elapsed() < startup_timeout {
             if let Some(status) = child.try_wait()? {
+                #[cfg(unix)]
+                let _ = terminate_process_group(child.id());
                 return Err(SidecarError::ProcessExited(status.code()));
             }
             if TcpStream::connect_timeout(&config.listen_addr, Duration::from_millis(100)).is_ok() {
                 return Ok(SidecarProcess {
                     child: Some(child),
                     endpoint: config.listen_addr,
+                    #[cfg(windows)]
+                    job: Some(job),
                 });
             }
             thread::sleep(Duration::from_millis(50));
         }
-        let _ = child.kill();
-        let _ = child.wait();
+        stop_spawned_process(&mut child);
         Err(SidecarError::StartupTimeout(startup_timeout))
     }
 }
@@ -262,6 +289,8 @@ impl SidecarBundle {
 pub struct SidecarProcess {
     child: Option<Child>,
     endpoint: SocketAddr,
+    #[cfg(windows)]
+    job: Option<WindowsJob>,
 }
 
 impl SidecarProcess {
@@ -274,11 +303,84 @@ impl SidecarProcess {
         let Some(mut child) = self.child.take() else {
             return Ok(());
         };
+        #[cfg(windows)]
+        drop(self.job.take());
+        #[cfg(unix)]
+        let process_group_error = terminate_process_group(child.id()).err();
         if child.try_wait()?.is_none() {
             child.kill()?;
         }
         child.wait()?;
+        #[cfg(unix)]
+        if let Some(error) = process_group_error {
+            return Err(error);
+        }
         Ok(())
+    }
+}
+
+fn stop_spawned_process(child: &mut Child) {
+    #[cfg(unix)]
+    let _ = terminate_process_group(child.id());
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+#[cfg(unix)]
+fn terminate_process_group(process_id: u32) -> Result<(), SidecarError> {
+    let process_group = i32::try_from(process_id).map_err(|_| {
+        SidecarError::InvalidLaunchConfig("sidecar process ID is invalid".to_owned())
+    })?;
+    let result = unsafe { libc::kill(-process_group, libc::SIGKILL) };
+    if result == 0 {
+        return Ok(());
+    }
+    let error = io::Error::last_os_error();
+    if error.raw_os_error() == Some(libc::ESRCH) {
+        Ok(())
+    } else {
+        Err(SidecarError::Io(error))
+    }
+}
+
+#[cfg(windows)]
+struct WindowsJob(OwnedHandle);
+
+#[cfg(windows)]
+impl WindowsJob {
+    fn assign(child: &Child) -> io::Result<Self> {
+        let raw_job = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+        if raw_job.is_null() {
+            return Err(io::Error::last_os_error());
+        }
+        let job = Self(unsafe { OwnedHandle::from_raw_handle(raw_job.cast()) });
+        let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        let configured = unsafe {
+            SetInformationJobObject(
+                job.handle(),
+                JobObjectExtendedLimitInformation,
+                std::ptr::from_ref(&limits).cast(),
+                u32::try_from(std::mem::size_of_val(&limits)).expect("job limits fit in u32"),
+            )
+        };
+        if configured == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let assigned = unsafe {
+            AssignProcessToJobObject(
+                job.handle(),
+                child.as_raw_handle().cast::<std::ffi::c_void>(),
+            )
+        };
+        if assigned == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(job)
+    }
+
+    fn handle(&self) -> HANDLE {
+        self.0.as_raw_handle().cast()
     }
 }
 
@@ -757,20 +859,36 @@ use std::env;
 use std::fs;
 use std::net::TcpListener;
 use std::path::PathBuf;
+use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
 fn main() {
     let args = env::args().collect::<Vec<_>>();
+    if args.get(1).map(String::as_str) == Some("--descendant") {
+        let port = args[2].parse::<u16>().unwrap();
+        let confdir = PathBuf::from(&args[3]);
+        let _listener = TcpListener::bind(("127.0.0.1", port)).unwrap();
+        fs::write(confdir.join("descendant-ready.txt"), port.to_string()).unwrap();
+        thread::sleep(Duration::from_secs(30));
+        return;
+    }
     let host = args.windows(2).find(|pair| pair[0] == "--listen-host").unwrap()[1].clone();
     let port = args.windows(2).find(|pair| pair[0] == "--listen-port").unwrap()[1].clone();
     let confdir = args.iter().find_map(|arg| arg.strip_prefix("confdir=")).unwrap();
+    let descendant_port = env::var("CIC_CAPTURE_IPC_TOKEN").unwrap().rsplit('-').next().unwrap().parse::<u16>().unwrap();
     let mut environment = env::vars().collect::<Vec<_>>();
     environment.sort();
     fs::write(
         PathBuf::from(confdir).join("observed-environment.txt"),
         environment.into_iter().map(|(key, value)| format!("{key}={value}\n")).collect::<String>(),
     ).unwrap();
+    Command::new(env::current_exe().unwrap())
+        .arg("--descendant")
+        .arg(descendant_port.to_string())
+        .arg(confdir)
+        .spawn()
+        .unwrap();
     let listener = TcpListener::bind(format!("{host}:{port}")).unwrap();
     let _ = listener.accept();
     thread::sleep(Duration::from_secs(30));
@@ -800,10 +918,12 @@ fn main() {
         let bundle = SidecarBundle::load(&root, BundleRequirements::development()).unwrap();
         let ipc_port = free_port();
         let listen_port = free_port();
+        let descendant_port = free_port();
         let confdir = root.join("runtime-conf");
+        let token = format!("runtime-token-123456-{descendant_port}");
         let config = SidecarLaunchConfig::new(
             format!("127.0.0.1:{ipc_port}").parse().unwrap(),
-            "runtime-token-123456",
+            &token,
             vec!["api.openai.com".to_owned()],
             format!("127.0.0.1:{listen_port}").parse().unwrap(),
             &confdir,
@@ -814,10 +934,15 @@ fn main() {
             .expect("verified fixture must start");
         assert_eq!(process.endpoint(), config.listen_addr);
         let environment = fs::read_to_string(confdir.join("observed-environment.txt")).unwrap();
-        assert!(environment.contains("CIC_CAPTURE_IPC_TOKEN=runtime-token-123456"));
+        assert!(environment.contains(&format!("CIC_CAPTURE_IPC_TOKEN={token}")));
         assert!(environment.contains("CIC_CAPTURE_HOSTS=api.openai.com"));
         assert!(!environment.lines().any(|line| line.starts_with("PATH=")));
+        wait_for_file(&confdir.join("descendant-ready.txt"));
         process.stop().expect("fixture must stop");
+        assert!(
+            TcpListener::bind(("127.0.0.1", descendant_port)).is_ok(),
+            "sidecar descendants must stop with the runtime"
+        );
     }
 
     fn free_port() -> u16 {
@@ -826,5 +951,16 @@ fn main() {
             .local_addr()
             .expect("local address")
             .port()
+    }
+
+    fn wait_for_file(path: &Path) {
+        let started = Instant::now();
+        while started.elapsed() < Duration::from_secs(5) {
+            if path.is_file() {
+                return;
+            }
+            thread::sleep(Duration::from_millis(25));
+        }
+        panic!("fixture did not create {}", path.display());
     }
 }

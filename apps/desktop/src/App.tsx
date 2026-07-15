@@ -32,7 +32,8 @@ import type {
 } from "./types";
 import {
   loadWorkspace,
-  setGatewayCaptureActive,
+  setCaptureActive as persistCaptureActive,
+  setCaptureMode as persistCaptureMode,
   subscribeToCaptureEvents,
 } from "./workspace";
 import { formatRawJson, resolveEvidenceLocator, resolveEvidencePointer } from "./raw-evidence";
@@ -64,6 +65,7 @@ export function App() {
   const [captureActive, setCaptureActive] = useState(true);
   const [captureError, setCaptureError] = useState("");
   const [captureMode, setCaptureMode] = useState<CaptureMode>("gateway");
+  const [modeChanging, setModeChanging] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(218);
   const [listWidth, setListWidth] = useState(390);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -163,7 +165,7 @@ export function App() {
 
   const toggleCapture = () => {
     const next = !captureActive;
-    setGatewayCaptureActive(next)
+    persistCaptureActive(next)
       .then((active) => {
         setCaptureActive(active);
         setCaptureError("");
@@ -175,6 +177,22 @@ export function App() {
       .catch((error: unknown) => {
         setCaptureError(error instanceof Error ? error.message : "Capture state could not change.");
       });
+  };
+
+  const changeCaptureMode = (mode: CaptureMode) => {
+    if (mode === captureMode || modeChanging) return;
+    setModeChanging(true);
+    persistCaptureMode(mode)
+      .then((nextWorkspace) => {
+        setWorkspace(nextWorkspace);
+        setCaptureActive(nextWorkspace.capture.active);
+        setCaptureMode(nextWorkspace.capture.mode);
+        setCaptureError("");
+      })
+      .catch((error: unknown) => {
+        setCaptureError(error instanceof Error ? error.message : "Capture mode could not change.");
+      })
+      .finally(() => setModeChanging(false));
   };
 
   if (loadError) {
@@ -203,11 +221,13 @@ export function App() {
           workspace={workspace}
           active={captureActive}
           canControl={workspace.capture.canControl}
+          proxyAvailable={workspace.capture.proxyAvailable}
           mode={captureMode}
+          modeChanging={modeChanging}
           toolsOnly={toolsOnly}
           errorsOnly={errorsOnly}
           runtimeError={captureError}
-          onModeChange={setCaptureMode}
+          onModeChange={changeCaptureMode}
           onToolsOnly={setToolsOnly}
           onErrorsOnly={setErrorsOnly}
         />
@@ -257,11 +277,13 @@ function Titlebar({ active, canControl, source, theme, onToggleCapture, onToggle
   );
 }
 
-function CaptureSidebar({ workspace, active, canControl, mode, toolsOnly, errorsOnly, runtimeError, onModeChange, onToolsOnly, onErrorsOnly }: {
+function CaptureSidebar({ workspace, active, canControl, proxyAvailable, mode, modeChanging, toolsOnly, errorsOnly, runtimeError, onModeChange, onToolsOnly, onErrorsOnly }: {
   workspace: WorkspaceBootstrap;
   active: boolean;
   canControl: boolean;
+  proxyAvailable: boolean;
   mode: CaptureMode;
+  modeChanging: boolean;
   toolsOnly: boolean;
   errorsOnly: boolean;
   runtimeError: string;
@@ -275,8 +297,8 @@ function CaptureSidebar({ workspace, active, canControl, mode, toolsOnly, errors
         <div className="section-label">Capture</div>
         <div className="capture-state"><span className={`state-dot ${active ? "is-live" : ""}`} /><strong>{active ? "Active" : "Paused"}</strong></div>
         <div className="segmented-control" aria-label="Capture mode">
-          <button aria-pressed={mode === "gateway"} disabled={!canControl} onClick={() => onModeChange("gateway")}><Network size={14} />Gateway</button>
-          <button aria-pressed={mode === "proxy"} disabled={!canControl} onClick={() => onModeChange("proxy")}><ShieldCheck size={14} />Proxy</button>
+          <button aria-pressed={mode === "gateway"} disabled={!canControl || modeChanging} onClick={() => onModeChange("gateway")}><Network size={14} />Gateway</button>
+          <button title={proxyAvailable ? "Use explicit TLS proxy" : "Verified proxy bundle unavailable"} aria-pressed={mode === "proxy"} disabled={!canControl || !proxyAvailable || modeChanging} onClick={() => onModeChange("proxy")}><ShieldCheck size={14} />Proxy</button>
         </div>
         <dl className="capture-facts">
           <div><dt>Profile</dt><dd>{workspace.capture.profile}</dd></div>
@@ -291,7 +313,7 @@ function CaptureSidebar({ workspace, active, canControl, mode, toolsOnly, errors
       </section>
       <section className="sidebar-section system-health">
         <div className="section-label">Health</div>
-        <div title={runtimeError || undefined}><Activity size={14} /><span>Gateway</span><b className={runtimeError ? "health-error" : "health-ok"}>{runtimeError ? "Issue" : "Healthy"}</b></div>
+        <div title={runtimeError || undefined}><Activity size={14} /><span>{mode === "gateway" ? "Gateway" : "Proxy"}</span><b className={runtimeError ? "health-error" : "health-ok"}>{runtimeError ? "Issue" : "Healthy"}</b></div>
         <div><Database size={14} /><span>Local store</span><b className="health-ok">Ready</b></div>
         <div><ShieldCheck size={14} /><span>Credentials</span><b className="health-ok">Excluded</b></div>
       </section>

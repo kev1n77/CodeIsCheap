@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import fixture from "./data/workspace.json";
-import type { WorkspaceBootstrap } from "./types";
+import type { CaptureMode, WorkspaceBootstrap } from "./types";
 
 export interface CaptureUpdated {
   captureId: string;
@@ -19,11 +19,20 @@ export async function loadWorkspace(): Promise<WorkspaceBootstrap> {
   return fixture as unknown as WorkspaceBootstrap;
 }
 
-export async function setGatewayCaptureActive(active: boolean): Promise<boolean> {
+export async function setCaptureActive(active: boolean): Promise<boolean> {
   if (window.__TAURI_INTERNALS__) {
     return invoke<boolean>("set_capture_active", { active });
   }
   return active;
+}
+
+export async function setCaptureMode(mode: CaptureMode): Promise<WorkspaceBootstrap> {
+  if (window.__TAURI_INTERNALS__) {
+    return invoke<WorkspaceBootstrap>("set_capture_mode", { mode });
+  }
+  const workspace = structuredClone(fixture) as unknown as WorkspaceBootstrap;
+  workspace.capture = { ...workspace.capture, mode };
+  return workspace;
 }
 
 export async function subscribeToCaptureEvents(handlers: {

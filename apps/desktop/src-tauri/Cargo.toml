@@ -22,10 +22,11 @@ codeischeap-desktop-api = { path = "../../../crates/desktop-api" }
 codeischeap-gateway = { path = "../../../crates/gateway" }
 codeischeap-sidecar-runtime = { path = "../../../crates/sidecar-runtime" }
 codeischeap-storage = { path = "../../../crates/storage" }
+getrandom = "0.3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tauri = { version = "2.11.5", features = ["tray-icon"] }
-tokio = { version = "1.45", features = ["net", "rt-multi-thread", "sync"] }
+tokio = { version = "1.45", features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
 url = "2.5"
 
 [dev-dependencies]

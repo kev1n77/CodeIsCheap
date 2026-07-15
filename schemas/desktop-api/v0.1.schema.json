@@ -120,6 +120,9 @@
         "profile": {
           "type": "string"
         },
+        "proxyAvailable": {
+          "type": "boolean"
+        },
         "requestCount": {
           "type": "integer",
           "format": "uint64",
@@ -132,6 +135,7 @@
       "required": [
         "active",
         "canControl",
+        "proxyAvailable",
         "mode",
         "profile",
         "endpoint",
