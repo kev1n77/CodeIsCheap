@@ -1,6 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use codeischeap_adapters::AdapterRegistry;
 #[cfg(test)]
@@ -8,10 +9,12 @@ use codeischeap_capture_ipc::CaptureEnvelope;
 use codeischeap_capture_policy::CapturePolicy;
 #[cfg(test)]
 use codeischeap_core::persist_capture;
-use codeischeap_core::{GatewayCaptureOutcome, process_gateway_event};
+use codeischeap_core::{GatewayCaptureError, GatewayCaptureOutcome, process_gateway_event};
 use codeischeap_desktop_api::{WorkspaceBootstrap, load_workspace};
 use codeischeap_gateway::{Gateway, GatewayCapture, GatewayCaptureEvent};
-use codeischeap_storage::{EncryptedStore, OsKeyStore};
+use codeischeap_storage::{
+    EncryptedStore, OsKeyStore, RetentionPolicy, RetentionReport, StorageError,
+};
 use serde::Serialize;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -30,6 +33,7 @@ const DEFAULT_OPENAI_UPSTREAM: &str = "https://api.openai.com";
 const CAPTURE_UPDATED_EVENT: &str = "capture-updated";
 const CAPTURE_RUNTIME_ERROR_EVENT: &str = "capture-runtime-error";
 const MAX_PENDING_CAPTURE_OUTCOMES: usize = 256;
+const CAPTURES_PER_RETENTION_RUN: usize = 100;
 
 type SharedStore = Arc<Mutex<Option<EncryptedStore>>>;
 
@@ -166,6 +170,9 @@ fn initialize_store(app: &AppHandle, store: &SharedStore) -> Result<(), String> 
     if store.is_none() {
         let mut initialized = open_application_store(app).map_err(|error| error.to_string())?;
         remove_legacy_demo_capture(&mut initialized).map_err(|error| error.to_string())?;
+        if let Err(error) = maintain_store(&mut initialized) {
+            emit_runtime_error(app, "capture_retention_failed", error.to_string());
+        }
         *store = Some(initialized);
     }
     Ok(())
@@ -211,6 +218,7 @@ async fn ensure_gateway(app: &AppHandle, state: &DesktopState) -> Result<(), Str
     tauri::async_runtime::spawn(process_capture_events(
         app.clone(),
         state.store.clone(),
+        capture.clone(),
         receiver,
     ));
 
@@ -225,6 +233,7 @@ async fn ensure_gateway(app: &AppHandle, state: &DesktopState) -> Result<(), Str
 async fn process_capture_events(
     app: AppHandle,
     store: SharedStore,
+    capture: GatewayCapture,
     mut receiver: mpsc::Receiver<GatewayCaptureEvent>,
 ) {
     let policy = match CapturePolicy::load_default() {
@@ -236,6 +245,7 @@ async fn process_capture_events(
     };
     let adapters = AdapterRegistry::default();
     let mut pending = HashMap::<String, GatewayCaptureEvent>::new();
+    let mut captures_since_retention = 0_usize;
 
     while let Some(event) = receiver.recv().await {
         let mut ready = VecDeque::from([event]);
@@ -266,6 +276,24 @@ async fn process_capture_events(
 
             match result {
                 Ok(GatewayCaptureOutcome::Persisted(capture)) => {
+                    captures_since_retention += 1;
+                    if captures_since_retention >= CAPTURES_PER_RETENTION_RUN {
+                        captures_since_retention = 0;
+                        let maintenance = store
+                            .lock()
+                            .map_err(|_| {
+                                "encrypted workspace is temporarily unavailable".to_owned()
+                            })
+                            .and_then(|mut store| {
+                                maintain_store(store.as_mut().ok_or_else(|| {
+                                    "encrypted workspace has not initialized".to_owned()
+                                })?)
+                                .map_err(|error| error.to_string())
+                            });
+                        if let Err(detail) = maintenance {
+                            emit_runtime_error(&app, "capture_retention_failed", detail);
+                        }
+                    }
                     emit_capture_updated(&app, capture.capture_id.clone());
                     if let Some(outcome) = pending.remove(&capture.capture_id) {
                         ready.push_back(outcome);
@@ -294,10 +322,35 @@ async fn process_capture_events(
                     }
                 }
                 Err(error) => {
-                    emit_runtime_error(&app, "capture_processing_failed", error.to_string());
+                    let code = apply_capture_error_policy(&capture, &error);
+                    emit_runtime_error(&app, code, error.to_string());
                 }
             }
         }
+    }
+}
+
+fn maintain_store(store: &mut EncryptedStore) -> Result<RetentionReport, StorageError> {
+    let elapsed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| StorageError::NumericOutOfRange)?;
+    let now_unix_ms =
+        u64::try_from(elapsed.as_millis()).map_err(|_| StorageError::NumericOutOfRange)?;
+    store.enforce_retention(&RetentionPolicy::default(), now_unix_ms)
+}
+
+fn apply_capture_error_policy(
+    capture: &GatewayCapture,
+    error: &GatewayCaptureError,
+) -> &'static str {
+    if matches!(
+        error,
+        GatewayCaptureError::Storage(storage) if storage.is_disk_pressure()
+    ) {
+        capture.set_enabled(false);
+        "capture_disk_pressure"
+    } else {
+        "capture_processing_failed"
     }
 }
 
@@ -484,5 +537,23 @@ mod tests {
                 complete: true,
             },
         })
+    }
+
+    #[test]
+    fn disk_pressure_pauses_capture_without_stopping_the_gateway() {
+        let (capture, receiver, _) = GatewayCapture::defaults();
+        assert!(capture.is_enabled());
+
+        let code = apply_capture_error_policy(
+            &capture,
+            &GatewayCaptureError::Storage(StorageError::DiskFull),
+        );
+
+        assert_eq!(code, "capture_disk_pressure");
+        assert!(!capture.is_enabled());
+        assert!(
+            !receiver.is_closed(),
+            "the gateway event channel remains alive"
+        );
     }
 }

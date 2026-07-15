@@ -99,7 +99,16 @@ export function App() {
         setCaptureError("");
         setReloadToken((value) => value + 1);
       },
-      onError: (event) => setCaptureError(event.detail),
+      onError: (event) => {
+        setCaptureError(event.detail);
+        if (event.code === "capture_disk_pressure") {
+          setCaptureActive(false);
+          setWorkspace((current) => current && {
+            ...current,
+            capture: { ...current.capture, active: false },
+          });
+        }
+      },
     })
       .then((value) => {
         if (disposed) value();

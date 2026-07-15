@@ -174,6 +174,40 @@ describe("request workbench", () => {
     expect(invoke).toHaveBeenCalledWith("bootstrap_workspace");
   });
 
+  it("shows disk pressure as a paused capture state", async () => {
+    window.__TAURI_INTERNALS__ = {};
+    const workspace = structuredClone(fixture) as unknown as WorkspaceBootstrap;
+    workspace.capture = { ...workspace.capture, active: true, canControl: true };
+    let notifyRuntimeError = () => {};
+    vi.mocked(listen).mockImplementation(async (event, handler) => {
+      if (event === "capture-runtime-error") {
+        notifyRuntimeError = () => handler({
+          event: "capture-runtime-error",
+          id: 2,
+          payload: {
+            code: "capture_disk_pressure",
+            detail: "Capture storage paused: disk headroom is below 256 MiB",
+          },
+        });
+      }
+      return () => {};
+    });
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === "bootstrap_workspace") return structuredClone(workspace);
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    render(<App />);
+    await screen.findByRole("button", { name: "Pause capture" });
+    await act(async () => notifyRuntimeError());
+
+    expect(await screen.findByRole("button", { name: "Resume capture" })).toBeEnabled();
+    expect(screen.getByText("Issue").parentElement).toHaveAttribute(
+      "title",
+      "Capture storage paused: disk headroom is below 256 MiB",
+    );
+  });
+
   it("virtualizes one thousand requests and keeps filtered selection coherent", async () => {
     const user = userEvent.setup();
     window.__TAURI_INTERNALS__ = {};
