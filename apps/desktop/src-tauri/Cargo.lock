@@ -460,6 +460,7 @@ dependencies = [
  "codeischeap-gateway",
  "codeischeap-sidecar-runtime",
  "codeischeap-storage",
+ "getrandom 0.3.4",
  "serde",
  "serde_json",
  "tauri",
@@ -511,9 +512,11 @@ dependencies = [
 name = "codeischeap-sidecar-runtime"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "serde",
  "serde_json",
  "sha2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

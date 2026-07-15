@@ -41,6 +41,7 @@ describe("request workbench", () => {
     expect(within(listbox).getAllByRole("option")).toHaveLength(6);
     expect(screen.getByRole("button", { name: "Pause capture" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Gateway" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Proxy" })).toBeDisabled();
 
     await user.type(search, "migration plan");
     const results = within(listbox).getAllByRole("option");
@@ -128,6 +129,7 @@ describe("request workbench", () => {
       ...workspace.capture,
       active: true,
       canControl: true,
+      proxyAvailable: true,
       endpoint: "http://127.0.0.1:8787",
     };
     let notifyCaptureUpdated = () => {};
@@ -172,6 +174,48 @@ describe("request workbench", () => {
 
     expect(await screen.findByText("Live capture arrived")).toBeInTheDocument();
     expect(invoke).toHaveBeenCalledWith("bootstrap_workspace");
+  });
+
+  it("switches capture modes through the desktop runtime", async () => {
+    const user = userEvent.setup();
+    window.__TAURI_INTERNALS__ = {};
+    const gateway = structuredClone(fixture) as unknown as WorkspaceBootstrap;
+    gateway.capture = {
+      ...gateway.capture,
+      active: true,
+      canControl: true,
+      proxyAvailable: true,
+      mode: "gateway",
+      profile: "OpenAI-compatible local gateway",
+      endpoint: "http://127.0.0.1:8787",
+    };
+    const proxy: WorkspaceBootstrap = {
+      ...gateway,
+      capture: {
+        ...gateway.capture,
+        mode: "proxy",
+        profile: "Explicit TLS proxy",
+        endpoint: "http://127.0.0.1:43125",
+      },
+    };
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === "bootstrap_workspace") return structuredClone(gateway);
+      if (command === "set_capture_mode" && args?.mode === "proxy") {
+        return structuredClone(proxy);
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    render(<App />);
+    const proxyButton = await screen.findByRole("button", { name: "Proxy" });
+    expect(proxyButton).toBeEnabled();
+    await user.click(proxyButton);
+
+    expect(invoke).toHaveBeenCalledWith("set_capture_mode", { mode: "proxy" });
+    expect(await screen.findByText("Explicit TLS proxy")).toBeInTheDocument();
+    expect(screen.getByText("http://127.0.0.1:43125")).toBeInTheDocument();
+    expect(proxyButton).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("Healthy").parentElement).toHaveTextContent("Proxy");
   });
 
   it("shows disk pressure as a paused capture state", async () => {

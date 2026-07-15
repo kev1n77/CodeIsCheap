@@ -36,6 +36,7 @@ pub enum WorkspaceSource {
 pub struct CaptureState {
     pub active: bool,
     pub can_control: bool,
+    pub proxy_available: bool,
     pub mode: CaptureMode,
     pub profile: String,
     pub endpoint: String,
@@ -191,6 +192,7 @@ pub fn load_workspace(store: &EncryptedStore) -> Result<WorkspaceBootstrap, Desk
         capture: CaptureState {
             active: false,
             can_control: false,
+            proxy_available: false,
             mode: CaptureMode::Gateway,
             profile: "Local encrypted workspace".to_owned(),
             endpoint: "Not connected".to_owned(),

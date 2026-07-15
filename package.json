@@ -8,6 +8,9 @@
     "desktop:dev": "npm run dev --workspace @codeischeap/desktop",
     "desktop:check": "npm run check --workspace @codeischeap/desktop",
     "desktop:build": "npm run build --workspace @codeischeap/desktop",
-    "desktop:tauri": "npm run tauri --workspace @codeischeap/desktop"
+    "desktop:tauri": "npm run tauri --workspace @codeischeap/desktop",
+    "sidecar:package": "python sidecars/mitmproxy/package_sidecar.py",
+    "sidecar:verify": "python sidecars/mitmproxy/verify_sidecar_bundle.py sidecars/mitmproxy/dist",
+    "sidecar:install:desktop": "python sidecars/mitmproxy/install_sidecar_bundle.py sidecars/mitmproxy/dist apps/desktop/src-tauri/resources/sidecar"
   }
 }
