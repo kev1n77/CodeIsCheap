@@ -555,6 +555,7 @@ struct IntegrationProbe {
     compressed_response_preserved: bool,
     stream_credentials_removed: bool,
     non_target_tunnel: bool,
+    http2_preserved: bool,
 }
 
 fn validate_manifest(
@@ -611,6 +612,7 @@ fn validate_manifest(
         || !probe.compressed_response_preserved
         || !probe.stream_credentials_removed
         || !probe.non_target_tunnel
+        || !probe.http2_preserved
         || probe.credential_canaries_in_envelope != 0
     {
         return Err(SidecarError::InvalidManifest(
@@ -788,7 +790,8 @@ mod tests {
                 "response_preserved": true,
                 "compressed_response_preserved": true,
                 "stream_credentials_removed": true,
-                "non_target_tunnel": true
+                "non_target_tunnel": true,
+                "http2_preserved": true
             },
             "bundle_ready": true,
             "release_ready": signature == "valid"
@@ -1019,10 +1022,7 @@ fn main() {
         assert!(!environment.lines().any(|line| line.starts_with("PATH=")));
         wait_for_file(&confdir.join("descendant-ready.txt"));
         process.stop().expect("fixture must stop");
-        assert!(
-            TcpListener::bind(("127.0.0.1", descendant_port)).is_ok(),
-            "sidecar descendants must stop with the runtime"
-        );
+        wait_for_port_release(descendant_port);
     }
 
     fn free_port() -> u16 {
@@ -1042,5 +1042,16 @@ fn main() {
             thread::sleep(Duration::from_millis(25));
         }
         panic!("fixture did not create {}", path.display());
+    }
+
+    fn wait_for_port_release(port: u16) {
+        let started = Instant::now();
+        while started.elapsed() < Duration::from_secs(5) {
+            if TcpListener::bind(("127.0.0.1", port)).is_ok() {
+                return;
+            }
+            thread::sleep(Duration::from_millis(25));
+        }
+        panic!("sidecar descendant still owns port {port}");
     }
 }

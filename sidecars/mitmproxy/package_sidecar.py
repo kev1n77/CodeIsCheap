@@ -297,6 +297,7 @@ def main() -> None:
             "compressed_response_preserved",
             "stream_credentials_removed",
             "non_target_tunnel",
+            "http2_preserved",
         )
     ) and probe_result.get("credential_canaries_in_envelope") == 0
     manifest = {

@@ -25,6 +25,16 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
+from h2.config import H2Configuration
+from h2.connection import H2Connection
+from h2.events import (
+    ConnectionTerminated,
+    DataReceived,
+    RequestReceived,
+    ResponseReceived,
+    SettingsAcknowledged,
+    StreamEnded,
+)
 
 
 CANARIES = {
@@ -35,7 +45,8 @@ CANARIES = {
     "response_cookie": "response-cookie-canary",
     "response_body": "response-body-canary",
 }
-TARGET_CASES = ("gzip", "brotli", "sse")
+HTTP1_CASES = ("gzip", "brotli", "sse")
+TARGET_CASES = (*HTTP1_CASES, "http2")
 
 
 class UpstreamHandler(BaseHTTPRequestHandler):
@@ -46,7 +57,7 @@ class UpstreamHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         length = int(self.headers.get("content-length", "0"))
         case = parse_qs(urlsplit(self.path).query).get("case", [""])[0]
-        if case not in TARGET_CASES:
+        if case not in HTTP1_CASES:
             self.send_error(400)
             return
         received = {
@@ -57,7 +68,7 @@ class UpstreamHandler(BaseHTTPRequestHandler):
         }
         with type(self).received_lock:
             type(self).received[case] = received
-            if len(type(self).received) == len(TARGET_CASES):
+            if len(type(self).received) == len(HTTP1_CASES):
                 type(self).received_event.set()
         self.send_response(200)
         if case == "sse":
@@ -113,9 +124,11 @@ class TunnelHandler(BaseHTTPRequestHandler):
         del format, args
 
 
-def create_tls_server(root: Path) -> tuple[ThreadingHTTPServer, bytes]:
+def create_server_certificate(
+    root: Path, prefix: str, common_name: str, subject_name: x509.GeneralName
+) -> tuple[Path, Path, bytes]:
     key = ec.generate_private_key(ec.SECP256R1())
-    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "127.0.0.1")])
+    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)])
     now = datetime.now(timezone.utc)
     certificate = (
         x509.CertificateBuilder()
@@ -126,13 +139,13 @@ def create_tls_server(root: Path) -> tuple[ThreadingHTTPServer, bytes]:
         .not_valid_before(now - timedelta(minutes=1))
         .not_valid_after(now + timedelta(hours=1))
         .add_extension(
-            x509.SubjectAlternativeName([x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]),
+            x509.SubjectAlternativeName([subject_name]),
             False,
         )
         .sign(key, hashes.SHA256())
     )
-    certificate_path = root / "tunnel-cert.pem"
-    key_path = root / "tunnel-key.pem"
+    certificate_path = root / f"{prefix}-cert.pem"
+    key_path = root / f"{prefix}-key.pem"
     certificate_path.write_bytes(certificate.public_bytes(serialization.Encoding.PEM))
     key_path.write_bytes(
         key.private_bytes(
@@ -141,11 +154,167 @@ def create_tls_server(root: Path) -> tuple[ThreadingHTTPServer, bytes]:
             serialization.NoEncryption(),
         )
     )
+    return (
+        certificate_path,
+        key_path,
+        certificate.public_bytes(serialization.Encoding.DER),
+    )
+
+
+def create_tls_server(root: Path) -> tuple[ThreadingHTTPServer, bytes]:
+    certificate_path, key_path, certificate = create_server_certificate(
+        root,
+        "tunnel",
+        "127.0.0.1",
+        x509.IPAddress(ipaddress.ip_address("127.0.0.1")),
+    )
     server = ThreadingHTTPServer(("127.0.0.1", 0), TunnelHandler)
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain(certificate_path, key_path)
     server.socket = context.wrap_socket(server.socket, server_side=True)
-    return server, certificate.public_bytes(serialization.Encoding.DER)
+    return server, certificate
+
+
+class H2UpstreamServer:
+    def __init__(self, root: Path, expected_connections: int = 2) -> None:
+        certificate_path, key_path, _ = create_server_certificate(
+            root, "http2", "localhost", x509.DNSName("localhost")
+        )
+        self._context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        self._context.load_cert_chain(certificate_path, key_path)
+        self._context.set_alpn_protocols(["h2"])
+        self._listener = socket.socket()
+        self._listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._listener.bind(("127.0.0.1", 0))
+        self._listener.listen(expected_connections)
+        self._listener.settimeout(20)
+        self.server_port = int(self._listener.getsockname()[1])
+        self.expected_connections = expected_connections
+        self.received: list[dict[str, Any]] = []
+        self.received_event = threading.Event()
+        self.error: Exception | None = None
+        self._thread = threading.Thread(target=self._serve, daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def shutdown(self) -> None:
+        self._listener.close()
+        self._thread.join(timeout=5)
+
+    def assert_healthy(self) -> None:
+        self._thread.join(timeout=5)
+        if self.error is not None:
+            raise RuntimeError("HTTP/2 fake provider failed") from self.error
+        if self._thread.is_alive():
+            raise TimeoutError("HTTP/2 fake provider did not finish")
+
+    def _serve(self) -> None:
+        try:
+            attempts = 0
+            while len(self.received) < self.expected_connections:
+                attempts += 1
+                if attempts > self.expected_connections + 4:
+                    raise RuntimeError("HTTP/2 fake provider received too many preconnections")
+                connection, _ = self._listener.accept()
+                with self._context.wrap_socket(connection, server_side=True) as tls:
+                    if tls.selected_alpn_protocol() != "h2":
+                        raise RuntimeError("HTTP/2 fake provider did not negotiate h2")
+                    self._handle_connection(tls)
+        except Exception as error:  # surfaced synchronously by assert_healthy
+            self.error = error
+
+    def _handle_connection(self, tls: ssl.SSLSocket) -> None:
+        tls.settimeout(10)
+        protocol = H2Connection(H2Configuration(client_side=False, header_encoding="utf-8"))
+        protocol.initiate_connection()
+        tls.sendall(protocol.data_to_send())
+        headers: dict[str, str] = {}
+        body = bytearray()
+        response_sent = False
+        while True:
+            data = tls.recv(65535)
+            if not data:
+                if response_sent:
+                    return
+                if not headers and not body:
+                    return
+                raise RuntimeError(
+                    "HTTP/2 client closed before completing its stream: "
+                    f"headers={headers!r}, body_bytes={len(body)}"
+                )
+            for event in protocol.receive_data(data):
+                if isinstance(event, RequestReceived):
+                    headers = dict(event.headers)
+                elif isinstance(event, DataReceived):
+                    body.extend(event.data)
+                    protocol.acknowledge_received_data(
+                        event.flow_controlled_length, event.stream_id
+                    )
+                    content_length = headers.get("content-length")
+                    if (
+                        not response_sent
+                        and content_length is not None
+                        and len(body) == int(content_length)
+                    ):
+                        self._send_response(
+                            protocol, tls, event.stream_id, headers, body
+                        )
+                        response_sent = True
+                elif isinstance(event, StreamEnded):
+                    if not response_sent:
+                        self._send_response(
+                            protocol, tls, event.stream_id, headers, body
+                        )
+                        response_sent = True
+                elif isinstance(event, SettingsAcknowledged) and response_sent:
+                    return
+                elif isinstance(event, ConnectionTerminated):
+                    raise RuntimeError("HTTP/2 connection terminated before the response")
+            pending = protocol.data_to_send()
+            if pending:
+                tls.sendall(pending)
+
+    def _send_response(
+        self,
+        protocol: H2Connection,
+        tls: ssl.SSLSocket,
+        stream_id: int,
+        headers: dict[str, str],
+        body: bytearray,
+    ) -> None:
+        received = {
+            "method": headers.get(":method"),
+            "scheme": headers.get(":scheme"),
+            "authority": headers.get(":authority"),
+            "path": headers.get(":path"),
+            "authorization": headers.get("authorization"),
+            "x_api_key": headers.get("x-api-key"),
+            "content_type": headers.get("content-type"),
+            "body": body.decode("utf-8"),
+            "alpn": tls.selected_alpn_protocol(),
+        }
+        self.received.append(received)
+        if len(self.received) == self.expected_connections:
+            self.received_event.set()
+        payload = json.dumps(
+            {
+                "ok": True,
+                "case": "http2",
+                "access_token": CANARIES["response_body"],
+            }
+        ).encode()
+        protocol.send_headers(
+            stream_id,
+            [
+                (":status", "200"),
+                ("content-type", "application/json"),
+                ("set-cookie", CANARIES["response_cookie"]),
+                ("content-length", str(len(payload))),
+            ],
+        )
+        protocol.send_data(stream_id, payload, end_stream=True)
+        tls.sendall(protocol.data_to_send())
 
 
 def free_port() -> int:
@@ -224,24 +393,111 @@ def request_target_case(proxy_port: int, upstream_port: int, case: str) -> dict[
     return result
 
 
-def request_non_target_tunnel(
-    proxy_port: int, tunnel_port: int
-) -> tuple[bytes, bytes]:
+def open_proxy_tunnel(proxy_port: int, authority: str) -> socket.socket:
     connection = socket.create_connection(("127.0.0.1", proxy_port), timeout=10)
     connection.sendall(
         (
-            f"CONNECT 127.0.0.1:{tunnel_port} HTTP/1.1\r\n"
-            f"Host: 127.0.0.1:{tunnel_port}\r\n\r\n"
+            f"CONNECT {authority} HTTP/1.1\r\n"
+            f"Host: {authority}\r\n\r\n"
         ).encode()
     )
     response = b""
     while b"\r\n\r\n" not in response:
         chunk = connection.recv(4096)
         if not chunk:
-            raise RuntimeError("proxy closed the non-target CONNECT request")
+            connection.close()
+            raise RuntimeError("proxy closed the CONNECT request")
         response += chunk
     if not response.startswith(b"HTTP/1.1 200"):
-        raise RuntimeError("proxy rejected the non-target CONNECT request")
+        connection.close()
+        raise RuntimeError("proxy rejected the CONNECT request")
+    return connection
+
+
+def request_http2(
+    upstream_port: int, proxy_port: int | None = None, trusted_ca: Path | None = None
+) -> dict[str, Any]:
+    authority = f"localhost:{upstream_port}"
+    if proxy_port is None:
+        connection = socket.create_connection(("127.0.0.1", upstream_port), timeout=10)
+        context = ssl.create_default_context()
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+    else:
+        if trusted_ca is None:
+            raise ValueError("the intercepted HTTP/2 connection requires the sidecar CA")
+        connection = open_proxy_tunnel(proxy_port, authority)
+        context = ssl.create_default_context(cafile=str(trusted_ca))
+    context.set_alpn_protocols(["h2"])
+    with context.wrap_socket(connection, server_hostname="localhost") as tls:
+        tls.settimeout(10)
+        if tls.selected_alpn_protocol() != "h2":
+            raise RuntimeError("HTTP/2 client did not negotiate h2")
+        protocol = H2Connection(H2Configuration(client_side=True, header_encoding="utf-8"))
+        protocol.initiate_connection()
+        body = json.dumps(
+            {
+                "api_key": CANARIES["body"],
+                "messages": [{"role": "user", "content": "preserved prompt http2"}],
+            }
+        ).encode()
+        stream_id = protocol.get_next_available_stream_id()
+        protocol.send_headers(
+            stream_id,
+            [
+                (":method", "POST"),
+                (":scheme", "https"),
+                (":authority", authority),
+                (
+                    ":path",
+                    "/v1/chat/completions"
+                    f"?case=http2&access_token={CANARIES['query']}",
+                ),
+                ("authorization", CANARIES["authorization"]),
+                ("x-api-key", CANARIES["header_api_key"]),
+                ("content-type", "application/json"),
+                ("content-length", str(len(body))),
+            ],
+        )
+        protocol.send_data(stream_id, body, end_stream=True)
+        tls.sendall(protocol.data_to_send())
+
+        response_headers: dict[str, str] = {}
+        response_body = bytearray()
+        complete = False
+        while not complete:
+            data = tls.recv(65535)
+            if not data:
+                raise RuntimeError("HTTP/2 server closed before completing the response")
+            for event in protocol.receive_data(data):
+                if isinstance(event, ResponseReceived):
+                    response_headers = dict(event.headers)
+                elif isinstance(event, DataReceived):
+                    response_body.extend(event.data)
+                    protocol.acknowledge_received_data(
+                        event.flow_controlled_length, event.stream_id
+                    )
+                elif isinstance(event, StreamEnded) and event.stream_id == stream_id:
+                    complete = True
+                elif isinstance(event, ConnectionTerminated):
+                    raise RuntimeError("HTTP/2 connection terminated before the response")
+            pending = protocol.data_to_send()
+            if pending:
+                tls.sendall(pending)
+
+        return {
+            "status": int(response_headers[":status"]),
+            "content_type": response_headers.get("content-type"),
+            "cookie": response_headers.get("set-cookie"),
+            "body": bytes(response_body),
+            "alpn": tls.selected_alpn_protocol(),
+        }
+
+
+def request_non_target_tunnel(
+    proxy_port: int, tunnel_port: int
+) -> tuple[bytes, bytes]:
+    connection = open_proxy_tunnel(proxy_port, f"127.0.0.1:{tunnel_port}")
 
     context = ssl.create_default_context()
     context.check_hostname = False
@@ -272,6 +528,8 @@ def main() -> None:
         tunnel, tunnel_certificate = create_tls_server(root)
         tunnel_thread = threading.Thread(target=tunnel.serve_forever, daemon=True)
         tunnel_thread.start()
+        http2_upstream = H2UpstreamServer(root)
+        http2_upstream.start()
 
         ipc_listener = socket.socket()
         ipc_listener.bind(("127.0.0.1", 0))
@@ -300,6 +558,7 @@ def main() -> None:
         )
         confdir = root / "conf"
         confdir.mkdir()
+        # The fake provider is self-signed; the production launcher keeps verification enabled.
         process = subprocess.Popen(
             [
                 str(arguments.executable),
@@ -311,6 +570,8 @@ def main() -> None:
                 f"confdir={confdir}",
                 "--set",
                 "termlog_verbosity=error",
+                "--set",
+                "ssl_insecure=true",
                 "--allow-hosts",
                 r"^localhost:\d+$",
             ],
@@ -322,10 +583,19 @@ def main() -> None:
             startup_ms = wait_for_port(proxy_port, process)
             forwarded_responses = {
                 case: request_target_case(proxy_port, upstream.server_port, case)
-                for case in TARGET_CASES
+                for case in HTTP1_CASES
             }
             if not UpstreamHandler.received_event.wait(5):
                 raise TimeoutError("upstream did not receive every forwarded request")
+            http2_baseline = request_http2(http2_upstream.server_port)
+            forwarded_responses["http2"] = request_http2(
+                http2_upstream.server_port,
+                proxy_port,
+                confdir / "mitmproxy-ca-cert.pem",
+            )
+            if not http2_upstream.received_event.wait(5):
+                raise TimeoutError("HTTP/2 fake provider did not receive both requests")
+            http2_upstream.assert_healthy()
             ipc_thread.join(timeout=5)
             if ipc_thread.is_alive() or len(ipc_frames) != len(TARGET_CASES) * 2:
                 raise TimeoutError("addon did not deliver every request and response envelope")
@@ -368,7 +638,14 @@ def main() -> None:
                 elif captured_body["content"] != {"ok": True, "case": case}:
                     raise RuntimeError(f"sanitized {case} response was not preserved")
 
-                forwarded = UpstreamHandler.received[case]
+                if case == "http2":
+                    baseline_request, forwarded = http2_upstream.received
+                    if forwarded != baseline_request:
+                        raise RuntimeError("HTTP/2 forwarded request differs from direct baseline")
+                    if forwarded["alpn"] != "h2":
+                        raise RuntimeError("HTTP/2 upstream connection did not negotiate h2")
+                else:
+                    forwarded = UpstreamHandler.received[case]
                 if forwarded["authorization"] != CANARIES["authorization"]:
                     raise RuntimeError(f"authorization changed for {case}")
                 if forwarded["x_api_key"] != CANARIES["header_api_key"]:
@@ -381,7 +658,13 @@ def main() -> None:
                 response = forwarded_responses[case]
                 if response["status"] != 200 or response["cookie"] != CANARIES["response_cookie"]:
                     raise RuntimeError(f"{case} response metadata changed during forwarding")
-                if case == "gzip":
+                if case == "http2":
+                    if response != http2_baseline:
+                        raise RuntimeError("HTTP/2 forwarded response differs from direct baseline")
+                    if response["alpn"] != "h2":
+                        raise RuntimeError("HTTP/2 client connection did not negotiate h2")
+                    forwarded_body = response["body"].decode()
+                elif case == "gzip":
                     forwarded_body = gzip.decompress(response["body"]).decode()
                     expected_encoding = "gzip"
                 elif case == "brotli":
@@ -390,7 +673,7 @@ def main() -> None:
                 else:
                     forwarded_body = response["body"].decode()
                     expected_encoding = None
-                if response["content_encoding"] != expected_encoding:
+                if case != "http2" and response["content_encoding"] != expected_encoding:
                     raise RuntimeError(f"{case} content encoding changed during forwarding")
                 if CANARIES["response_body"] not in forwarded_body:
                     raise RuntimeError(f"{case} response body changed during forwarding")
@@ -425,6 +708,7 @@ def main() -> None:
                         "compressed_response_preserved": True,
                         "stream_credentials_removed": True,
                         "non_target_tunnel": True,
+                        "http2_preserved": True,
                     }
                 )
             )
@@ -434,6 +718,7 @@ def main() -> None:
             upstream.server_close()
             tunnel.shutdown()
             tunnel.server_close()
+            http2_upstream.shutdown()
             ipc_listener.close()
 
 
