@@ -12,6 +12,7 @@ use codeischeap_core::persist_capture;
 use codeischeap_core::{GatewayCaptureError, GatewayCaptureOutcome, process_gateway_event};
 use codeischeap_desktop_api::{WorkspaceBootstrap, load_workspace};
 use codeischeap_gateway::{Gateway, GatewayCapture, GatewayCaptureEvent};
+use codeischeap_sidecar_runtime::{BundleRequirements, MANIFEST_FILENAME, SidecarBundle};
 use codeischeap_storage::{
     EncryptedStore, OsKeyStore, RetentionPolicy, RetentionReport, StorageError,
 };
@@ -40,6 +41,7 @@ type SharedStore = Arc<Mutex<Option<EncryptedStore>>>;
 struct DesktopState {
     store: SharedStore,
     gateway: AsyncMutex<Option<GatewayRuntime>>,
+    sidecar_bundle: Option<SidecarBundle>,
 }
 
 struct GatewayRuntime {
@@ -106,12 +108,19 @@ async fn set_capture_active(active: bool, state: State<'_, DesktopState>) -> Res
     Ok(runtime.capture.is_enabled())
 }
 
+#[tauri::command]
+fn sidecar_available(state: State<'_, DesktopState>) -> bool {
+    state.sidecar_bundle.is_some()
+}
+
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
+            let sidecar_bundle = open_application_sidecar(app.handle())?;
             app.manage(DesktopState {
                 store: Arc::new(Mutex::new(None)),
                 gateway: AsyncMutex::new(None),
+                sidecar_bundle,
             });
 
             let show = MenuItem::with_id(app, "show", "Show CodeIsCheap", true, None::<&str>)?;
@@ -148,7 +157,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             bootstrap_workspace,
-            set_capture_active
+            set_capture_active,
+            sidecar_available
         ])
         .run(tauri::generate_context!())
         .expect("CodeIsCheap desktop runtime failed");
@@ -161,6 +171,19 @@ fn open_application_store(app: &AppHandle) -> Result<EncryptedStore, Box<dyn Err
         database_path,
         &key_store,
     )?)
+}
+
+fn open_application_sidecar(app: &AppHandle) -> Result<Option<SidecarBundle>, Box<dyn Error>> {
+    let bundle = app.path().resource_dir()?.join("sidecar");
+    if !bundle.join(MANIFEST_FILENAME).is_file() {
+        return Ok(None);
+    }
+    let requirements = if cfg!(debug_assertions) {
+        BundleRequirements::development()
+    } else {
+        BundleRequirements::release()
+    };
+    Ok(Some(SidecarBundle::load(bundle, requirements)?))
 }
 
 fn initialize_store(app: &AppHandle, store: &SharedStore) -> Result<(), String> {

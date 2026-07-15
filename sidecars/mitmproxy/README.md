@@ -17,6 +17,7 @@ python -m pip install -r sidecars/mitmproxy/requirements-build.txt
 python -m unittest discover -s sidecars/mitmproxy/tests -v
 python sidecars/mitmproxy/package_sidecar.py
 python sidecars/mitmproxy/verify_sidecar_bundle.py sidecars/mitmproxy/dist
+python sidecars/mitmproxy/install_sidecar_bundle.py sidecars/mitmproxy/dist apps/desktop/src-tauri/resources/sidecar
 ```
 
 The bundle contains the executable, capture policy, CycloneDX SBOM, and `sidecar-manifest.json`. The manifest fixes the app, mitmproxy, protocol, envelope and policy versions; records hashes, size, target triple, allowed environment variables, startup/forwarding probes and platform signature status.
@@ -26,3 +27,5 @@ CI artifacts are intentionally unsigned. A release pipeline must sign first, reb
 ```powershell
 python sidecars/mitmproxy/verify_sidecar_bundle.py sidecars/mitmproxy/dist --require-signature
 ```
+
+Release builds install the verified bundle into `apps/desktop/src-tauri/resources/sidecar` before `tauri build`. Installation stages and revalidates all four declared files, restores the Unix executable bit, then atomically replaces the previous resource bundle.
