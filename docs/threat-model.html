@@ -46,7 +46,7 @@
       <tr><td class="task-id">TM-01</td><td>鉴权凭据进入 IPC、日志或 DB</td><td>共享敏感字段策略；sidecar 与 Core 双层 scrubber/canary 测试</td><td>DB、日志、临时文件端到端零命中</td></tr>
       <tr><td class="task-id">TM-02</td><td>捕获非目标应用或端点</td><td>Rust/Python 共用精确 host、POST method 与 path pattern 策略</td><td>Profile UI 与自定义端点策略管理</td></tr>
       <tr><td class="task-id">TM-03</td><td>本机其他进程伪造或读取 IPC</td><td>loopback 限制、首帧随机 token、4 MiB 帧上限</td><td>用户级 socket ACL、token 轮换、失败限速</td></tr>
-      <tr><td class="task-id">TM-04</td><td>数据库文件被离线读取</td><td>SQLCipher、WAL、迁移、加密备份、错误密钥拒绝与 DB/WAL canary 已通过本地测试</td><td>Windows/macOS CI 凭据库实验；锁定与 key 丢失恢复体验</td></tr>
+      <tr><td class="task-id">TM-04</td><td>数据库文件被离线读取</td><td>SQLCipher、WAL、迁移、加密备份、错误密钥、DB/WAL canary 与跨平台 OS 凭据库 CI</td><td>锁定状态与 key 丢失恢复体验</td></tr>
       <tr><td class="task-id">TM-05</td><td>本地 CA 私钥泄露或残留信任</td><td>生产 CA 生命周期尚未实现</td><td>每设备生成、受限权限、指纹 UI、一键卸载；代理 Beta 硬门槛</td></tr>
       <tr><td class="task-id">TM-06</td><td>崩溃后系统代理残留</td><td>Windows/macOS 强杀恢复实验通过</td><td>journal 私有目录与 macOS 特权 helper</td></tr>
       <tr><td class="task-id">TM-07</td><td>sidecar 或更新包被替换</td><td>打包 manifest 含 SHA-256</td><td>签名、SBOM、启动前 hash 校验；发布硬门槛</td></tr>
@@ -62,7 +62,7 @@
       <li class="checked">凭据在 sidecar IPC 前和 Core 持久化前双重删除，并有 canary 测试</li>
       <li class="checked">代理设置具备正常、强杀和启动恢复路径</li>
       <li>SEC-001 对 DB、日志、临时文件执行端到端 canary 验收</li>
-      <li>DAT-001 完成 SQLCipher 与 OS 凭据库密钥管理</li>
+      <li class="checked">DAT-001 完成 SQLCipher 与 OS 凭据库密钥管理</li>
       <li>HTTPS 代理完成 CA 生命周期、权限和卸载验证</li>
       <li>sidecar 与更新包完成签名、hash 和 SBOM 校验</li>
       <li>安全 reviewer 关闭所有 Critical / High 未缓解项</li>

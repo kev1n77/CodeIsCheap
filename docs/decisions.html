@@ -10,7 +10,7 @@
     <div class="table-wrap"><table><thead><tr><th>ID</th><th>决策</th><th>状态</th></tr></thead><tbody>
       <tr><td class="task-id"><a href="#adr-001">ADR-001</a></td><td>Tauri 2 + React + Rust 桌面壳</td><td><span class="status done">Accepted</span></td></tr>
       <tr><td class="task-id"><a href="#adr-002">ADR-002</a></td><td>mitmproxy 作为隔离 sidecar</td><td><span class="status done">Accepted</span></td></tr>
-      <tr><td class="task-id"><a href="#adr-003">ADR-003</a></td><td>SQLCipher + OS 凭据库</td><td><span class="status active">Proposed</span></td></tr>
+      <tr><td class="task-id"><a href="#adr-003">ADR-003</a></td><td>SQLCipher + OS 凭据库</td><td><span class="status done">Accepted</span></td></tr>
       <tr><td class="task-id"><a href="#adr-004">ADR-004</a></td><td>版本化 Prompt IR 与证据定位</td><td><span class="status done">Accepted</span></td></tr>
       <tr><td class="task-id"><a href="#adr-005">ADR-005</a></td><td>Gateway-first、显式代理、系统代理可选</td><td><span class="status done">Accepted</span></td></tr>
     </tbody></table></div>
@@ -31,7 +31,7 @@
     <p><strong>决策：</strong>使用 SQLCipher、WAL 和版本化迁移；随机数据库 key 由 OS 凭据库持有，DB 文件、备份和 key 不共址。</p>
     <p><strong>替代：</strong>明文 SQLite + 字段加密易遗漏索引与临时页；RocksDB 缺少成熟关系查询与 FTS；整盘加密不覆盖文件复制场景。</p>
     <p><strong>风险：</strong>SQLCipher 跨平台构建、WAL/备份泄露、凭据库不可用与 key 丢失。实现必须包含锁定状态、恢复说明和 canary 扫描。</p>
-    <p class="note"><strong>状态：</strong>实现与 Windows 本地凭据库实验已通过；等待 Windows/macOS CI 后转 Accepted。若 SQLCipher 发布或性能不可接受，评估页级加密替代。</p>
+    <p class="note"><strong>验收：</strong>2026-07-15 Windows/macOS CI 已通过 SQLCipher、迁移、FTS 与真实 OS 凭据库实验。若 SQLCipher 发布或性能不可接受，评估页级加密替代。</p>
 
     <h2 id="adr-004">ADR-004 · Prompt IR</h2>
     <p><strong>决策：</strong>所有厂商适配器输出版本化 Prompt IR；每个 observed 节点保留原始 JSON 定位，derived/inferred 必须显式标记。</p>
