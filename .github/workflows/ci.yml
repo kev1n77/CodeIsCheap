@@ -129,8 +129,12 @@ jobs:
       - name: Package and probe sidecar
         run: python sidecars/mitmproxy/package_sidecar.py
 
+      - name: Validate sidecar bundle contract
+        run: python sidecars/mitmproxy/verify_sidecar_bundle.py sidecars/mitmproxy/dist
+
       - uses: actions/upload-artifact@v4
         with:
-          name: sidecar-manifest-${{ matrix.os }}
-          path: sidecars/mitmproxy/dist/sidecar-manifest.json
-          retention-days: 7
+          name: sidecar-bundle-${{ runner.os }}-${{ runner.arch }}
+          path: sidecars/mitmproxy/dist/*
+          if-no-files-found: error
+          retention-days: 14
