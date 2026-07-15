@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
@@ -6,7 +7,7 @@ use codeischeap_capture_ipc::{
     CapturedBodyState, CapturedField, CapturedRequest, CapturedResponse, ResponseCompleteness,
 };
 use codeischeap_capture_policy::{CapturePolicy, SanitizedCapture};
-use codeischeap_prompt_ir::PromptIr;
+use codeischeap_prompt_ir::{Evidence, MessageRole, PromptIr, PromptPart, ResponseTrace};
 use codeischeap_storage::{CaptureCursor, DatabaseKey, EncryptedStore, SCHEMA_VERSION};
 use tempfile::tempdir;
 
@@ -154,6 +155,52 @@ fn response_outcomes_round_trip_into_queryable_encrypted_columns() {
     assert_eq!(summary.status_code, Some(429));
     assert_eq!(summary.duration_ms, Some(87));
     assert_files_do_not_contain(directory.path(), RESPONSE_SECRET.as_bytes());
+}
+
+#[test]
+fn response_trace_does_not_pollute_prompt_full_text_search() {
+    let directory = tempdir().expect("temp directory must be created");
+    let mut store = EncryptedStore::open(
+        directory.path().join("captures.db"),
+        DatabaseKey::from_bytes(KEY_BYTES),
+    )
+    .expect("encrypted store must open");
+    let capture = sanitized_capture("capture_search_scope", 51, "request-search-marker");
+    let mut prompt = PromptIr::new("capture_search_scope", "openai");
+    prompt.response = Some(ResponseTrace {
+        id: Some("response_1".to_owned()),
+        model: Some("gpt-test".to_owned()),
+        role: MessageRole::Assistant,
+        parts: vec![PromptPart::Text {
+            id: "response_part_0".to_owned(),
+            text: "response-only-marker".to_owned(),
+            evidence: Evidence::unknown(),
+        }],
+        stop_reason: Some("stop".to_owned()),
+        stop_sequence: None,
+        usage: BTreeMap::new(),
+        error: None,
+        events: Vec::new(),
+        evidence: Evidence::unknown(),
+    });
+
+    store
+        .upsert_capture(&capture, Some(&prompt))
+        .expect("capture must persist");
+
+    assert_eq!(
+        store
+            .search_captures("request-search-marker", 10)
+            .expect("request search must succeed")
+            .len(),
+        1
+    );
+    assert!(
+        store
+            .search_captures("response-only-marker", 10)
+            .expect("response search must succeed")
+            .is_empty()
+    );
 }
 
 #[test]

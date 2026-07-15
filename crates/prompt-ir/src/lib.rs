@@ -11,6 +11,6 @@ pub use evidence::{Evidence, EvidenceLevel, EvidenceSource};
 pub use model::{
     BodyState, Completeness, ContextItem, ContextKind, GenerationOptions, Instruction,
     InstructionRole, Message, MessageRole, PROMPT_IR_VERSION, PromptIr, PromptPart, ProviderRef,
-    ToolDefinition,
+    ResponseEvent, ResponseTrace, ToolDefinition,
 };
 pub use validation::{Validate, ValidationError, ValidationErrors};

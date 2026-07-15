@@ -17,6 +17,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "openai-chat-capture.json",
         "openai-chat-prompt-ir.json",
     )?;
+    export(
+        &fixtures,
+        "anthropic-messages-sse-capture.json",
+        "anthropic-messages-sse-prompt-ir.json",
+    )?;
     Ok(())
 }
 

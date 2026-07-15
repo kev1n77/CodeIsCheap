@@ -5,7 +5,7 @@ use std::fmt;
 use codeischeap_capture_ipc::{CaptureOutcome, CapturedBodyState, ResponseCompleteness};
 use codeischeap_prompt_ir::{
     Evidence, EvidenceLevel as PromptEvidenceLevel, EvidenceSource, InstructionRole, MessageRole,
-    PromptIr, PromptPart,
+    PromptIr, PromptPart, ResponseEvent, ResponseTrace,
 };
 use codeischeap_storage::{EncryptedStore, StorageError};
 use schemars::JsonSchema;
@@ -118,7 +118,8 @@ pub struct AnatomyItem {
 #[serde(rename_all = "camelCase")]
 pub struct TimelineEvent {
     pub id: String,
-    pub offset_ms: u64,
+    pub offset_ms: Option<u64>,
+    pub sequence: Option<u64>,
     pub kind: String,
     pub title: String,
     pub detail: String,
@@ -227,7 +228,8 @@ fn map_capture(capture: codeischeap_storage::StoredCapture) -> CapturedRequest {
     };
     let mut timeline = vec![TimelineEvent {
         id: "request_observed".to_owned(),
-        offset_ms: 0,
+        offset_ms: Some(0),
+        sequence: None,
         kind: "request".to_owned(),
         title: "Request observed".to_owned(),
         detail: format!("{} {}", envelope.request.method, envelope.request.path),
@@ -235,7 +237,8 @@ fn map_capture(capture: codeischeap_storage::StoredCapture) -> CapturedRequest {
     if redaction_count > 0 {
         timeline.push(TimelineEvent {
             id: "credentials_removed".to_owned(),
-            offset_ms: 0,
+            offset_ms: Some(0),
+            sequence: None,
             kind: "security".to_owned(),
             title: "Credentials removed".to_owned(),
             detail: format!("{redaction_count} sensitive fields excluded before storage"),
@@ -243,7 +246,8 @@ fn map_capture(capture: codeischeap_storage::StoredCapture) -> CapturedRequest {
     }
     timeline.push(TimelineEvent {
         id: "encrypted_persistence".to_owned(),
-        offset_ms: 0,
+        offset_ms: Some(0),
+        sequence: None,
         kind: "complete".to_owned(),
         title: "Stored locally".to_owned(),
         detail: "Persisted in the encrypted SQLCipher database".to_owned(),
@@ -252,15 +256,26 @@ fn map_capture(capture: codeischeap_storage::StoredCapture) -> CapturedRequest {
         None => (None, CaptureStatus::Streaming),
         Some(CaptureOutcome::Response(response)) => {
             let complete = response.completeness == ResponseCompleteness::Complete;
-            let successful = (200..400).contains(&response.status);
+            let has_stream_error = prompt_ir
+                .as_ref()
+                .and_then(|prompt| prompt.response.as_ref())
+                .is_some_and(|trace| trace.error.is_some());
+            let successful = (200..400).contains(&response.status) && !has_stream_error;
             let completeness = match response.completeness {
                 ResponseCompleteness::Complete => "complete",
                 ResponseCompleteness::Truncated => "truncated",
                 ResponseCompleteness::Incomplete => "incomplete",
             };
+            if let Some(trace) = prompt_ir
+                .as_ref()
+                .and_then(|prompt| prompt.response.as_ref())
+            {
+                timeline.extend(response_timeline(trace));
+            }
             timeline.push(TimelineEvent {
                 id: "response_observed".to_owned(),
-                offset_ms: response.duration_ms,
+                offset_ms: Some(response.duration_ms),
+                sequence: None,
                 kind: if complete && successful {
                     "complete".to_owned()
                 } else {
@@ -268,6 +283,8 @@ fn map_capture(capture: codeischeap_storage::StoredCapture) -> CapturedRequest {
                 },
                 title: if !complete {
                     "Response interrupted".to_owned()
+                } else if has_stream_error {
+                    "Response stream failed".to_owned()
                 } else if successful {
                     "Response complete".to_owned()
                 } else {
@@ -287,7 +304,8 @@ fn map_capture(capture: codeischeap_storage::StoredCapture) -> CapturedRequest {
         Some(CaptureOutcome::UpstreamFailure(failure)) => {
             timeline.push(TimelineEvent {
                 id: "upstream_failed".to_owned(),
-                offset_ms: failure.duration_ms,
+                offset_ms: Some(failure.duration_ms),
+                sequence: None,
                 kind: "error".to_owned(),
                 title: "Upstream request failed".to_owned(),
                 detail: "No HTTP response was received".to_owned(),
@@ -325,6 +343,110 @@ fn map_capture(capture: codeischeap_storage::StoredCapture) -> CapturedRequest {
             }),
         },
     }
+}
+
+fn response_timeline(trace: &ResponseTrace) -> Vec<TimelineEvent> {
+    trace
+        .events
+        .iter()
+        .filter(|event| !matches!(event.kind.as_str(), "ping" | "content_block_delta"))
+        .map(|event| {
+            let (kind, title, detail) = response_event_description(trace, event);
+            TimelineEvent {
+                id: format!("response_stream_{}", event.index),
+                offset_ms: None,
+                sequence: Some(event.index),
+                kind,
+                title,
+                detail,
+            }
+        })
+        .collect()
+}
+
+fn response_event_description(
+    trace: &ResponseTrace,
+    event: &ResponseEvent,
+) -> (String, String, String) {
+    match event.kind.as_str() {
+        "message_start" => (
+            "stream".to_owned(),
+            "Response stream started".to_owned(),
+            trace
+                .model
+                .clone()
+                .unwrap_or_else(|| "Anthropic message".to_owned()),
+        ),
+        "content_block_start" => (
+            response_part_kind(trace, event.content_index),
+            "Content block started".to_owned(),
+            response_part_detail(trace, event.content_index),
+        ),
+        "content_block_stop" => (
+            response_part_kind(trace, event.content_index),
+            "Content block complete".to_owned(),
+            response_part_detail(trace, event.content_index),
+        ),
+        "message_delta" => (
+            "stream".to_owned(),
+            "Response metadata updated".to_owned(),
+            trace.stop_reason.as_deref().map_or_else(
+                || "Usage updated".to_owned(),
+                |reason| format!("Stop: {reason}"),
+            ),
+        ),
+        "message_stop" => (
+            "complete".to_owned(),
+            "Response stream complete".to_owned(),
+            trace
+                .stop_reason
+                .clone()
+                .unwrap_or_else(|| "Message stopped".to_owned()),
+        ),
+        "error" => (
+            "error".to_owned(),
+            "Response stream error".to_owned(),
+            trace
+                .error
+                .as_ref()
+                .map(compact_json)
+                .unwrap_or_else(|| "Anthropic stream error".to_owned()),
+        ),
+        "completion" => (
+            "stream".to_owned(),
+            "Completion chunk".to_owned(),
+            "Legacy Anthropic completion".to_owned(),
+        ),
+        kind => (
+            "stream".to_owned(),
+            "Response stream event".to_owned(),
+            kind.to_owned(),
+        ),
+    }
+}
+
+fn response_part_kind(trace: &ResponseTrace, index: Option<u64>) -> String {
+    match response_part(trace, index) {
+        Some(PromptPart::ToolUse { .. }) => "tool".to_owned(),
+        _ => "stream".to_owned(),
+    }
+}
+
+fn response_part_detail(trace: &ResponseTrace, index: Option<u64>) -> String {
+    match response_part(trace, index) {
+        Some(PromptPart::ToolUse { name, .. }) => format!("Tool use: {name}"),
+        Some(PromptPart::Text { .. }) => "Text output".to_owned(),
+        Some(PromptPart::Json { .. }) => "Thinking output".to_owned(),
+        Some(PromptPart::Unknown { .. }) => "Unknown content block".to_owned(),
+        Some(_) => "Response content".to_owned(),
+        None => "Response content".to_owned(),
+    }
+}
+
+fn response_part(trace: &ResponseTrace, index: Option<u64>) -> Option<&PromptPart> {
+    usize::try_from(index?)
+        .ok()
+        .and_then(|index| trace.parts.get(index))
 }
 
 fn anatomy_sections(prompt: &PromptIr) -> Vec<AnatomySection> {

@@ -1,5 +1,8 @@
+use std::collections::BTreeMap;
+
 use codeischeap_prompt_ir::{
-    Evidence, EvidenceLevel, Message, MessageRole, PromptIr, PromptPart, Validate, ValidationError,
+    Evidence, EvidenceLevel, Message, MessageRole, PromptIr, PromptPart, ResponseEvent,
+    ResponseTrace, Validate, ValidationError,
 };
 use schemars::schema_for;
 
@@ -77,6 +80,43 @@ fn observed_evidence_requires_a_source_locator() {
 }
 
 #[test]
+fn response_events_require_observed_source_locators() {
+    let mut prompt = PromptIr::new("req_response_source", "anthropic");
+    prompt.response = Some(ResponseTrace {
+        id: Some("msg_1".to_owned()),
+        model: Some("claude-sonnet".to_owned()),
+        role: MessageRole::Assistant,
+        parts: Vec::new(),
+        stop_reason: None,
+        stop_sequence: None,
+        usage: BTreeMap::new(),
+        error: None,
+        events: vec![ResponseEvent {
+            index: 0,
+            kind: "message_start".to_owned(),
+            content_index: None,
+            delta_kind: None,
+            evidence: Evidence {
+                level: EvidenceLevel::Observed,
+                source: None,
+                rule_id: None,
+                confidence: Some(1.0),
+            },
+        }],
+        evidence: Evidence::unknown(),
+    });
+
+    let errors = prompt
+        .validate()
+        .expect_err("response event without source must be rejected");
+    assert!(errors.0.iter().any(|error| matches!(
+        error,
+        ValidationError::ObservedEvidenceMissingSource { path }
+        if path == "response.events[0].evidence"
+    )));
+}
+
+#[test]
 fn duplicate_ids_are_rejected() {
     let mut prompt = PromptIr::new("req_duplicate", "openai");
     prompt.messages.push(Message {
@@ -122,6 +162,8 @@ fn generated_schema_contains_the_public_contract() {
     assert!(schema_text.contains("messages"));
     assert!(schema_text.contains("observed"));
     assert!(schema_text.contains("json_pointer"));
+    assert!(schema_text.contains("response"));
+    assert!(schema_text.contains("stream_event"));
 }
 
 #[test]

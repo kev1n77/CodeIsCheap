@@ -1,6 +1,7 @@
 //! Isolated provider adapters that turn sanitized captures into Prompt IR.
 
 mod anthropic;
+mod anthropic_response;
 mod model;
 mod openai;
 mod registry;

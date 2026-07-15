@@ -11,7 +11,9 @@ The OpenAI-compatible adapter currently covers:
 - text, image, audio, file, tool call, and tool result parts
 - function definitions and common generation parameters
 
-Regenerate checked-in golden Prompt IR after an intentional mapping change:
+The Anthropic adapter covers Messages and legacy Complete requests, non-streaming JSON responses, and SSE response traces. SSE text, tool input fragments, cumulative usage, stop reasons, errors, and unknown future events retain source evidence.
+
+Regenerate checked-in OpenAI and Anthropic golden Prompt IR after an intentional mapping change:
 
 ```powershell
 cargo run -p codeischeap-adapters --bin export-openai-goldens

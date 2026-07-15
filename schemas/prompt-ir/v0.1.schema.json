@@ -56,6 +56,16 @@
     "request_id": {
       "type": "string"
     },
+    "response": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ResponseTrace"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "tools": {
       "type": "array",
       "default": [],
@@ -625,6 +635,99 @@
       },
       "required": [
         "id"
+      ]
+    },
+    "ResponseEvent": {
+      "type": "object",
+      "properties": {
+        "content_index": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "delta_kind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "evidence": {
+          "$ref": "#/$defs/Evidence"
+        },
+        "index": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "kind": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "index",
+        "kind",
+        "evidence"
+      ]
+    },
+    "ResponseTrace": {
+      "type": "object",
+      "properties": {
+        "error": true,
+        "events": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ResponseEvent"
+          }
+        },
+        "evidence": {
+          "$ref": "#/$defs/Evidence"
+        },
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parts": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/PromptPart"
+          }
+        },
+        "role": {
+          "$ref": "#/$defs/MessageRole"
+        },
+        "stop_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stop_sequence": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "usage": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "role",
+        "evidence"
       ]
     },
     "ToolDefinition": {

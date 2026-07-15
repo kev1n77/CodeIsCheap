@@ -81,6 +81,16 @@ impl Validate for PromptIr {
             check_evidence(&tool.evidence, &format!("{path}.evidence"), &mut errors);
         }
 
+        if let Some(response) = &self.response {
+            check_evidence(&response.evidence, "response.evidence", &mut errors);
+            check_parts(&response.parts, "response", &mut ids, &mut errors);
+            for (index, event) in response.events.iter().enumerate() {
+                let path = format!("response.events[{index}]");
+                check_non_empty(&event.kind, &format!("{path}.kind"), &mut errors);
+                check_evidence(&event.evidence, &format!("{path}.evidence"), &mut errors);
+            }
+        }
+
         if errors.is_empty() {
             Ok(())
         } else {

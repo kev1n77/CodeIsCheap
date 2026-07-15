@@ -523,7 +523,9 @@ fn searchable_text(
         if let Some(model) = &prompt_ir.model {
             values.push(model.clone());
         }
-        collect_json_strings(&serde_json::to_value(prompt_ir)?, &mut values);
+        let mut searchable_prompt = prompt_ir.clone();
+        searchable_prompt.response = None;
+        collect_json_strings(&serde_json::to_value(searchable_prompt)?, &mut values);
     }
     Ok(values.join(" "))
 }

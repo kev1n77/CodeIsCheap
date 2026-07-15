@@ -76,7 +76,7 @@
         "timeline": [
           { "id": "event_request", "offsetMs": 0, "kind": "request", "title": "Request observed", "detail": "POST /v1/messages" },
           { "id": "event_headers", "offsetMs": 2, "kind": "security", "title": "Credentials removed", "detail": "Authorization and API key headers excluded before IPC" },
-          { "id": "event_first", "offsetMs": 418, "kind": "stream", "title": "First response event", "detail": "message_start" },
+          { "id": "event_first", "offsetMs": null, "sequence": 0, "kind": "stream", "title": "First response event", "detail": "message_start" },
           { "id": "event_tool", "offsetMs": 1304, "kind": "tool", "title": "Tool use emitted", "detail": "search" },
           { "id": "event_done", "offsetMs": 2384, "kind": "complete", "title": "Stream complete", "detail": "stop_reason: end_turn" }
         ],
