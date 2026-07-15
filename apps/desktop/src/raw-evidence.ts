@@ -1,14 +1,44 @@
 import type { JsonValue } from "./generated/desktop-api/serde_json/JsonValue";
+import type { EvidenceLocator } from "./types";
 
 export interface RawJsonLine {
   pointer: string;
   text: string;
 }
 
+export interface ResolvedRawEvidence {
+  pointer: string;
+  fragment: string | null;
+  start: number | null;
+  end: number | null;
+}
+
 export function resolveEvidencePointer(raw: JsonValue, source: string): string | null {
   if (!source.startsWith("/")) return null;
   const candidates = [source, `/request/body${source}`];
   return candidates.find((pointer) => readJsonPointer(raw, pointer).found) ?? null;
+}
+
+export function resolveEvidenceLocator(raw: JsonValue, locator: EvidenceLocator): ResolvedRawEvidence | null {
+  const pointer = resolveEvidencePointer(raw, locator.pointer);
+  if (!pointer) return null;
+  if (locator.kind === "json_pointer") {
+    return { pointer, fragment: null, start: null, end: null };
+  }
+
+  const resolved = readJsonPointer(raw, pointer);
+  if (!resolved.found || typeof resolved.value !== "string") return null;
+  const bytes = new TextEncoder().encode(resolved.value);
+  if (!Number.isSafeInteger(locator.start) || !Number.isSafeInteger(locator.end)
+    || locator.start < 0 || locator.end < locator.start || locator.end > bytes.length) {
+    return null;
+  }
+  return {
+    pointer,
+    fragment: new TextDecoder().decode(bytes.slice(locator.start, locator.end)),
+    start: locator.start,
+    end: locator.end,
+  };
 }
 
 export function formatRawJson(raw: JsonValue): RawJsonLine[] {

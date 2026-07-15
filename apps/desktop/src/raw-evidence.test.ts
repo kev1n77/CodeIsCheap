@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import fixture from "./data/workspace.json";
-import { formatRawJson, resolveEvidencePointer } from "./raw-evidence";
+import { formatRawJson, resolveEvidenceLocator, resolveEvidencePointer } from "./raw-evidence";
 import type { WorkspaceBootstrap } from "./types";
 
 describe("raw evidence", () => {
@@ -18,6 +18,17 @@ describe("raw evidence", () => {
 
     expect(lines).toContainEqual(expect.objectContaining({ pointer: "/a~1b/0" }));
     expect(lines).toContainEqual({ pointer: "/a~1b/0/value", text: "      \"value\": true" });
+  });
+
+  it("extracts exact UTF-8 text ranges without using UTF-16 offsets", () => {
+    const content = "event: delta\ndata: 你好\n";
+    const start = new TextEncoder().encode("event: delta\ndata: ").length;
+    const end = new TextEncoder().encode(content).length - 1;
+
+    expect(resolveEvidenceLocator(
+      { response: content },
+      { kind: "text_range", pointer: "/response", start, end },
+    )).toEqual({ pointer: "/response", fragment: "你好", start, end });
   });
 
   it("keeps every synthetic Anatomy item connected to raw evidence", () => {

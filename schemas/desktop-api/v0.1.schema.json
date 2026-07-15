@@ -221,6 +221,54 @@
         "unknown"
       ]
     },
+    "EvidenceLocator": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "json_pointer"
+            },
+            "pointer": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "pointer"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "end": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "kind": {
+              "type": "string",
+              "const": "text_range"
+            },
+            "pointer": {
+              "type": "string"
+            },
+            "start": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "kind",
+            "pointer",
+            "start",
+            "end"
+          ]
+        }
+      ]
+    },
     "RequestDetail": {
       "type": "object",
       "properties": {
@@ -255,6 +303,16 @@
         },
         "kind": {
           "type": "string"
+        },
+        "locator": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EvidenceLocator"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "offsetMs": {
           "type": [

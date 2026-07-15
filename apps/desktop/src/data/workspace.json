@@ -74,32 +74,40 @@
           }
         ],
         "timeline": [
-          { "id": "event_request", "offsetMs": 0, "kind": "request", "title": "Request observed", "detail": "POST /v1/messages" },
-          { "id": "event_headers", "offsetMs": 2, "kind": "security", "title": "Credentials removed", "detail": "Authorization and API key headers excluded before IPC" },
-          { "id": "event_first", "offsetMs": null, "sequence": 0, "kind": "stream", "title": "First response event", "detail": "message_start" },
-          { "id": "event_tool", "offsetMs": 1304, "kind": "tool", "title": "Tool use emitted", "detail": "search" },
-          { "id": "event_done", "offsetMs": 2384, "kind": "complete", "title": "Stream complete", "detail": "stop_reason: end_turn" }
+          { "id": "event_request", "offsetMs": 0, "kind": "request", "title": "Request observed", "detail": "POST /v1/messages", "locator": { "kind": "json_pointer", "pointer": "/request" } },
+          { "id": "event_headers", "offsetMs": 2, "kind": "security", "title": "Credentials removed", "detail": "Authorization and API key headers excluded before IPC", "locator": { "kind": "json_pointer", "pointer": "/redactions" } },
+          { "id": "event_first", "offsetMs": null, "sequence": 0, "kind": "stream", "title": "First response event", "detail": "message_start", "locator": { "kind": "text_range", "pointer": "/outcome/result/body/content", "start": 0, "end": 52 } },
+          { "id": "event_tool", "offsetMs": 1304, "kind": "tool", "title": "Tool use emitted", "detail": "search", "locator": { "kind": "text_range", "pointer": "/outcome/result/body/content", "start": 53, "end": 127 } },
+          { "id": "event_done", "offsetMs": 2384, "kind": "complete", "title": "Stream complete", "detail": "stop_reason: end_turn", "locator": { "kind": "text_range", "pointer": "/outcome/result/body/content", "start": 128, "end": 178 } }
         ],
         "raw": {
-          "model": "claude-sonnet",
-          "stream": true,
-          "temperature": 0.2,
-          "max_tokens": 8192,
-          "system": [
-            { "type": "text", "text": "You are a coding assistant operating inside an existing repository." },
-            { "type": "text", "text": "Preserve unrelated work and cite evidence for behavioral claims." }
-          ],
-          "messages": [
-            { "role": "user", "content": "Inspect the failing authentication flow and propose a minimal patch." },
-            { "role": "assistant", "content": "I will inspect the route and its existing tests first." },
-            { "role": "tool", "content": "Synthetic repository search result: auth/session.ts and auth/session.test.ts" }
-          ],
-          "tools": [
-            { "name": "read_file", "description": "Read a UTF-8 text file from the active workspace." },
-            { "name": "search", "description": "Search repository text with a bounded result count." },
-            { "name": "apply_patch", "description": "Apply a reviewable patch to workspace files." }
-          ],
-          "metadata": { "fixture": "synthetic", "credentials_persisted": false }
+          "request": {
+            "method": "POST",
+            "path": "/v1/messages",
+            "body": {
+              "model": "claude-sonnet",
+              "stream": true,
+              "temperature": 0.2,
+              "max_tokens": 8192,
+              "system": [
+                { "type": "text", "text": "You are a coding assistant operating inside an existing repository." },
+                { "type": "text", "text": "Preserve unrelated work and cite evidence for behavioral claims." }
+              ],
+              "messages": [
+                { "role": "user", "content": "Inspect the failing authentication flow and propose a minimal patch." },
+                { "role": "assistant", "content": "I will inspect the route and its existing tests first." },
+                { "role": "tool", "content": "Synthetic repository search result: auth/session.ts and auth/session.test.ts" }
+              ],
+              "tools": [
+                { "name": "read_file", "description": "Read a UTF-8 text file from the active workspace." },
+                { "name": "search", "description": "Search repository text with a bounded result count." },
+                { "name": "apply_patch", "description": "Apply a reviewable patch to workspace files." }
+              ],
+              "metadata": { "fixture": "synthetic", "credentials_persisted": false }
+            }
+          },
+          "outcome": { "kind": "response", "result": { "status": 200, "body": { "state": "text", "content": "event: message_start\ndata: {\"type\":\"message_start\"}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n" } } },
+          "redactions": [{ "location": "header", "name": "authorization" }]
         }
       }
     },

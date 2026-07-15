@@ -5,6 +5,7 @@ export type { CaptureMode } from "./generated/desktop-api/CaptureMode";
 export type { CaptureState } from "./generated/desktop-api/CaptureState";
 export type { CaptureStatus } from "./generated/desktop-api/CaptureStatus";
 export type { EvidenceLevel } from "./generated/desktop-api/EvidenceLevel";
+export type { EvidenceLocator } from "./generated/desktop-api/EvidenceLocator";
 export type { RequestDetail } from "./generated/desktop-api/RequestDetail";
 export type { TimelineEvent } from "./generated/desktop-api/TimelineEvent";
 export type { WorkspaceBootstrap } from "./generated/desktop-api/WorkspaceBootstrap";
