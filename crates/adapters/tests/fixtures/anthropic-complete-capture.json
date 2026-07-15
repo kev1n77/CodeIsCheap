@@ -1,0 +1,26 @@
+{
+  "version": "0.1",
+  "capture_id": "anthropic_complete_fixture",
+  "observed_at_unix_ms": 1784072001000,
+  "source": "gateway",
+  "request": {
+    "method": "POST",
+    "scheme": "https",
+    "host": "api.anthropic.com",
+    "port": 443,
+    "path": "/v1/complete",
+    "query": [],
+    "headers": [{ "name": "content-type", "value": "application/json" }],
+    "body": {
+      "state": "json",
+      "content": {
+        "model": "claude-2.1",
+        "prompt": "\n\nHuman: Explain synthetic Cargo features.\n\nAssistant:",
+        "temperature": 0.2,
+        "max_tokens": 256,
+        "stop_sequences": ["\n\nHuman:"]
+      }
+    }
+  },
+  "redactions": []
+}

@@ -1,0 +1,85 @@
+{
+  "ir_version": "0.1.0",
+  "request_id": "anthropic_messages_json_fixture",
+  "provider": {
+    "id": "anthropic",
+    "host": "api.anthropic.com",
+    "confidence": 1.0
+  },
+  "operation": "messages.create",
+  "model": "claude-sonnet-4-5",
+  "instructions": [],
+  "messages": [
+    {
+      "id": "message_0",
+      "role": "user",
+      "parts": [
+        {
+          "kind": "text",
+          "id": "message_0_part_0",
+          "text": "Name this synthetic product.",
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/messages/0/content"
+            },
+            "confidence": 1.0
+          }
+        }
+      ],
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/messages/0"
+        },
+        "confidence": 1.0
+      }
+    }
+  ],
+  "context": [],
+  "tools": [],
+  "generation": {
+    "max_output_tokens": 128
+  },
+  "vendor": {},
+  "response": {
+    "id": "msg_json_fixture",
+    "model": "claude-sonnet-4-5",
+    "role": "assistant",
+    "parts": [
+      {
+        "kind": "text",
+        "id": "response_part_0",
+        "text": "CodeIsCheap",
+        "evidence": {
+          "level": "observed",
+          "source": {
+            "kind": "json_pointer",
+            "pointer": "/outcome/result/body/content/content/0"
+          },
+          "confidence": 1.0
+        }
+      }
+    ],
+    "stop_reason": "end_turn",
+    "usage": {
+      "input_tokens": 12,
+      "output_tokens": 4
+    },
+    "events": [],
+    "evidence": {
+      "level": "observed",
+      "source": {
+        "kind": "json_pointer",
+        "pointer": "/outcome/result/body/content"
+      },
+      "confidence": 1.0
+    }
+  },
+  "completeness": {
+    "request_body": "complete",
+    "response_body": "complete"
+  }
+}

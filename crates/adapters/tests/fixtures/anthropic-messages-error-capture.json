@@ -1,0 +1,38 @@
+{
+  "version": "0.1",
+  "capture_id": "anthropic_messages_error_fixture",
+  "observed_at_unix_ms": 1784072003000,
+  "source": "gateway",
+  "request": {
+    "method": "POST",
+    "scheme": "https",
+    "host": "api.anthropic.com",
+    "port": 443,
+    "path": "/v1/messages",
+    "query": [],
+    "headers": [{ "name": "content-type", "value": "application/json" }],
+    "body": {
+      "state": "json",
+      "content": {
+        "model": "claude-sonnet-4-5",
+        "max_tokens": 128,
+        "messages": [{ "role": "user", "content": "Return a synthetic overload error." }],
+        "stream": true
+      }
+    }
+  },
+  "outcome": {
+    "kind": "response",
+    "result": {
+      "status": 529,
+      "headers": [{ "name": "content-type", "value": "text/event-stream" }],
+      "body": {
+        "state": "text",
+        "content": "event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Synthetic overload\"}}\n\n"
+      },
+      "duration_ms": 19,
+      "completeness": "complete"
+    }
+  },
+  "redactions": []
+}

@@ -87,7 +87,9 @@
           "kind": "tool_use",
           "id": "toolu_read_1",
           "name": "read_file",
-          "input": { "path": "Cargo.toml" },
+          "input": {
+            "path": "Cargo.toml"
+          },
           "evidence": {
             "level": "observed",
             "source": {
@@ -145,9 +147,15 @@
       "name": "read_file",
       "description": "Read a UTF-8 file from the workspace.",
       "input_schema": {
-        "type": "object",
-        "properties": { "path": { "type": "string" } },
-        "required": ["path"]
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
       },
       "evidence": {
         "level": "observed",
@@ -163,13 +171,19 @@
     "temperature": 0.0,
     "top_p": 0.9,
     "max_output_tokens": 2048,
-    "stop": ["</done>"],
-    "extra": { "top_k": 40 }
+    "stop": [
+      "</done>"
+    ],
+    "extra": {
+      "top_k": 40
+    }
   },
   "vendor": {
     "anthropic_version": "2023-06-01",
     "stream": true,
-    "tool_choice": { "type": "auto" }
+    "tool_choice": {
+      "type": "auto"
+    }
   },
   "completeness": {
     "request_body": "complete",

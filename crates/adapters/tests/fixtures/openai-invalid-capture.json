@@ -1,0 +1,17 @@
+{
+  "version": "0.1",
+  "capture_id": "openai_invalid_fixture",
+  "observed_at_unix_ms": 1784071003000,
+  "source": "gateway",
+  "request": {
+    "method": "POST",
+    "scheme": "https",
+    "host": "api.openai.com",
+    "port": 443,
+    "path": "/v1/responses",
+    "query": [],
+    "headers": [{ "name": "content-type", "value": "application/json" }],
+    "body": { "state": "invalid_json", "content": null }
+  },
+  "redactions": []
+}

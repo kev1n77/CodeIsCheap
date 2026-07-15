@@ -1,0 +1,89 @@
+{
+  "version": "0.1",
+  "adapters": [
+    {
+      "id": "openai-compatible/v0.1",
+      "operations": ["responses.create", "chat.completions.create", "completions.create"],
+      "cases": [
+        {
+          "id": "openai-responses-request",
+          "capture": "openai-responses-capture.json",
+          "golden": "openai-responses-prompt-ir.json",
+          "operation": "responses.create",
+          "outcome": "parsed",
+          "capabilities": ["request.instructions", "request.messages", "request.multimodal.image", "request.tool_use", "request.tool_result", "request.tool_definitions", "request.generation", "request.streaming_flag"]
+        },
+        {
+          "id": "openai-chat-request",
+          "capture": "openai-chat-capture.json",
+          "golden": "openai-chat-prompt-ir.json",
+          "operation": "chat.completions.create",
+          "outcome": "parsed",
+          "capabilities": ["request.instructions", "request.messages", "request.multimodal.image", "request.tool_use", "request.tool_result", "request.tool_definitions", "request.generation", "request.streaming_flag"]
+        },
+        {
+          "id": "openai-completions-request",
+          "capture": "openai-completions-capture.json",
+          "golden": "openai-completions-prompt-ir.json",
+          "operation": "completions.create",
+          "outcome": "parsed",
+          "capabilities": ["request.messages", "request.batch_prompts", "request.generation"]
+        },
+        {
+          "id": "openai-invalid-body",
+          "capture": "openai-invalid-capture.json",
+          "operation": null,
+          "outcome": "raw_fallback",
+          "capabilities": ["fallback.invalid_body"],
+          "issues": ["invalid_body", "all_adapters_failed"]
+        }
+      ]
+    },
+    {
+      "id": "anthropic/v0.1",
+      "operations": ["messages.create", "completions.create"],
+      "cases": [
+        {
+          "id": "anthropic-messages-request",
+          "capture": "anthropic-messages-capture.json",
+          "golden": "anthropic-messages-prompt-ir.json",
+          "operation": "messages.create",
+          "outcome": "parsed",
+          "capabilities": ["request.instructions", "request.messages", "request.multimodal.image", "request.tool_use", "request.tool_result", "request.tool_definitions", "request.generation", "request.streaming_flag"]
+        },
+        {
+          "id": "anthropic-messages-sse",
+          "capture": "anthropic-messages-sse-capture.json",
+          "golden": "anthropic-messages-sse-prompt-ir.json",
+          "operation": "messages.create",
+          "outcome": "parsed",
+          "capabilities": ["response.sse", "response.text", "response.tool_use", "response.usage", "response.stop_reason", "response.unknown_event"]
+        },
+        {
+          "id": "anthropic-messages-json",
+          "capture": "anthropic-messages-json-capture.json",
+          "golden": "anthropic-messages-json-prompt-ir.json",
+          "operation": "messages.create",
+          "outcome": "parsed",
+          "capabilities": ["response.json", "response.text", "response.usage", "response.stop_reason"]
+        },
+        {
+          "id": "anthropic-messages-error",
+          "capture": "anthropic-messages-error-capture.json",
+          "golden": "anthropic-messages-error-prompt-ir.json",
+          "operation": "messages.create",
+          "outcome": "parsed",
+          "capabilities": ["response.sse", "response.error"]
+        },
+        {
+          "id": "anthropic-complete-request",
+          "capture": "anthropic-complete-capture.json",
+          "golden": "anthropic-complete-prompt-ir.json",
+          "operation": "completions.create",
+          "outcome": "parsed",
+          "capabilities": ["request.messages", "request.generation"]
+        }
+      ]
+    }
+  ]
+}

@@ -16,13 +16,13 @@
       <p class="lead">本页是项目状态的单一入口。开发计划定义“应该做什么”，本页只记录“当前做到哪里、是否健康、下一步是什么”。</p>
 
       <div class="meta-grid">
-        <div class="meta-item"><span>工程进度</span><strong>37%</strong></div>
-        <div class="meta-item"><span>当前阶段</span><strong>数据生命周期与能力矩阵</strong></div>
+        <div class="meta-item"><span>工程进度</span><strong>38%</strong></div>
+        <div class="meta-item"><span>当前阶段</span><strong>数据生命周期</strong></div>
         <div class="meta-item"><span>当前迭代</span><strong>S3 · 进行中</strong></div>
         <div class="meta-item"><span>最后更新</span><strong>2026-07-15</strong></div>
       </div>
 
-      <div class="decision"><strong>当前结论</strong>OpenAI 与 Anthropic 已形成请求/响应结构化闭环；Anatomy 与 Timeline 节点均可回到 Raw 原始证据，APP-004 完成。下一项是 TST-001 双厂商能力矩阵和 DAT-002 数据生命周期。</div>
+      <div class="decision"><strong>当前结论</strong>OpenAI 与 Anthropic 已形成请求/响应结构化闭环，声明能力均由版本化 fixture、golden 与可执行矩阵验证；TST-001 完成。下一项是 DAT-002 数据生命周期。</div>
 
       <h2 id="usage">1. 更新规则</h2>
       <ol>
@@ -62,7 +62,7 @@
         <tr><td>Capture / Network</td><td>CAP-001~007</td><td>29%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>推进显式代理与证书生命周期</td></tr>
         <tr><td>Prompt / Adapters</td><td>PAR-001~007</td><td>57%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>准备 Gemini 适配器与 token 来源模型</td></tr>
         <tr><td>Data / Security</td><td>DAT-001~002、SEC-001~004</td><td>35%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>继续日志与临时文件 canary</td></tr>
-        <tr><td>Test / Release</td><td>TST-001~004、REL-001~003</td><td>20%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>完成双厂商声明能力矩阵</td></tr>
+        <tr><td>Test / Release</td><td>TST-001~004、REL-001~003</td><td>25%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>准备 TST-002 sidecar 与证书生命周期测试</td></tr>
       </tbody></table></div>
 
       <h2 id="current-sprint">5. 当前迭代：S3</h2>
@@ -85,7 +85,7 @@
         <tr><td class="task-id">PAR-002</td><td>解析器注册表与检测链</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>置信度排序、错误/panic 隔离、IR 校验、partial issues 与 Raw fallback 完成</td></tr>
         <tr><td class="task-id">PAR-003</td><td>OpenAI-compatible 适配器</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>Responses、Chat、Completions、多模态与 tools golden fixtures 通过</td></tr>
         <tr><td class="task-id">PAR-004</td><td>Anthropic 适配器</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>Messages/Complete 请求与 JSON/SSE 响应完整重组；文本、thinking、tool use、usage、错误及未知事件均保留证据</td></tr>
-        <tr><td class="task-id">TST-001</td><td>协议 fixture 与 golden tests</td><td><span class="status active">In progress</span></td><td>60%</td><td>Codex / TBD</td><td>2026-08-11</td><td>OpenAI 与 Anthropic 正常、流式、工具、多模态和错误样本已覆盖；声明能力矩阵待固化</td></tr>
+        <tr><td class="task-id">TST-001</td><td>协议 fixture 与 golden tests</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>版本化能力矩阵覆盖 OpenAI 与 Anthropic 的请求、响应、流式、工具、多模态、错误和 Raw fallback；声明均由 fixture 与 golden 验证</td></tr>
         <tr><td class="task-id">SPIKE-001</td><td>Gateway 流式透明转发验证</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-14</td><td>双向流式、取消传递、头清理与稳定 502 集成测试通过</td></tr>
         <tr><td class="task-id">SPIKE-002</td><td>mitmproxy sidecar IPC/打包验证</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-14</td><td><a href="spikes/mitmproxy-sidecar.html">凭据清理、IPC、打包与真实转发通过</a></td></tr>
         <tr><td class="task-id">SPIKE-003</td><td>Windows/macOS 代理恢复验证</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-14</td><td><a href="spikes/windows-proxy-recovery.html">Windows</a> / <a href="spikes/macos-proxy-recovery.html">macOS</a> 真实强杀恢复通过</td></tr>
@@ -106,7 +106,7 @@
       <div class="table-wrap"><table><thead><tr><th>迭代</th><th>计划任务</th><th>状态</th><th>进入条件</th></tr></thead><tbody>
         <tr><td>S1</td><td>APP-001/002、DAT-001、SEC-001、Core 事件骨架</td><td><span class="status active">In progress</span></td><td>加密桌面链路已通过；SEC-001、Core event 与独立安全评审待完成</td></tr>
         <tr><td>S2</td><td>CAP-001/002、PAR-002/003、APP-003</td><td><span class="status done">Done</span></td><td>Gateway、OpenAI 解析与千条实时工作台全部通过验收</td></tr>
-        <tr><td>S3</td><td>PAR-004、APP-004、TST-001、DAT-002</td><td><span class="status active">In progress</span></td><td>PAR-004 与 APP-004 完成；TST-001 能力矩阵和 DAT-002 待推进</td></tr>
+        <tr><td>S3</td><td>PAR-004、APP-004、TST-001、DAT-002</td><td><span class="status active">In progress</span></td><td>PAR-004、APP-004 与 TST-001 完成；DAT-002 待推进</td></tr>
         <tr><td>S4</td><td>CAP-003~005、TST-002</td><td><span class="status">Not started</span></td><td>sidecar 打包方案接受</td></tr>
         <tr><td>S5</td><td>CAP-006/007、SEC-002/003、APP-006、TST-003</td><td><span class="status">Not started</span></td><td>显式代理可用</td></tr>
         <tr><td>S6</td><td>PAR-005~007、APP-005</td><td><span class="status">Not started</span></td><td>双厂商 Inspector 稳定</td></tr>

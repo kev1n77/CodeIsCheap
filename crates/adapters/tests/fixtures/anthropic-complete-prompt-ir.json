@@ -1,0 +1,55 @@
+{
+  "ir_version": "0.1.0",
+  "request_id": "anthropic_complete_fixture",
+  "provider": {
+    "id": "anthropic",
+    "host": "api.anthropic.com",
+    "confidence": 1.0
+  },
+  "operation": "completions.create",
+  "model": "claude-2.1",
+  "instructions": [],
+  "messages": [
+    {
+      "id": "message_0",
+      "role": "user",
+      "parts": [
+        {
+          "kind": "text",
+          "id": "message_0_part_0",
+          "text": "\n\nHuman: Explain synthetic Cargo features.\n\nAssistant:",
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/prompt"
+            },
+            "confidence": 1.0
+          }
+        }
+      ],
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/prompt"
+        },
+        "confidence": 1.0
+      }
+    }
+  ],
+  "context": [],
+  "tools": [],
+  "generation": {
+    "temperature": 0.2,
+    "max_output_tokens": 256,
+    "stop": [
+      "\n\nHuman:"
+    ]
+  },
+  "vendor": {},
+  "completeness": {
+    "request_body": "complete",
+    "response_body": "missing"
+  }
+}
