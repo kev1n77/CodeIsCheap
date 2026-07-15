@@ -1,6 +1,7 @@
 use codeischeap_capture_ipc::{
-    CAPTURE_ENVELOPE_VERSION, CaptureEnvelope, CaptureSource, CapturedBody, CapturedBodyState,
-    CapturedRequest, IpcError, receive_from_reader,
+    CAPTURE_ENVELOPE_VERSION, CaptureEnvelope, CaptureOutcome, CaptureSource, CapturedBody,
+    CapturedBodyState, CapturedField, CapturedRequest, CapturedResponse, IpcError,
+    ResponseCompleteness, receive_from_reader,
 };
 use schemars::schema_for;
 use tokio::io::{AsyncWriteExt, BufReader};
@@ -29,6 +30,7 @@ fn sample_envelope() -> CaptureEnvelope {
                 ),
             },
         },
+        outcome: None,
         redactions: Vec::new(),
     }
 }
@@ -64,6 +66,33 @@ async fn accepts_an_authenticated_envelope() {
     let received = receive_from_reader(&mut reader, "synthetic-token")
         .await
         .expect("valid frames must be accepted");
+
+    assert_eq!(received, expected);
+}
+
+#[tokio::test]
+async fn response_outcomes_round_trip_through_authenticated_ipc() {
+    let mut expected = sample_envelope();
+    expected.outcome = Some(CaptureOutcome::Response(CapturedResponse {
+        status: 200,
+        headers: vec![CapturedField {
+            name: "content-type".to_owned(),
+            value: "text/event-stream".to_owned(),
+        }],
+        body: CapturedBody {
+            state: CapturedBodyState::Text,
+            content: Some(serde_json::Value::String(
+                "data: {\"type\":\"done\"}\n\n".to_owned(),
+            )),
+        },
+        duration_ms: 73,
+        completeness: ResponseCompleteness::Complete,
+    }));
+    let mut reader = framed_reader("synthetic-token", &expected).await;
+
+    let received = receive_from_reader(&mut reader, "synthetic-token")
+        .await
+        .expect("response outcome must be accepted");
 
     assert_eq!(received, expected);
 }

@@ -4,7 +4,8 @@ use std::collections::HashSet;
 use std::fmt;
 
 use codeischeap_capture_ipc::{
-    CaptureEnvelope, CaptureRedaction, CapturedField, CapturedRequest, RedactionLocation,
+    CaptureEnvelope, CaptureOutcome, CaptureRedaction, CapturedField, CapturedRequest,
+    RedactionLocation,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -191,10 +192,29 @@ impl CapturePolicy {
         if let Some(content) = envelope.request.body.content.as_mut() {
             scrub_json(
                 content,
+                RedactionLocation::Body,
                 &sensitive_names,
                 &mut envelope.redactions,
                 &mut newly_redacted,
             );
+        }
+        if let Some(CaptureOutcome::Response(response)) = envelope.outcome.as_mut() {
+            scrub_fields(
+                &mut response.headers,
+                RedactionLocation::ResponseHeader,
+                &sensitive_names,
+                &mut envelope.redactions,
+                &mut newly_redacted,
+            );
+            if let Some(content) = response.body.content.as_mut() {
+                scrub_json(
+                    content,
+                    RedactionLocation::ResponseBody,
+                    &sensitive_names,
+                    &mut envelope.redactions,
+                    &mut newly_redacted,
+                );
+            }
         }
 
         Ok(SanitizedCapture {
@@ -235,6 +255,7 @@ fn scrub_fields(
 
 fn scrub_json(
     value: &mut serde_json::Value,
+    location: RedactionLocation,
     sensitive_names: &HashSet<String>,
     redactions: &mut Vec<CaptureRedaction>,
     newly_redacted: &mut usize,
@@ -248,19 +269,16 @@ fn scrub_json(
                 .collect();
             for name in removed {
                 object.remove(&name);
-                redactions.push(CaptureRedaction {
-                    location: RedactionLocation::Body,
-                    name,
-                });
+                redactions.push(CaptureRedaction { location, name });
                 *newly_redacted += 1;
             }
             for child in object.values_mut() {
-                scrub_json(child, sensitive_names, redactions, newly_redacted);
+                scrub_json(child, location, sensitive_names, redactions, newly_redacted);
             }
         }
         serde_json::Value::Array(items) => {
             for item in items {
-                scrub_json(item, sensitive_names, redactions, newly_redacted);
+                scrub_json(item, location, sensitive_names, redactions, newly_redacted);
             }
         }
         _ => {}

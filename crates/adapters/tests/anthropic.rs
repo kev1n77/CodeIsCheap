@@ -167,6 +167,7 @@ fn sanitized_anthropic(capture_id: &str, path: &str, body: CapturedBody) -> Sani
             headers: Vec::new(),
             body,
         },
+        outcome: None,
         redactions: Vec::new(),
     };
     CapturePolicy::load_default()

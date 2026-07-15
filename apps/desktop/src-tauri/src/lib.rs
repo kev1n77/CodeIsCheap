@@ -1,3 +1,4 @@
+use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 use std::sync::{Arc, Mutex};
 
@@ -28,6 +29,7 @@ const DEFAULT_GATEWAY_ADDRESS: &str = "127.0.0.1:8787";
 const DEFAULT_OPENAI_UPSTREAM: &str = "https://api.openai.com";
 const CAPTURE_UPDATED_EVENT: &str = "capture-updated";
 const CAPTURE_RUNTIME_ERROR_EVENT: &str = "capture-runtime-error";
+const MAX_PENDING_CAPTURE_OUTCOMES: usize = 256;
 
 type SharedStore = Arc<Mutex<Option<EncryptedStore>>>;
 
@@ -233,49 +235,90 @@ async fn process_capture_events(
         }
     };
     let adapters = AdapterRegistry::default();
+    let mut pending = HashMap::<String, GatewayCaptureEvent>::new();
 
     while let Some(event) = receiver.recv().await {
-        let result = {
-            let mut store = match store.lock() {
-                Ok(store) => store,
-                Err(_) => {
+        let mut ready = VecDeque::from([event]);
+        while let Some(event) = ready.pop_front() {
+            let retry_event = event.clone();
+            let result = {
+                let mut store = match store.lock() {
+                    Ok(store) => store,
+                    Err(_) => {
+                        emit_runtime_error(
+                            &app,
+                            "capture_store_unavailable",
+                            "encrypted workspace is temporarily unavailable".to_owned(),
+                        );
+                        return;
+                    }
+                };
+                let Some(store) = store.as_mut() else {
                     emit_runtime_error(
                         &app,
-                        "capture_store_unavailable",
-                        "encrypted workspace is temporarily unavailable".to_owned(),
+                        "capture_store_uninitialized",
+                        "encrypted workspace has not initialized".to_owned(),
                     );
                     return;
-                }
+                };
+                process_gateway_event(store, &policy, &adapters, event)
             };
-            let Some(store) = store.as_mut() else {
-                emit_runtime_error(
-                    &app,
-                    "capture_store_uninitialized",
-                    "encrypted workspace has not initialized".to_owned(),
-                );
-                return;
-            };
-            process_gateway_event(store, &policy, &adapters, event)
-        };
 
-        match result {
-            Ok(GatewayCaptureOutcome::Persisted(capture)) => {
-                let _ = app.emit(
-                    CAPTURE_UPDATED_EVENT,
-                    CaptureUpdated {
-                        capture_id: capture.capture_id,
-                    },
-                );
-            }
-            Ok(
-                GatewayCaptureOutcome::ResponseObserved(_)
-                | GatewayCaptureOutcome::UpstreamFailed(_),
-            ) => {}
-            Err(error) => {
-                emit_runtime_error(&app, "capture_processing_failed", error.to_string());
+            match result {
+                Ok(GatewayCaptureOutcome::Persisted(capture)) => {
+                    emit_capture_updated(&app, capture.capture_id.clone());
+                    if let Some(outcome) = pending.remove(&capture.capture_id) {
+                        ready.push_back(outcome);
+                    }
+                }
+                Ok(GatewayCaptureOutcome::ResponseObserved(response)) => {
+                    if response.persisted {
+                        emit_capture_updated(&app, response.capture_id);
+                    } else if !queue_pending_outcome(&mut pending, retry_event) {
+                        emit_runtime_error(
+                            &app,
+                            "capture_pending_overflow",
+                            "too many capture outcomes arrived before their requests".to_owned(),
+                        );
+                    }
+                }
+                Ok(GatewayCaptureOutcome::UpstreamFailed(failure)) => {
+                    if failure.persisted {
+                        emit_capture_updated(&app, failure.capture_id);
+                    } else if !queue_pending_outcome(&mut pending, retry_event) {
+                        emit_runtime_error(
+                            &app,
+                            "capture_pending_overflow",
+                            "too many capture outcomes arrived before their requests".to_owned(),
+                        );
+                    }
+                }
+                Err(error) => {
+                    emit_runtime_error(&app, "capture_processing_failed", error.to_string());
+                }
             }
         }
     }
+}
+
+fn queue_pending_outcome(
+    pending: &mut HashMap<String, GatewayCaptureEvent>,
+    event: GatewayCaptureEvent,
+) -> bool {
+    let capture_id = match &event {
+        GatewayCaptureEvent::Request(_) => return false,
+        GatewayCaptureEvent::Response(response) => response.capture_id.clone(),
+        GatewayCaptureEvent::UpstreamFailure(failure) => failure.capture_id.clone(),
+    };
+    if pending.len() >= MAX_PENDING_CAPTURE_OUTCOMES && !pending.contains_key(&capture_id) {
+        return false;
+    }
+    pending.insert(capture_id, event);
+    true
+}
+
+fn emit_capture_updated(app: &AppHandle, capture_id: String) {
+    let _ = app.emit(CAPTURE_UPDATED_EVENT, CaptureUpdated { capture_id });
 }
 
 fn apply_gateway_state(workspace: &mut WorkspaceBootstrap, runtime: &GatewayRuntime) {
@@ -315,6 +358,7 @@ fn show_main_window(app: &tauri::AppHandle) {
 
 #[cfg(test)]
 mod tests {
+    use codeischeap_gateway::{CapturedPayload, GatewayResponseCapture};
     use codeischeap_storage::DatabaseKey;
     use tempfile::tempdir;
 
@@ -399,5 +443,46 @@ mod tests {
         assert!(workspace.capture.can_control);
         assert_eq!(workspace.capture.endpoint, "http://127.0.0.1:8787");
         assert_eq!(workspace.capture.profile, "OpenAI-compatible local gateway");
+    }
+
+    #[test]
+    fn pending_outcomes_are_keyed_replaced_and_bounded() {
+        let mut pending = HashMap::new();
+        for index in 0..MAX_PENDING_CAPTURE_OUTCOMES {
+            assert!(queue_pending_outcome(
+                &mut pending,
+                response_event(&format!("capture_{index}"), 200)
+            ));
+        }
+        assert_eq!(pending.len(), MAX_PENDING_CAPTURE_OUTCOMES);
+        assert!(queue_pending_outcome(
+            &mut pending,
+            response_event("capture_0", 429)
+        ));
+        assert!(!queue_pending_outcome(
+            &mut pending,
+            response_event("overflow", 200)
+        ));
+        let GatewayCaptureEvent::Response(replaced) = pending
+            .get("capture_0")
+            .expect("existing outcome must remain")
+        else {
+            panic!("pending event must be a response");
+        };
+        assert_eq!(replaced.status, 429);
+    }
+
+    fn response_event(capture_id: &str, status: u16) -> GatewayCaptureEvent {
+        GatewayCaptureEvent::Response(GatewayResponseCapture {
+            capture_id: capture_id.to_owned(),
+            status,
+            headers: Vec::new(),
+            duration_ms: 1,
+            body: CapturedPayload {
+                bytes: Vec::new().into(),
+                truncated: false,
+                complete: true,
+            },
+        })
     }
 }

@@ -16,13 +16,13 @@
       <p class="lead">本页是项目状态的单一入口。开发计划定义“应该做什么”，本页只记录“当前做到哪里、是否健康、下一步是什么”。</p>
 
       <div class="meta-grid">
-        <div class="meta-item"><span>工程进度</span><strong>30%</strong></div>
-        <div class="meta-item"><span>当前阶段</span><strong>Gateway 闭环</strong></div>
-        <div class="meta-item"><span>当前迭代</span><strong>S2 · 进行中</strong></div>
+        <div class="meta-item"><span>工程进度</span><strong>33%</strong></div>
+        <div class="meta-item"><span>当前阶段</span><strong>响应闭环</strong></div>
+        <div class="meta-item"><span>当前迭代</span><strong>S2 / S3 · 进行中</strong></div>
         <div class="meta-item"><span>最后更新</span><strong>2026-07-15</strong></div>
       </div>
 
-      <div class="decision"><strong>当前结论</strong>OpenAI Gateway 实时闭环已完成；PAR-004 请求侧达到 70%，Anthropic Messages/Complete、system、多模态、tools 与 tool result 已进入 Prompt IR。下一项是响应存储契约、Anthropic SSE 重组和 APP-003 千条列表性能验收。</div>
+      <div class="decision"><strong>当前结论</strong>OpenAI Gateway 请求、响应和失败结果已形成完整加密闭环，桌面端可显示状态、耗时、Raw 与 Timeline；乱序事件、HTTP 错误、取消和 SSE 文本均有回归覆盖。下一项是 Anthropic SSE 重组和 APP-003 千条列表性能验收。</div>
 
       <h2 id="usage">1. 更新规则</h2>
       <ol>
@@ -46,8 +46,8 @@
       <h2 id="milestones">3. 里程碑</h2>
       <div class="table-wrap"><table><thead><tr><th>ID</th><th>里程碑</th><th>权重</th><th>进度</th><th>状态</th><th>目标</th><th>Owner</th></tr></thead><tbody>
         <tr><td class="task-id">M0</td><td>Discovery 与技术验证</td><td>5%</td><td><div class="progress-track"><div class="progress-value" style="width:95%"></div></div> 95%</td><td><span class="status active">In progress</span></td><td>W2</td><td>TBD</td></tr>
-        <tr><td class="task-id">M1</td><td>基础设施与加密数据链路</td><td>15%</td><td><div class="progress-track"><div class="progress-value" style="width:75%"></div></div> 75%</td><td><span class="status active">In progress</span></td><td>W4</td><td>Codex / TBD</td></tr>
-        <tr><td class="task-id">M2</td><td>Gateway 与双厂商闭环</td><td>20%</td><td><div class="progress-track"><div class="progress-value" style="width:70%"></div></div> 70%</td><td><span class="status active">In progress</span></td><td>W8</td><td>Codex / TBD</td></tr>
+        <tr><td class="task-id">M1</td><td>基础设施与加密数据链路</td><td>15%</td><td><div class="progress-track"><div class="progress-value" style="width:85%"></div></div> 85%</td><td><span class="status active">In progress</span></td><td>W4</td><td>Codex / TBD</td></tr>
+        <tr><td class="task-id">M2</td><td>Gateway 与双厂商闭环</td><td>20%</td><td><div class="progress-track"><div class="progress-value" style="width:78%"></div></div> 78%</td><td><span class="status active">In progress</span></td><td>W8</td><td>Codex / TBD</td></tr>
         <tr><td class="task-id">M3</td><td>显式代理、安全与恢复</td><td>20%</td><td><div class="progress-track"><div class="progress-value" style="width:0%"></div></div> 0%</td><td><span class="status">Not started</span></td><td>W12</td><td>TBD</td></tr>
         <tr><td class="task-id">M4</td><td>四厂商、Compare 与搜索</td><td>15%</td><td><div class="progress-track"><div class="progress-value" style="width:0%"></div></div> 0%</td><td><span class="status">Not started</span></td><td>W14</td><td>TBD</td></tr>
         <tr><td class="task-id">M5</td><td>Public Beta 稳定性</td><td>15%</td><td><div class="progress-track"><div class="progress-value" style="width:0%"></div></div> 0%</td><td><span class="status">Not started</span></td><td>W18</td><td>TBD</td></tr>
@@ -57,11 +57,11 @@
 
       <h2 id="streams">4. 工作流进度</h2>
       <div class="table-wrap"><table><thead><tr><th>工作流</th><th>任务范围</th><th>进度</th><th>状态</th><th>Owner</th><th>本周重点</th></tr></thead><tbody>
-        <tr><td>架构与工程基础</td><td>ARC-001~004</td><td>95%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>补齐响应事件持久化契约</td></tr>
-        <tr><td>Desktop / Frontend</td><td>APP-001~006</td><td>55%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>完成千条列表性能验收</td></tr>
+        <tr><td>架构与工程基础</td><td>ARC-001~004</td><td>100%</td><td><span class="status done">Done</span></td><td>Codex / TBD</td><td>保持 schema、事件与 command 契约同步</td></tr>
+        <tr><td>Desktop / Frontend</td><td>APP-001~006</td><td>60%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>完成千条列表性能验收</td></tr>
         <tr><td>Capture / Network</td><td>CAP-001~007</td><td>29%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>推进显式代理与证书生命周期</td></tr>
         <tr><td>Prompt / Adapters</td><td>PAR-001~007</td><td>53%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>补齐 Anthropic SSE 与响应证据</td></tr>
-        <tr><td>Data / Security</td><td>DAT-001~002、SEC-001~004</td><td>33%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>继续日志与临时文件 canary</td></tr>
+        <tr><td>Data / Security</td><td>DAT-001~002、SEC-001~004</td><td>35%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>继续日志与临时文件 canary</td></tr>
         <tr><td>Test / Release</td><td>TST-001~004、REL-001~003</td><td>10%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>建立性能与真实应用矩阵</td></tr>
       </tbody></table></div>
 
@@ -70,15 +70,15 @@
       <div class="table-wrap"><table><thead><tr><th>ID</th><th>任务</th><th>状态</th><th>进度</th><th>Owner</th><th>目标日期</th><th>备注</th></tr></thead><tbody>
         <tr><td class="task-id">ARC-001</td><td>建立仓库与模块边界</td><td><span class="status active">In progress</span></td><td>80%</td><td>Codex / TBD</td><td>2026-07-28</td><td>Prompt IR、Gateway、Core、Desktop API、Capture IPC、sidecar 与恢复边界已建立</td></tr>
         <tr><td class="task-id">ARC-002</td><td>建立 Windows/macOS CI</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-14</td><td>Windows、macOS、Linux PR 检查通过</td></tr>
-        <tr><td class="task-id">ARC-003</td><td>IPC、事件模型与 command schema</td><td><span class="status active">In progress</span></td><td>95%</td><td>Codex / TBD</td><td>2026-07-28</td><td>Gateway 请求/响应/失败事件、Core outcome、Tauri command 与桌面增量事件已完成；响应存储 schema 待补</td></tr>
+        <tr><td class="task-id">ARC-003</td><td>IPC、事件模型与 command schema</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>请求、响应、失败、完整度、耗时、乱序重放、生成式 schema 与桌面增量事件均已闭环</td></tr>
         <tr><td class="task-id">ARC-004</td><td>完成关键 ADR</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-14</td><td><a href="decisions.html">Tauri、sidecar、SQLCipher、Prompt IR 与代理策略</a></td></tr>
         <tr><td class="task-id">APP-001</td><td>Tauri 应用壳、窗口、托盘和权限配置</td><td><span class="status active">In progress</span></td><td>90%</td><td>Codex / TBD</td><td>2026-07-28</td><td>托盘、SQLCipher 惰性启动、加载失败重试与原生测试完成；真实运行恢复验收待完成</td></tr>
         <tr><td class="task-id">APP-002</td><td>设计 tokens 与基础组件</td><td><span class="status active">In progress</span></td><td>75%</td><td>Codex / TBD</td><td>2026-07-28</td><td>三栏工作台、分栏、明暗主题、键盘导航与组件测试已实现</td></tr>
-        <tr><td class="task-id">APP-003</td><td>实时 Capture 工作台</td><td><span class="status active">In progress</span></td><td>70%</td><td>Codex / TBD</td><td>2026-07-28</td><td>本地 Gateway 生命周期、暂停/恢复、SQLCipher 增量写入与 React 事件刷新完成；千条列表性能待验收</td></tr>
+        <tr><td class="task-id">APP-003</td><td>实时 Capture 工作台</td><td><span class="status active">In progress</span></td><td>75%</td><td>Codex / TBD</td><td>2026-07-28</td><td>本地 Gateway、暂停/恢复、增量刷新及响应状态与耗时已完成；千条列表性能待验收</td></tr>
         <tr><td class="task-id">CAP-001</td><td>实现 Local AI Gateway</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>OpenAI-compatible 本地端点保持双向流式、取消传播、头清理与稳定 502</td></tr>
         <tr><td class="task-id">CAP-002</td><td>实现请求/响应 tee 与背压</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>有界前缀、非阻塞队列、截断/取消/降级指标和暂停控制通过集成测试</td></tr>
-        <tr><td class="task-id">DAT-001</td><td>SQLCipher、迁移、WAL 与 OS 凭据库</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>实体、索引、FTS、分页、备份恢复、错误密钥、DB/WAL canary 与 Windows/macOS 凭据库 CI 均通过</td></tr>
-        <tr><td class="task-id">SEC-001</td><td>范围策略和凭据 scrubber</td><td><span class="status active">In progress</span></td><td>80%</td><td>Codex / Security Reviewer TBD</td><td>2026-07-28</td><td>跨 Rust/Python 策略一致，Gateway→Core→SQLCipher 的 header/query/body 与 DB/WAL canary 通过；日志和临时文件待补</td></tr>
+        <tr><td class="task-id">DAT-001</td><td>SQLCipher、迁移、WAL 与 OS 凭据库</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>schema v2 可从 v0/v1 升级，响应类型、状态码和耗时可查询；备份恢复、DB/WAL canary 与 OS 凭据库均通过</td></tr>
+        <tr><td class="task-id">SEC-001</td><td>范围策略和凭据 scrubber</td><td><span class="status active">In progress</span></td><td>85%</td><td>Codex / Security Reviewer TBD</td><td>2026-07-28</td><td>请求与响应 header/JSON body 双层脱敏及 DB/WAL canary 通过；日志和临时文件待补</td></tr>
         <tr><td class="task-id">PAR-001</td><td>Prompt IR v0.1 与首批 fixtures</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-14</td><td>OpenAI/Anthropic fixtures、校验与 schema 完成</td></tr>
         <tr><td class="task-id">PAR-002</td><td>解析器注册表与检测链</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>置信度排序、错误/panic 隔离、IR 校验、partial issues 与 Raw fallback 完成</td></tr>
         <tr><td class="task-id">PAR-003</td><td>OpenAI-compatible 适配器</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>Responses、Chat、Completions、多模态与 tools golden fixtures 通过</td></tr>
@@ -103,7 +103,7 @@
       <div class="table-wrap"><table><thead><tr><th>迭代</th><th>计划任务</th><th>状态</th><th>进入条件</th></tr></thead><tbody>
         <tr><td>S1</td><td>APP-001/002、DAT-001、SEC-001、Core 事件骨架</td><td><span class="status active">In progress</span></td><td>加密桌面链路已通过；SEC-001、Core event 与独立安全评审待完成</td></tr>
         <tr><td>S2</td><td>CAP-001/002、PAR-002/003、APP-003</td><td><span class="status active">In progress</span></td><td>CAP-001/002、PAR-002/003 完成；APP-003 实时接入完成，千条列表性能待验收</td></tr>
-        <tr><td>S3</td><td>PAR-004、APP-004、TST-001、DAT-002</td><td><span class="status active">In progress</span></td><td>PAR-004 请求侧完成；响应契约、Inspector 与数据生命周期待开始</td></tr>
+        <tr><td>S3</td><td>PAR-004、APP-004、TST-001、DAT-002</td><td><span class="status active">In progress</span></td><td>响应存储契约与 Inspector 状态/耗时/Raw/Timeline 完成；Anthropic SSE 与数据生命周期待推进</td></tr>
         <tr><td>S4</td><td>CAP-003~005、TST-002</td><td><span class="status">Not started</span></td><td>sidecar 打包方案接受</td></tr>
         <tr><td>S5</td><td>CAP-006/007、SEC-002/003、APP-006、TST-003</td><td><span class="status">Not started</span></td><td>显式代理可用</td></tr>
         <tr><td>S6</td><td>PAR-005~007、APP-005</td><td><span class="status">Not started</span></td><td>双厂商 Inspector 稳定</td></tr>
@@ -164,6 +164,7 @@
         <tr><td>2026-07-15</td><td>Gateway / Security</td><td>CAP-001/002 经 PR #15 完成</td><td>非阻塞 tee 在队列压力下保持完整转发，请求经双层 scrub、OpenAI adapter 和 SQLCipher 进入 Desktop API</td><td>Codex</td></tr>
         <tr><td>2026-07-15</td><td>Desktop / Gateway</td><td>桌面实时 Gateway 生命周期接入</td><td>固定本地端点、暂停记录、运行错误事件和 React 增量刷新形成首个可操作捕获闭环</td><td>Codex</td></tr>
         <tr><td>2026-07-15</td><td>Prompt / Adapters</td><td>PAR-004 Anthropic 请求适配器完成</td><td>Messages 与 legacy Complete 的 system、消息、多模态、工具关联和参数进入可验证 Prompt IR；SSE 依赖响应存储契约</td><td>Codex</td></tr>
+        <tr><td>2026-07-15</td><td>Gateway / Data</td><td>响应结果加密闭环完成</td><td>成功、HTTP 错误、失败、取消与 SSE 文本进入 CaptureEnvelope 和 SQLCipher v2，桌面显示状态、耗时、Raw 与 Timeline</td><td>Codex</td></tr>
         <tr><td colspan="5">后续范围、架构、日期或资源变化均在此追加，并链接对应 ADR/会议结论。</td></tr>
       </tbody></table></div>
 

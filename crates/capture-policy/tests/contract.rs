@@ -1,6 +1,7 @@
 use codeischeap_capture_ipc::{
-    CAPTURE_ENVELOPE_VERSION, CaptureEnvelope, CaptureSource, CapturedBody, CapturedBodyState,
-    CapturedField, CapturedRequest,
+    CAPTURE_ENVELOPE_VERSION, CaptureEnvelope, CaptureOutcome, CaptureSource, CapturedBody,
+    CapturedBodyState, CapturedField, CapturedRequest, CapturedResponse, RedactionLocation,
+    ResponseCompleteness,
 };
 use codeischeap_capture_policy::{CapturePolicy, PolicyError};
 use schemars::schema_for;
@@ -32,6 +33,7 @@ fn envelope(request: CapturedRequest) -> CaptureEnvelope {
         observed_at_unix_ms: 1_721_000_000_000,
         source: CaptureSource::Mitmproxy,
         request,
+        outcome: None,
         redactions: Vec::new(),
     }
 }
@@ -119,6 +121,51 @@ fn core_scrubber_removes_canaries_before_persistence() {
     assert!(encoded.contains("preserved prompt"));
     assert!(encoded.contains("request_1"));
     assert!(encoded.contains("trace"));
+}
+
+#[test]
+fn response_headers_and_json_credentials_are_removed_before_persistence() {
+    let policy = CapturePolicy::load_default().expect("default policy must be valid");
+    let mut capture = envelope(request("api.openai.com", "POST", "/v1/responses"));
+    capture.outcome = Some(CaptureOutcome::Response(CapturedResponse {
+        status: 200,
+        headers: vec![
+            CapturedField {
+                name: "set-cookie".to_owned(),
+                value: "session=response-header-canary".to_owned(),
+            },
+            CapturedField {
+                name: "x-request-id".to_owned(),
+                value: "response_1".to_owned(),
+            },
+        ],
+        body: CapturedBody {
+            state: CapturedBodyState::Json,
+            content: Some(serde_json::json!({
+                "output": "preserved response",
+                "metadata": {"access_token": "response-body-canary"}
+            })),
+        },
+        duration_ms: 42,
+        completeness: ResponseCompleteness::Complete,
+    }));
+
+    let sanitized = policy
+        .sanitize_envelope(capture)
+        .expect("supported response must be sanitized");
+    let encoded = serde_json::to_string(sanitized.envelope()).expect("envelope must encode");
+
+    assert_eq!(sanitized.newly_redacted(), 2);
+    assert!(!encoded.contains("response-header-canary"));
+    assert!(!encoded.contains("response-body-canary"));
+    assert!(encoded.contains("preserved response"));
+    assert!(encoded.contains("response_1"));
+    assert!(sanitized.envelope().redactions.iter().any(|redaction| {
+        redaction.location == RedactionLocation::ResponseHeader && redaction.name == "set-cookie"
+    }));
+    assert!(sanitized.envelope().redactions.iter().any(|redaction| {
+        redaction.location == RedactionLocation::ResponseBody && redaction.name == "access_token"
+    }));
 }
 
 #[test]

@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use codeischeap_capture_ipc::CapturedBodyState;
+use codeischeap_capture_ipc::{CaptureOutcome, CapturedBodyState, ResponseCompleteness};
 use codeischeap_prompt_ir::{
     Evidence, EvidenceLevel as PromptEvidenceLevel, EvidenceSource, InstructionRole, MessageRole,
     PromptIr, PromptPart,
@@ -220,7 +220,9 @@ fn map_capture(capture: codeischeap_storage::StoredCapture) -> CapturedRequest {
     let application = "Unknown app".to_owned();
     let redaction_count = envelope.redactions.len();
     let raw_body = match envelope.request.body.state {
-        CapturedBodyState::Json => envelope.request.body.content.clone().unwrap_or(Value::Null),
+        CapturedBodyState::Json | CapturedBodyState::Text => {
+            envelope.request.body.content.clone().unwrap_or(Value::Null)
+        }
         state => json!({ "state": state, "content": envelope.request.body.content }),
     };
     let mut timeline = vec![TimelineEvent {
@@ -246,6 +248,53 @@ fn map_capture(capture: codeischeap_storage::StoredCapture) -> CapturedRequest {
         title: "Stored locally".to_owned(),
         detail: "Persisted in the encrypted SQLCipher database".to_owned(),
     });
+    let (duration_ms, status) = match envelope.outcome.as_ref() {
+        None => (None, CaptureStatus::Streaming),
+        Some(CaptureOutcome::Response(response)) => {
+            let complete = response.completeness == ResponseCompleteness::Complete;
+            let successful = (200..400).contains(&response.status);
+            let completeness = match response.completeness {
+                ResponseCompleteness::Complete => "complete",
+                ResponseCompleteness::Truncated => "truncated",
+                ResponseCompleteness::Incomplete => "incomplete",
+            };
+            timeline.push(TimelineEvent {
+                id: "response_observed".to_owned(),
+                offset_ms: response.duration_ms,
+                kind: if complete && successful {
+                    "complete".to_owned()
+                } else {
+                    "error".to_owned()
+                },
+                title: if !complete {
+                    "Response interrupted".to_owned()
+                } else if successful {
+                    "Response complete".to_owned()
+                } else {
+                    "Upstream rejected request".to_owned()
+                },
+                detail: format!("HTTP {} · {completeness}", response.status),
+            });
+            (
+                Some(response.duration_ms),
+                if complete && successful {
+                    CaptureStatus::Complete
+                } else {
+                    CaptureStatus::Error
+                },
+            )
+        }
+        Some(CaptureOutcome::UpstreamFailure(failure)) => {
+            timeline.push(TimelineEvent {
+                id: "upstream_failed".to_owned(),
+                offset_ms: failure.duration_ms,
+                kind: "error".to_owned(),
+                title: "Upstream request failed".to_owned(),
+                detail: "No HTTP response was received".to_owned(),
+            });
+            (Some(failure.duration_ms), CaptureStatus::Error)
+        }
+    };
 
     CapturedRequest {
         id: envelope.capture_id,
@@ -255,8 +304,8 @@ fn map_capture(capture: codeischeap_storage::StoredCapture) -> CapturedRequest {
         operation,
         model,
         tokens: None,
-        duration_ms: None,
-        status: CaptureStatus::Complete,
+        duration_ms,
+        status,
         has_tools,
         prompt_preview,
         detail: RequestDetail {
@@ -270,6 +319,7 @@ fn map_capture(capture: codeischeap_storage::StoredCapture) -> CapturedRequest {
                     "path": envelope.request.path,
                     "body": raw_body,
                 },
+                "outcome": envelope.outcome,
                 "redactions": envelope.redactions,
                 "promptIr": prompt_ir,
             }),
@@ -560,7 +610,7 @@ mod tests {
 
     use codeischeap_capture_ipc::{
         CAPTURE_ENVELOPE_VERSION, CaptureEnvelope, CaptureSource, CapturedBody, CapturedBodyState,
-        CapturedField, CapturedRequest,
+        CapturedField, CapturedRequest, CapturedResponse,
     };
     use codeischeap_capture_policy::CapturePolicy;
     use codeischeap_prompt_ir::PromptIr;
@@ -600,6 +650,19 @@ mod tests {
                     content: Some(json!({"input": "Fix the failing parser test."})),
                 },
             },
+            outcome: Some(CaptureOutcome::Response(CapturedResponse {
+                status: 200,
+                headers: vec![CapturedField {
+                    name: "content-type".to_owned(),
+                    value: "application/json".to_owned(),
+                }],
+                body: CapturedBody {
+                    state: CapturedBodyState::Json,
+                    content: Some(json!({"status": "completed"})),
+                },
+                duration_ms: 58,
+                completeness: ResponseCompleteness::Complete,
+            })),
             redactions: Vec::new(),
         };
         let sanitized = policy
@@ -625,6 +688,15 @@ mod tests {
             "Fix the failing parser test."
         );
         assert!(workspace.requests[0].has_tools);
+        assert_eq!(workspace.requests[0].status, CaptureStatus::Complete);
+        assert_eq!(workspace.requests[0].duration_ms, Some(58));
+        assert!(
+            workspace.requests[0]
+                .detail
+                .timeline
+                .iter()
+                .any(|event| event.id == "response_observed")
+        );
         let encoded = serde_json::to_string(&workspace).expect("workspace must encode");
         assert!(!encoded.contains("desktop-api-canary"));
         assert!(encoded.contains("SQLCipher"));
