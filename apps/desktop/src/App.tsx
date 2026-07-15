@@ -25,6 +25,7 @@ import type {
   AnatomySection,
   CaptureMode,
   CapturedRequest,
+  EvidenceLocator,
   InspectorTab,
   WorkspaceBootstrap,
   WorkspaceSource,
@@ -34,7 +35,8 @@ import {
   setGatewayCaptureActive,
   subscribeToCaptureEvents,
 } from "./workspace";
-import { formatRawJson, resolveEvidencePointer } from "./raw-evidence";
+import { formatRawJson, resolveEvidenceLocator, resolveEvidencePointer } from "./raw-evidence";
+import type { ResolvedRawEvidence } from "./raw-evidence";
 
 const number = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
 const clock = new Intl.DateTimeFormat(undefined, {
@@ -362,12 +364,18 @@ function RequestPane({ requests, allRequests, selectedId, query, provider, appli
 }
 
 function Inspector({ request, tab, onTab }: { request: CapturedRequest; tab: InspectorTab; onTab: (tab: InspectorTab) => void }) {
-  const [rawPointer, setRawPointer] = useState<string | null>(null);
-  useEffect(() => { setRawPointer(null); }, [request.id]);
+  const [rawEvidence, setRawEvidence] = useState<ResolvedRawEvidence | null>(null);
+  useEffect(() => { setRawEvidence(null); }, [request.id]);
   const locateRawEvidence = (source: string) => {
     const pointer = resolveEvidencePointer(request.detail.raw, source);
     if (!pointer) return;
-    setRawPointer(pointer);
+    setRawEvidence({ pointer, fragment: null, start: null, end: null });
+    onTab("raw");
+  };
+  const locateTimelineEvidence = (locator: EvidenceLocator) => {
+    const evidence = resolveEvidenceLocator(request.detail.raw, locator);
+    if (!evidence) return;
+    setRawEvidence(evidence);
     onTab("raw");
   };
   return (
@@ -383,8 +391,8 @@ function Inspector({ request, tab, onTab }: { request: CapturedRequest; tab: Ins
       </nav>
       <div className="inspector-content">
         {tab === "anatomy" && <AnatomyView sections={request.detail.anatomy} raw={request.detail.raw} onLocate={locateRawEvidence} />}
-        {tab === "timeline" && <TimelineView request={request} />}
-        {tab === "raw" && <RawView request={request} pointer={rawPointer} />}
+        {tab === "timeline" && <TimelineView request={request} onLocate={locateTimelineEvidence} />}
+        {tab === "raw" && <RawView request={request} evidence={rawEvidence} />}
       </div>
     </section>
   );
@@ -410,19 +418,22 @@ function AnatomyView({ sections, raw, onLocate }: { sections: AnatomySection[]; 
   ))}</div>;
 }
 
-function TimelineView({ request }: { request: CapturedRequest }) {
-  return <div className="timeline-view">{request.detail.timeline.map((event) => (
-    <article className="timeline-event" key={event.id}><div className={`timeline-dot event-${event.kind}`} /><time>{event.offsetMs == null ? `#${event.sequence ?? "?"}` : `+${event.offsetMs} ms`}</time><div><strong>{event.title}</strong><p>{event.detail}</p></div></article>
-  ))}</div>;
+function TimelineView({ request, onLocate }: { request: CapturedRequest; onLocate: (locator: EvidenceLocator) => void }) {
+  return <div className="timeline-view">{request.detail.timeline.map((event) => {
+    const locator = event.locator && resolveEvidenceLocator(request.detail.raw, event.locator) ? event.locator : null;
+    return <article className="timeline-event" key={event.id}><div className={`timeline-dot event-${event.kind}`} /><time>{event.offsetMs == null ? `#${event.sequence ?? "?"}` : `+${event.offsetMs} ms`}</time><div><strong>{event.title}</strong><p>{event.detail}</p></div>{locator && <button className="timeline-locate" title="Show raw evidence" aria-label={`Show raw evidence for ${event.title}`} onClick={() => onLocate(locator)}><LocateFixed size={14} /></button>}</article>;
+  })}</div>;
 }
 
-function RawView({ request, pointer }: { request: CapturedRequest; pointer: string | null }) {
+function RawView({ request, evidence }: { request: CapturedRequest; evidence: ResolvedRawEvidence | null }) {
   const highlightedRef = useRef<HTMLSpanElement>(null);
   const lines = useMemo(() => formatRawJson(request.detail.raw), [request.detail.raw]);
+  const pointer = evidence?.pointer ?? null;
   useEffect(() => { highlightedRef.current?.scrollIntoView?.({ block: "center" }); }, [pointer]);
   return <div className="raw-view">
     <div className="raw-banner"><ShieldCheck size={14} /><span>Authorization, cookies, and API key headers are excluded before this view.</span></div>
-    {pointer && <div className="raw-location" role="status"><LocateFixed size={13} /><span>Evidence</span><code>{pointer}</code></div>}
+    {evidence && <div className="raw-location" role="status"><LocateFixed size={13} /><span>Evidence</span><code>{evidence.pointer}</code>{evidence.start != null && evidence.end != null && <b>bytes {evidence.start}..{evidence.end}</b>}</div>}
+    {evidence?.fragment && <pre className="raw-fragment" aria-label="Selected raw response frame">{evidence.fragment}</pre>}
     <pre aria-label="Raw JSON evidence">{lines.map((line, index) => <span key={`${line.pointer}-${index}`} ref={line.pointer === pointer ? highlightedRef : undefined} className={`raw-line${line.pointer === pointer ? " is-highlighted" : ""}`} data-pointer={line.pointer}>{line.text}</span>)}</pre>
   </div>;
 }

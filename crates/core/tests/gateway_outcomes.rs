@@ -2,7 +2,7 @@ use codeischeap_adapters::AdapterRegistry;
 use codeischeap_capture_ipc::{CaptureOutcome, CapturedBodyState, ResponseCompleteness};
 use codeischeap_capture_policy::CapturePolicy;
 use codeischeap_core::{GatewayCaptureOutcome, process_gateway_event};
-use codeischeap_desktop_api::{CaptureStatus, load_workspace};
+use codeischeap_desktop_api::{CaptureStatus, EvidenceLocator, load_workspace};
 use codeischeap_gateway::{
     CapturedPayload, GatewayCaptureEvent, GatewayRequestCapture, GatewayResponseCapture,
     GatewayUpstreamFailure,
@@ -308,12 +308,38 @@ fn anthropic_sse_is_reparsed_after_outcome_persistence_and_reaches_timeline() {
 
     let workspace = load_workspace(&store).expect("workspace must load");
     let timeline = &workspace.requests[0].detail.timeline;
-    assert!(timeline.iter().any(|event| {
-        event.title == "Content block started"
-            && event.kind == "tool"
-            && event.sequence == Some(1)
-            && event.offset_ms.is_none()
-    }));
+    let tool_start = timeline
+        .iter()
+        .find(|event| {
+            event.title == "Content block started"
+                && event.kind == "tool"
+                && event.sequence == Some(1)
+                && event.offset_ms.is_none()
+        })
+        .expect("tool start must reach the Timeline");
+    let Some(EvidenceLocator::TextRange {
+        pointer,
+        start,
+        end,
+    }) = &tool_start.locator
+    else {
+        panic!("tool start must point to its raw SSE frame");
+    };
+    let response_text = workspace.requests[0]
+        .detail
+        .raw
+        .pointer(pointer)
+        .and_then(serde_json::Value::as_str)
+        .expect("Timeline pointer must resolve to response text");
+    let frame = &response_text.as_bytes()[usize::try_from(*start).expect("start must fit")
+        ..usize::try_from(*end).expect("end must fit")];
+    assert_eq!(
+        std::str::from_utf8(frame).expect("frame must remain UTF-8"),
+        concat!(
+            "event: content_block_start\n",
+            "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_core\",\"name\":\"read_file\",\"input\":{}}}\n"
+        )
+    );
     assert!(
         timeline.iter().any(|event| {
             event.title == "Response stream complete" && event.sequence == Some(5)

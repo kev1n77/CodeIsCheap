@@ -86,10 +86,26 @@ describe("request workbench", () => {
     await user.click(screen.getByRole("button", { name: "Show raw evidence for User" }));
 
     expect(screen.getByRole("button", { name: "Raw" })).toHaveAttribute("aria-selected", "true");
-    expect(within(screen.getByRole("status")).getByText("/messages/0/content")).toBeInTheDocument();
+    expect(within(screen.getByRole("status")).getByText("/request/body/messages/0/content")).toBeInTheDocument();
     const highlighted = container.querySelector('.raw-line.is-highlighted');
-    expect(highlighted).toHaveAttribute("data-pointer", "/messages/0/content");
+    expect(highlighted).toHaveAttribute("data-pointer", "/request/body/messages/0/content");
     expect(highlighted).toHaveTextContent("Inspect the failing authentication flow");
+  });
+
+  it("locates a Timeline stream event in the exact raw SSE frame", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<App />);
+    await screen.findByRole("heading", { name: "claude-sonnet" });
+    await user.click(screen.getByRole("button", { name: "Timeline" }));
+
+    await user.click(screen.getByRole("button", { name: "Show raw evidence for First response event" }));
+
+    expect(screen.getByRole("button", { name: "Raw" })).toHaveAttribute("aria-selected", "true");
+    const status = screen.getByRole("status");
+    expect(within(status).getByText("/outcome/result/body/content")).toBeInTheDocument();
+    expect(within(status).getByText("bytes 0..52")).toBeInTheDocument();
+    expect(screen.getByLabelText("Selected raw response frame")).toHaveTextContent("event: message_start");
+    expect(container.querySelector('.raw-line.is-highlighted')).toHaveAttribute("data-pointer", "/outcome/result/body/content");
   });
 
   it("shows a retryable failure when the encrypted workspace cannot open", async () => {

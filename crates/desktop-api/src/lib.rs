@@ -1,6 +1,6 @@
 //! Versioned DTOs shared by the Tauri command layer and React workbench.
 
-use std::fmt;
+use std::{fmt, ops::Range};
 
 use codeischeap_capture_ipc::{CaptureOutcome, CapturedBodyState, ResponseCompleteness};
 use codeischeap_prompt_ir::{
@@ -114,6 +114,19 @@ pub struct AnatomyItem {
     pub source: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum EvidenceLocator {
+    JsonPointer {
+        pointer: String,
+    },
+    TextRange {
+        pointer: String,
+        start: u64,
+        end: u64,
+    },
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct TimelineEvent {
@@ -123,6 +136,8 @@ pub struct TimelineEvent {
     pub kind: String,
     pub title: String,
     pub detail: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locator: Option<EvidenceLocator>,
 }
 
 #[derive(Debug)]
@@ -235,6 +250,7 @@ fn map_capture(capture: codeischeap_storage::StoredCapture) -> CapturedRequest {
         kind: "request".to_owned(),
         title: "Request observed".to_owned(),
         detail: format!("{} {}", envelope.request.method, envelope.request.path),
+        locator: Some(json_pointer_locator("/request")),
     }];
     if redaction_count > 0 {
         timeline.push(TimelineEvent {
@@ -244,6 +260,7 @@ fn map_capture(capture: codeischeap_storage::StoredCapture) -> CapturedRequest {
             kind: "security".to_owned(),
             title: "Credentials removed".to_owned(),
             detail: format!("{redaction_count} sensitive fields excluded before storage"),
+            locator: Some(json_pointer_locator("/redactions")),
         });
     }
     timeline.push(TimelineEvent {
@@ -253,6 +270,7 @@ fn map_capture(capture: codeischeap_storage::StoredCapture) -> CapturedRequest {
         kind: "complete".to_owned(),
         title: "Stored locally".to_owned(),
         detail: "Persisted in the encrypted SQLCipher database".to_owned(),
+        locator: None,
     });
     let (duration_ms, status) = match envelope.outcome.as_ref() {
         None => (None, CaptureStatus::Streaming),
@@ -272,7 +290,10 @@ fn map_capture(capture: codeischeap_storage::StoredCapture) -> CapturedRequest {
                 .as_ref()
                 .and_then(|prompt| prompt.response.as_ref())
             {
-                timeline.extend(response_timeline(trace));
+                timeline.extend(response_timeline(
+                    trace,
+                    response.body.content.as_ref().and_then(Value::as_str),
+                ));
             }
             timeline.push(TimelineEvent {
                 id: "response_observed".to_owned(),
@@ -293,6 +314,7 @@ fn map_capture(capture: codeischeap_storage::StoredCapture) -> CapturedRequest {
                     "Upstream rejected request".to_owned()
                 },
                 detail: format!("HTTP {} · {completeness}", response.status),
+                locator: Some(json_pointer_locator("/outcome")),
             });
             (
                 Some(response.duration_ms),
@@ -311,6 +333,7 @@ fn map_capture(capture: codeischeap_storage::StoredCapture) -> CapturedRequest {
                 kind: "error".to_owned(),
                 title: "Upstream request failed".to_owned(),
                 detail: "No HTTP response was received".to_owned(),
+                locator: Some(json_pointer_locator("/outcome")),
             });
             (Some(failure.duration_ms), CaptureStatus::Error)
         }
@@ -347,7 +370,8 @@ fn map_capture(capture: codeischeap_storage::StoredCapture) -> CapturedRequest {
     }
 }
 
-fn response_timeline(trace: &ResponseTrace) -> Vec<TimelineEvent> {
+fn response_timeline(trace: &ResponseTrace, response_text: Option<&str>) -> Vec<TimelineEvent> {
+    let frame_ranges = response_text.map_or_else(Vec::new, sse_frame_ranges);
     trace
         .events
         .iter()
@@ -361,9 +385,71 @@ fn response_timeline(trace: &ResponseTrace) -> Vec<TimelineEvent> {
                 kind,
                 title,
                 detail,
+                locator: stream_event_locator(event, &frame_ranges),
             }
         })
         .collect()
+}
+
+fn stream_event_locator(
+    event: &ResponseEvent,
+    frame_ranges: &[Range<usize>],
+) -> Option<EvidenceLocator> {
+    let EvidenceSource::StreamEvent { index } = event.evidence.source.as_ref()? else {
+        return None;
+    };
+    let range = frame_ranges.get(usize::try_from(*index).ok()?)?;
+    Some(EvidenceLocator::TextRange {
+        pointer: "/outcome/result/body/content".to_owned(),
+        start: u64::try_from(range.start).ok()?,
+        end: u64::try_from(range.end).ok()?,
+    })
+}
+
+fn json_pointer_locator(pointer: &str) -> EvidenceLocator {
+    EvidenceLocator::JsonPointer {
+        pointer: pointer.to_owned(),
+    }
+}
+
+fn sse_frame_ranges(text: &str) -> Vec<Range<usize>> {
+    let mut ranges = Vec::new();
+    let mut frame_start = None;
+    let mut has_data = false;
+    let mut cursor = 0;
+    for raw_line in text.split_inclusive('\n') {
+        let line_start = cursor;
+        cursor += raw_line.len();
+        let line = raw_line.trim_end_matches('\n').trim_end_matches('\r');
+        if line.is_empty() {
+            flush_sse_range(&mut ranges, &mut frame_start, &mut has_data, line_start);
+            continue;
+        }
+        if line.starts_with(':') {
+            continue;
+        }
+        let field = line.split_once(':').map_or(line, |(field, _)| field);
+        if matches!(field, "event" | "data") {
+            frame_start.get_or_insert(line_start);
+            has_data |= field == "data";
+        }
+    }
+    flush_sse_range(&mut ranges, &mut frame_start, &mut has_data, text.len());
+    ranges
+}
+
+fn flush_sse_range(
+    ranges: &mut Vec<Range<usize>>,
+    frame_start: &mut Option<usize>,
+    has_data: &mut bool,
+    end: usize,
+) {
+    if *has_data && let Some(start) = frame_start.take() {
+        ranges.push(start..end);
+    } else {
+        *frame_start = None;
+    }
+    *has_data = false;
 }
 
 fn response_event_description(
@@ -881,6 +967,34 @@ mod tests {
         let encoded = serde_json::to_string(&workspace).expect("workspace must encode");
         assert!(!encoded.contains("desktop-api-canary"));
         assert!(encoded.contains("SQLCipher"));
+    }
+
+    #[test]
+    fn stream_event_locators_preserve_exact_utf8_sse_frames() {
+        let text = ": keepalive\n\nevent: first\ndata: {\"text\":\"你好\"}\n\nevent: ignored\n\nevent: second\ndata: {}\n";
+        let ranges = sse_frame_ranges(text);
+
+        assert_eq!(ranges.len(), 2);
+        assert_eq!(
+            std::str::from_utf8(&text.as_bytes()[ranges[0].clone()]).expect("frame must be UTF-8"),
+            "event: first\ndata: {\"text\":\"你好\"}\n"
+        );
+        let event = ResponseEvent {
+            index: 1,
+            kind: "second".to_owned(),
+            content_index: None,
+            delta_kind: None,
+            evidence: Evidence::observed(EvidenceSource::StreamEvent { index: 1 }),
+        };
+
+        assert_eq!(
+            stream_event_locator(&event, &ranges),
+            Some(EvidenceLocator::TextRange {
+                pointer: "/outcome/result/body/content".to_owned(),
+                start: u64::try_from(ranges[1].start).expect("range start must fit"),
+                end: u64::try_from(ranges[1].end).expect("range end must fit"),
+            })
+        );
     }
 
     #[test]
