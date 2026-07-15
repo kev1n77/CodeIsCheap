@@ -134,16 +134,16 @@ fn without_panic_output<T>(operation: impl FnOnce() -> T) -> T {
 
 #[test]
 fn unknown_provider_and_invalid_json_degrade_to_raw() {
-    let anthropic = sanitized(
-        "anthropic_fixture",
-        "api.anthropic.com",
-        "/v1/messages",
+    let gemini = sanitized(
+        "gemini_fixture",
+        "generativelanguage.googleapis.com",
+        "/v1beta/models/gemini-2.5-pro:generateContent",
         CapturedBody {
             state: CapturedBodyState::Json,
-            content: Some(json!({"model": "claude", "messages": []})),
+            content: Some(json!({"contents": []})),
         },
     );
-    let unknown = AdapterRegistry::default().parse(&anthropic);
+    let unknown = AdapterRegistry::default().parse(&gemini);
     assert!(unknown.raw_fallback);
     assert!(unknown.prompt_ir.is_none());
     assert_eq!(unknown.issues[0].code, ParseIssueCode::NoAdapter);

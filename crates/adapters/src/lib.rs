@@ -1,9 +1,11 @@
 //! Isolated provider adapters that turn sanitized captures into Prompt IR.
 
+mod anthropic;
 mod model;
 mod openai;
 mod registry;
 
+pub use anthropic::{ANTHROPIC_ADAPTER_ID, AnthropicAdapter};
 pub use model::{
     AdapterError, AdapterInput, AdapterOutput, ParseIssue, ParseIssueCode, ParseResult,
     PromptAdapter,

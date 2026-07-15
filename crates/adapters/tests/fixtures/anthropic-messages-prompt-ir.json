@@ -1,0 +1,178 @@
+{
+  "ir_version": "0.1.0",
+  "request_id": "anthropic_messages_fixture",
+  "provider": {
+    "id": "anthropic",
+    "host": "api.anthropic.com",
+    "confidence": 1.0
+  },
+  "operation": "messages.create",
+  "model": "claude-sonnet-4-5",
+  "instructions": [
+    {
+      "id": "instruction_0",
+      "role": "system",
+      "parts": [
+        {
+          "kind": "text",
+          "id": "instruction_0_part_0",
+          "text": "You are a careful coding assistant.",
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/system/0"
+            },
+            "confidence": 1.0
+          }
+        }
+      ],
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/system/0"
+        },
+        "confidence": 1.0
+      }
+    }
+  ],
+  "messages": [
+    {
+      "id": "message_0",
+      "role": "user",
+      "parts": [
+        {
+          "kind": "text",
+          "id": "message_0_part_0",
+          "text": "Read Cargo.toml and summarize the workspace.",
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/messages/0/content/0"
+            },
+            "confidence": 1.0
+          }
+        },
+        {
+          "kind": "image_ref",
+          "id": "message_0_part_1",
+          "location": "inline:base64",
+          "media_type": "image/png",
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/messages/0/content/1"
+            },
+            "confidence": 1.0
+          }
+        }
+      ],
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/messages/0"
+        },
+        "confidence": 1.0
+      }
+    },
+    {
+      "id": "message_1",
+      "role": "assistant",
+      "parts": [
+        {
+          "kind": "tool_use",
+          "id": "toolu_read_1",
+          "name": "read_file",
+          "input": { "path": "Cargo.toml" },
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/messages/1/content/0"
+            },
+            "confidence": 1.0
+          }
+        }
+      ],
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/messages/1"
+        },
+        "confidence": 1.0
+      }
+    },
+    {
+      "id": "message_2",
+      "role": "tool",
+      "parts": [
+        {
+          "kind": "tool_result",
+          "id": "message_2_part_0",
+          "tool_use_id": "toolu_read_1",
+          "value": {
+            "content": "[workspace]\nmembers = [\"crates/adapters\"]"
+          },
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/messages/2/content/0"
+            },
+            "confidence": 1.0
+          }
+        }
+      ],
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/messages/2"
+        },
+        "confidence": 1.0
+      }
+    }
+  ],
+  "context": [],
+  "tools": [
+    {
+      "id": "tool_definition_0",
+      "name": "read_file",
+      "description": "Read a UTF-8 file from the workspace.",
+      "input_schema": {
+        "type": "object",
+        "properties": { "path": { "type": "string" } },
+        "required": ["path"]
+      },
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/tools/0"
+        },
+        "confidence": 1.0
+      }
+    }
+  ],
+  "generation": {
+    "temperature": 0.0,
+    "top_p": 0.9,
+    "max_output_tokens": 2048,
+    "stop": ["</done>"],
+    "extra": { "top_k": 40 }
+  },
+  "vendor": {
+    "anthropic_version": "2023-06-01",
+    "stream": true,
+    "tool_choice": { "type": "auto" }
+  },
+  "completeness": {
+    "request_body": "complete",
+    "response_body": "missing"
+  }
+}
