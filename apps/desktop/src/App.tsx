@@ -27,7 +27,11 @@ import type {
   WorkspaceBootstrap,
   WorkspaceSource,
 } from "./types";
-import { loadWorkspace } from "./workspace";
+import {
+  loadWorkspace,
+  setGatewayCaptureActive,
+  subscribeToCaptureEvents,
+} from "./workspace";
 
 const number = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
 const clock = new Intl.DateTimeFormat(undefined, {
@@ -52,6 +56,7 @@ export function App() {
     () => (localStorage.getItem("codeischeap.theme") as "light" | "dark") || "light",
   );
   const [captureActive, setCaptureActive] = useState(true);
+  const [captureError, setCaptureError] = useState("");
   const [captureMode, setCaptureMode] = useState<CaptureMode>("gateway");
   const [sidebarWidth, setSidebarWidth] = useState(218);
   const [listWidth, setListWidth] = useState(390);
@@ -64,7 +69,11 @@ export function App() {
       .then((value) => {
         if (cancelled) return;
         setWorkspace(value);
-        setSelectedId(value.requests[0]?.id ?? "");
+        setSelectedId((current) =>
+          value.requests.some((request) => request.id === current)
+            ? current
+            : (value.requests[0]?.id ?? ""),
+        );
         setCaptureActive(value.capture.active);
         setCaptureMode(value.capture.mode);
       })
@@ -75,6 +84,33 @@ export function App() {
       });
     return () => { cancelled = true; };
   }, [reloadToken]);
+
+  useEffect(() => {
+    let disposed = false;
+    let unsubscribe: (() => void) | undefined;
+    subscribeToCaptureEvents({
+      onUpdated: () => {
+        setCaptureError("");
+        setReloadToken((value) => value + 1);
+      },
+      onError: (event) => setCaptureError(event.detail),
+    })
+      .then((value) => {
+        if (disposed) value();
+        else unsubscribe = value;
+      })
+      .catch((error: unknown) => {
+        if (!disposed) {
+          setCaptureError(
+            error instanceof Error ? error.message : "Capture events are unavailable.",
+          );
+        }
+      });
+    return () => {
+      disposed = true;
+      unsubscribe?.();
+    };
+  }, []);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -108,6 +144,22 @@ export function App() {
   );
   const selected = workspace?.requests.find((request) => request.id === selectedId) ?? requests[0];
 
+  const toggleCapture = () => {
+    const next = !captureActive;
+    setGatewayCaptureActive(next)
+      .then((active) => {
+        setCaptureActive(active);
+        setCaptureError("");
+        setWorkspace((current) => current && {
+          ...current,
+          capture: { ...current.capture, active },
+        });
+      })
+      .catch((error: unknown) => {
+        setCaptureError(error instanceof Error ? error.message : "Capture state could not change.");
+      });
+  };
+
   if (loadError) {
     return <LoadFailure detail={loadError} onRetry={() => setReloadToken((value) => value + 1)} />;
   }
@@ -123,7 +175,7 @@ export function App() {
         canControl={workspace.capture.canControl}
         source={workspace.source}
         theme={theme}
-        onToggleCapture={() => setCaptureActive((active) => !active)}
+        onToggleCapture={toggleCapture}
         onToggleTheme={() => setTheme((value) => value === "light" ? "dark" : "light")}
       />
       <main
@@ -137,6 +189,7 @@ export function App() {
           mode={captureMode}
           toolsOnly={toolsOnly}
           errorsOnly={errorsOnly}
+          runtimeError={captureError}
           onModeChange={setCaptureMode}
           onToolsOnly={setToolsOnly}
           onErrorsOnly={setErrorsOnly}
@@ -187,13 +240,14 @@ function Titlebar({ active, canControl, source, theme, onToggleCapture, onToggle
   );
 }
 
-function CaptureSidebar({ workspace, active, canControl, mode, toolsOnly, errorsOnly, onModeChange, onToolsOnly, onErrorsOnly }: {
+function CaptureSidebar({ workspace, active, canControl, mode, toolsOnly, errorsOnly, runtimeError, onModeChange, onToolsOnly, onErrorsOnly }: {
   workspace: WorkspaceBootstrap;
   active: boolean;
   canControl: boolean;
   mode: CaptureMode;
   toolsOnly: boolean;
   errorsOnly: boolean;
+  runtimeError: string;
   onModeChange: (mode: CaptureMode) => void;
   onToolsOnly: (value: boolean) => void;
   onErrorsOnly: (value: boolean) => void;
@@ -220,7 +274,7 @@ function CaptureSidebar({ workspace, active, canControl, mode, toolsOnly, errors
       </section>
       <section className="sidebar-section system-health">
         <div className="section-label">Health</div>
-        <div><Activity size={14} /><span>Gateway</span><b className="health-ok">Healthy</b></div>
+        <div title={runtimeError || undefined}><Activity size={14} /><span>Gateway</span><b className={runtimeError ? "health-error" : "health-ok"}>{runtimeError ? "Issue" : "Healthy"}</b></div>
         <div><Database size={14} /><span>Local store</span><b className="health-ok">Ready</b></div>
         <div><ShieldCheck size={14} /><span>Credentials</span><b className="health-ok">Excluded</b></div>
       </section>

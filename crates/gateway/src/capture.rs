@@ -1,6 +1,6 @@
 use std::fmt;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Instant;
 
 use bytes::Bytes;
@@ -14,6 +14,7 @@ pub struct GatewayCapture {
     sender: mpsc::Sender<GatewayCaptureEvent>,
     max_body_bytes: usize,
     metrics: CaptureMetrics,
+    enabled: Arc<AtomicBool>,
 }
 
 impl GatewayCapture {
@@ -35,6 +36,7 @@ impl GatewayCapture {
                 sender,
                 max_body_bytes,
                 metrics: metrics.clone(),
+                enabled: Arc::new(AtomicBool::new(true)),
             },
             receiver,
             metrics,
@@ -48,6 +50,15 @@ impl GatewayCapture {
 
     pub(crate) const fn max_body_bytes(&self) -> usize {
         self.max_body_bytes
+    }
+
+    pub fn set_enabled(&self, enabled: bool) {
+        self.enabled.store(enabled, Ordering::Release);
+    }
+
+    #[must_use]
+    pub fn is_enabled(&self) -> bool {
+        self.enabled.load(Ordering::Acquire)
     }
 
     pub(crate) fn emit(&self, event: GatewayCaptureEvent) {

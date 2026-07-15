@@ -1,16 +1,22 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
+import fixture from "./data/workspace.json";
+import type { WorkspaceBootstrap } from "./types";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 
 describe("request workbench", () => {
   beforeEach(() => {
     localStorage.clear();
     delete window.__TAURI_INTERNALS__;
     vi.mocked(invoke).mockReset();
+    vi.mocked(listen).mockReset();
+    vi.mocked(listen).mockResolvedValue(() => {});
   });
 
   it("filters requests without losing the inspector workflow", async () => {
@@ -67,5 +73,59 @@ describe("request workbench", () => {
     expect(within(alert).getByText("Workspace unavailable")).toBeInTheDocument();
     expect(within(alert).getByText("OS credential store is locked")).toBeInTheDocument();
     expect(within(alert).getByRole("button", { name: "Retry" })).toBeInTheDocument();
+  });
+
+  it("refreshes live captures and controls gateway recording", async () => {
+    const user = userEvent.setup();
+    window.__TAURI_INTERNALS__ = {};
+    let workspace = structuredClone(fixture) as unknown as WorkspaceBootstrap;
+    workspace.capture = {
+      ...workspace.capture,
+      active: true,
+      canControl: true,
+      endpoint: "http://127.0.0.1:8787",
+    };
+    let notifyCaptureUpdated = () => {};
+    vi.mocked(listen).mockImplementation(async (event, handler) => {
+      if (event === "capture-updated") {
+        notifyCaptureUpdated = () => handler({
+          event: "capture-updated",
+          id: 1,
+          payload: { captureId: "live-capture" },
+        });
+      }
+      return () => {};
+    });
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === "bootstrap_workspace") return structuredClone(workspace);
+      if (command === "set_capture_active") return Boolean(args?.active);
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    render(<App />);
+    const pause = await screen.findByRole("button", { name: "Pause capture" });
+    expect(pause).toBeEnabled();
+    expect(screen.getByText("http://127.0.0.1:8787")).toBeInTheDocument();
+
+    await user.click(pause);
+    expect(invoke).toHaveBeenCalledWith("set_capture_active", { active: false });
+    expect(await screen.findByRole("button", { name: "Resume capture" })).toBeEnabled();
+
+    workspace = {
+      ...workspace,
+      capture: { ...workspace.capture, active: false, requestCount: workspace.requests.length + 1 },
+      requests: [
+        {
+          ...workspace.requests[0],
+          id: "live-capture",
+          promptPreview: "Live capture arrived",
+        },
+        ...workspace.requests,
+      ],
+    };
+    await act(async () => notifyCaptureUpdated());
+
+    expect(await screen.findByText("Live capture arrived")).toBeInTheDocument();
+    expect(invoke).toHaveBeenCalledWith("bootstrap_workspace");
   });
 });
