@@ -2,8 +2,16 @@
 
 use std::fmt;
 
-use codeischeap_capture_ipc::{IpcError, receive_from_reader, receive_one};
+use codeischeap_adapters::{AdapterRegistry, ParseIssue};
+use codeischeap_capture_ipc::{
+    CAPTURE_ENVELOPE_VERSION, CaptureEnvelope, CaptureSource, CapturedBody, CapturedBodyState,
+    CapturedField, CapturedRequest, IpcError, receive_from_reader, receive_one,
+};
 use codeischeap_capture_policy::{CapturePolicy, PolicyError, SanitizedCapture};
+use codeischeap_gateway::{
+    CapturedPayload, GatewayCaptureEvent, GatewayRequestCapture, GatewayResponseCapture,
+    GatewayUpstreamFailure,
+};
 use codeischeap_prompt_ir::PromptIr;
 use codeischeap_storage::{EncryptedStore, StorageError};
 use tokio::io::AsyncBufRead;
@@ -77,6 +85,208 @@ pub fn persist_capture(
     prompt_ir: Option<&PromptIr>,
 ) -> Result<(), StorageError> {
     store.upsert_capture(capture, prompt_ir)
+}
+
+#[derive(Debug)]
+pub enum GatewayCaptureError {
+    Policy(PolicyError),
+    Storage(StorageError),
+}
+
+impl fmt::Display for GatewayCaptureError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Policy(error) => write!(formatter, "gateway capture was rejected: {error}"),
+            Self::Storage(error) => write!(formatter, "gateway capture could not persist: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for GatewayCaptureError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Policy(error) => Some(error),
+            Self::Storage(error) => Some(error),
+        }
+    }
+}
+
+impl From<PolicyError> for GatewayCaptureError {
+    fn from(error: PolicyError) -> Self {
+        Self::Policy(error)
+    }
+}
+
+impl From<StorageError> for GatewayCaptureError {
+    fn from(error: StorageError) -> Self {
+        Self::Storage(error)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum GatewayCaptureOutcome {
+    Persisted(PersistedGatewayCapture),
+    ResponseObserved(ObservedGatewayResponse),
+    UpstreamFailed(ObservedGatewayFailure),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PersistedGatewayCapture {
+    pub capture_id: String,
+    pub adapter_id: Option<String>,
+    pub issues: Vec<ParseIssue>,
+    pub raw_fallback: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObservedGatewayResponse {
+    pub capture_id: String,
+    pub status: u16,
+    pub complete: bool,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObservedGatewayFailure {
+    pub capture_id: String,
+    pub duration_ms: u64,
+}
+
+pub fn process_gateway_event(
+    store: &mut EncryptedStore,
+    policy: &CapturePolicy,
+    adapters: &AdapterRegistry,
+    event: GatewayCaptureEvent,
+) -> Result<GatewayCaptureOutcome, GatewayCaptureError> {
+    match event {
+        GatewayCaptureEvent::Request(request) => {
+            let sanitized = policy.sanitize_envelope(request_envelope(request))?;
+            let parsed = adapters.parse(&sanitized);
+            persist_capture(store, &sanitized, parsed.prompt_ir.as_ref())?;
+            Ok(GatewayCaptureOutcome::Persisted(PersistedGatewayCapture {
+                capture_id: sanitized.envelope().capture_id.clone(),
+                adapter_id: parsed.adapter_id,
+                issues: parsed.issues,
+                raw_fallback: parsed.raw_fallback,
+            }))
+        }
+        GatewayCaptureEvent::Response(response) => Ok(GatewayCaptureOutcome::ResponseObserved(
+            response_outcome(response),
+        )),
+        GatewayCaptureEvent::UpstreamFailure(failure) => Ok(GatewayCaptureOutcome::UpstreamFailed(
+            failure_outcome(failure),
+        )),
+    }
+}
+
+fn request_envelope(request: GatewayRequestCapture) -> CaptureEnvelope {
+    let GatewayRequestCapture {
+        capture_id,
+        observed_at_unix_ms,
+        method,
+        scheme,
+        host,
+        port,
+        path,
+        query,
+        headers,
+        body,
+    } = request;
+    let content_type = content_type(&headers).map(str::to_owned);
+    CaptureEnvelope {
+        version: CAPTURE_ENVELOPE_VERSION.to_owned(),
+        capture_id,
+        observed_at_unix_ms,
+        source: CaptureSource::Gateway,
+        request: CapturedRequest {
+            method,
+            scheme,
+            host,
+            port,
+            path,
+            query: captured_fields(query),
+            headers: captured_fields(headers),
+            body: captured_body(&body, content_type.as_deref()),
+        },
+        redactions: Vec::new(),
+    }
+}
+
+fn captured_fields(fields: Vec<(String, String)>) -> Vec<CapturedField> {
+    fields
+        .into_iter()
+        .map(|(name, value)| CapturedField { name, value })
+        .collect()
+}
+
+fn captured_body(payload: &CapturedPayload, content_type: Option<&str>) -> CapturedBody {
+    if payload.bytes.is_empty() {
+        return CapturedBody {
+            state: CapturedBodyState::Empty,
+            content: None,
+        };
+    }
+    if payload.truncated || !payload.complete {
+        return CapturedBody {
+            state: CapturedBodyState::Truncated,
+            content: None,
+        };
+    }
+    if !content_type.is_some_and(is_json_content_type) {
+        return CapturedBody {
+            state: CapturedBodyState::OmittedUnsupportedContentType,
+            content: None,
+        };
+    }
+    if std::str::from_utf8(&payload.bytes).is_err() {
+        return CapturedBody {
+            state: CapturedBodyState::InvalidUtf8,
+            content: None,
+        };
+    }
+    match serde_json::from_slice(&payload.bytes) {
+        Ok(content) => CapturedBody {
+            state: CapturedBodyState::Json,
+            content: Some(content),
+        },
+        Err(_) => CapturedBody {
+            state: CapturedBodyState::InvalidJson,
+            content: None,
+        },
+    }
+}
+
+fn content_type(headers: &[(String, String)]) -> Option<&str> {
+    headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+        .map(|(_, value)| value.as_str())
+}
+
+fn is_json_content_type(content_type: &str) -> bool {
+    let media_type = content_type
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    media_type == "application/json" || media_type.ends_with("+json")
+}
+
+fn response_outcome(response: GatewayResponseCapture) -> ObservedGatewayResponse {
+    ObservedGatewayResponse {
+        capture_id: response.capture_id,
+        status: response.status,
+        complete: response.body.complete,
+        truncated: response.body.truncated,
+    }
+}
+
+fn failure_outcome(failure: GatewayUpstreamFailure) -> ObservedGatewayFailure {
+    ObservedGatewayFailure {
+        capture_id: failure.capture_id,
+        duration_ms: failure.duration_ms,
+    }
 }
 
 #[cfg(test)]

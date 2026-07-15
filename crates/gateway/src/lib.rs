@@ -1,21 +1,33 @@
 //! Streaming reverse proxy used by the local CodeIsCheap AI Gateway.
 
+mod capture;
+
 use std::collections::HashSet;
 use std::future::Future;
 use std::io;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use axum::Router;
-use axum::body::Body;
+use axum::body::{Body, HttpBody};
 use axum::extract::State;
 use axum::http::header::{
     CONNECTION, HOST, PROXY_AUTHENTICATE, PROXY_AUTHORIZATION, TE, TRAILER, TRANSFER_ENCODING,
     UPGRADE,
 };
 use axum::http::{HeaderMap, HeaderName, Request, Response, StatusCode, Uri};
-use futures_util::TryStreamExt;
+use futures_util::{StreamExt, TryStreamExt};
 use reqwest::redirect::Policy;
 use tokio::net::TcpListener;
 use url::Url;
+use uuid::Uuid;
+
+pub use capture::{
+    CaptureConfigError, CaptureMetricSnapshot, CaptureMetrics, CapturedPayload,
+    DEFAULT_CAPTURE_BODY_LIMIT, DEFAULT_CAPTURE_QUEUE_CAPACITY, GatewayCapture,
+    GatewayCaptureEvent, GatewayRequestCapture, GatewayResponseCapture, GatewayUpstreamFailure,
+};
+
+use capture::{RequestCaptureGuard, RequestMetadata, ResponseCaptureGuard, ResponseMetadata};
 
 const ERROR_HEADER: &str = "x-codeischeap-error";
 
@@ -23,6 +35,7 @@ const ERROR_HEADER: &str = "x-codeischeap-error";
 pub struct Gateway {
     client: reqwest::Client,
     upstream: Url,
+    capture: Option<GatewayCapture>,
 }
 
 #[derive(Debug)]
@@ -71,7 +84,17 @@ impl Gateway {
             .build()
             .map_err(GatewayBuildError::Client)?;
 
-        Ok(Self { client, upstream })
+        Ok(Self {
+            client,
+            upstream,
+            capture: None,
+        })
+    }
+
+    #[must_use]
+    pub fn with_capture(mut self, capture: GatewayCapture) -> Self {
+        self.capture = Some(capture);
+        self
     }
 
     pub fn router(self) -> Router {
@@ -114,26 +137,107 @@ async fn forward_to_upstream(
     gateway: &Gateway,
     request: Request<Body>,
 ) -> Result<Response<Body>, ForwardError> {
+    let started = Instant::now();
     let (parts, body) = request.into_parts();
     let target = gateway
         .target_url(&parts.uri)
         .map_err(ForwardError::InvalidTarget)?;
+    let capture_id = gateway.capture.as_ref().map(|_| Uuid::new_v4().to_string());
+    let body =
+        if let (Some(capture), Some(capture_id)) = (gateway.capture.clone(), capture_id.clone()) {
+            let metadata = RequestMetadata {
+                capture_id,
+                observed_at_unix_ms: unix_time_ms(),
+                method: parts.method.as_str().to_owned(),
+                scheme: target.scheme().to_owned(),
+                host: target.host_str().unwrap_or_default().to_owned(),
+                port: target.port_or_known_default().unwrap_or_default(),
+                path: target.path().to_owned(),
+                query: target
+                    .query_pairs()
+                    .map(|(name, value)| (name.into_owned(), value.into_owned()))
+                    .collect(),
+                headers: header_fields(&parts.headers),
+            };
+            let expected_body_bytes =
+                content_length(&parts.headers).or_else(|| body.size_hint().exact());
+            let mut chunks = body.into_data_stream();
+            let mut guard = RequestCaptureGuard::new(capture, metadata, expected_body_bytes);
+            let stream = async_stream::stream! {
+                while let Some(result) = chunks.next().await {
+                    match result {
+                        Ok(chunk) => {
+                            guard.push(&chunk);
+                            yield Ok::<_, io::Error>(chunk);
+                        }
+                        Err(error) => {
+                            yield Err(io::Error::other(error));
+                            return;
+                        }
+                    }
+                }
+                guard.complete();
+            };
+            reqwest::Body::wrap_stream(stream)
+        } else {
+            reqwest::Body::wrap_stream(body.into_data_stream().map_err(io::Error::other))
+        };
     let headers = sanitized_headers(&parts.headers);
-    let body = reqwest::Body::wrap_stream(body.into_data_stream().map_err(io::Error::other));
 
-    let upstream = gateway
+    let upstream = match gateway
         .client
         .request(parts.method, target)
         .headers(headers)
         .body(body)
         .send()
         .await
-        .map_err(ForwardError::Upstream)?;
+    {
+        Ok(response) => response,
+        Err(error) => {
+            if let (Some(capture), Some(capture_id)) = (&gateway.capture, capture_id) {
+                capture.emit(GatewayCaptureEvent::UpstreamFailure(
+                    GatewayUpstreamFailure {
+                        capture_id,
+                        duration_ms: capture::elapsed_ms(started),
+                    },
+                ));
+            }
+            return Err(ForwardError::Upstream(error));
+        }
+    };
 
     let status = upstream.status();
     let version = upstream.version();
+    let expected_body_bytes = upstream.content_length();
+    let captured_headers = header_fields(upstream.headers());
     let headers = sanitized_headers(upstream.headers());
-    let body = Body::from_stream(upstream.bytes_stream().map_err(io::Error::other));
+    let body = if let (Some(capture), Some(capture_id)) = (gateway.capture.clone(), capture_id) {
+        let metadata = ResponseMetadata {
+            capture_id,
+            status: status.as_u16(),
+            headers: captured_headers,
+            started,
+        };
+        let mut chunks = upstream.bytes_stream();
+        let mut guard = ResponseCaptureGuard::new(capture, metadata, expected_body_bytes);
+        Body::from_stream(async_stream::stream! {
+            while let Some(result) = chunks.next().await {
+                match result {
+                    Ok(chunk) => {
+                        guard.push(&chunk);
+                        yield Ok::<_, io::Error>(chunk);
+                    }
+                    Err(error) => {
+                        yield Err(io::Error::other(error));
+                        return;
+                    }
+                }
+            }
+            guard.complete();
+        })
+    } else {
+        Body::from_stream(upstream.bytes_stream().map_err(io::Error::other))
+    };
 
     let mut response = Response::new(body);
     *response.status_mut() = status;
@@ -198,4 +302,31 @@ fn connection_header_names(headers: &HeaderMap) -> HashSet<HeaderName> {
         .flat_map(|value| value.split(','))
         .filter_map(|name| HeaderName::from_bytes(name.trim().as_bytes()).ok())
         .collect()
+}
+
+fn header_fields(headers: &HeaderMap) -> Vec<(String, String)> {
+    headers
+        .iter()
+        .map(|(name, value)| {
+            (
+                name.as_str().to_owned(),
+                String::from_utf8_lossy(value.as_bytes()).into_owned(),
+            )
+        })
+        .collect()
+}
+
+fn unix_time_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |duration| {
+            u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+        })
+}
+
+fn content_length(headers: &HeaderMap) -> Option<u64> {
+    headers
+        .get(http::header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse().ok())
 }

@@ -490,6 +490,7 @@ fn collect_json_strings(value: &serde_json::Value, output: &mut Vec<String>) {
 
 fn source_name(source: CaptureSource) -> &'static str {
     match source {
+        CaptureSource::Gateway => "gateway",
         CaptureSource::Mitmproxy => "mitmproxy",
     }
 }
