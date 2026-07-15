@@ -669,7 +669,9 @@ mod tests {
                         .strip_prefix(directory)
                         .expect("binding must be under its root")
                         .to_path_buf();
-                    let content = fs::read_to_string(path).expect("binding must be UTF-8");
+                    let content = fs::read_to_string(path)
+                        .expect("binding must be UTF-8")
+                        .replace("\r\n", "\n");
                     bindings.push((relative, content));
                 }
             }
