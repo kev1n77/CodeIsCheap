@@ -16,13 +16,13 @@
       <p class="lead">本页是项目状态的单一入口。开发计划定义“应该做什么”，本页只记录“当前做到哪里、是否健康、下一步是什么”。</p>
 
       <div class="meta-grid">
-        <div class="meta-item"><span>工程进度</span><strong>46%</strong></div>
+        <div class="meta-item"><span>工程进度</span><strong>48%</strong></div>
         <div class="meta-item"><span>当前阶段</span><strong>显式代理与证书生命周期</strong></div>
         <div class="meta-item"><span>当前迭代</span><strong>S4 · 进行中</strong></div>
         <div class="meta-item"><span>最后更新</span><strong>2026-07-15</strong></div>
       </div>
 
-      <div class="decision"><strong>当前结论</strong>CAP-003 已完成 bundle、SBOM、原子安装、Tauri 资源嵌入、运行时 hash/contract 复核和跨平台进程树清理；仅剩真实平台签名制品。CAP-004 已完成桌面 Proxy 运行时、短期认证 IPC 入库、Gateway/Proxy 模式切换和暂停转发，下一步补齐 HTTP/2、压缩与非目标 tunnel。</div>
+      <div class="decision"><strong>当前结论</strong>CAP-003 已完成 bundle、SBOM、原子安装、Tauri 资源嵌入、运行时 hash/contract 复核和跨平台进程树清理；仅剩真实平台签名制品。CAP-004 已完成桌面 Proxy 运行时、短期认证 IPC 入库、Gateway/Proxy 模式切换、暂停转发、非目标 TLS 直通、gzip/brotli 解压捕获和结构化流式凭据清理；下一步补齐 HTTP/2。</div>
 
       <h2 id="usage">1. 更新规则</h2>
       <ol>
@@ -62,7 +62,7 @@
         <tr><td>Capture / Network</td><td>CAP-001~007</td><td>49%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>补齐 HTTP/2、gzip/brotli 与非目标 tunnel；生产签名随发布凭据补齐</td></tr>
         <tr><td>Prompt / Adapters</td><td>PAR-001~007</td><td>57%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>准备 Gemini 适配器与 token 来源模型</td></tr>
         <tr><td>Data / Security</td><td>DAT-001~002、SEC-001~004</td><td>48%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>继续日志与临时文件 canary</td></tr>
-        <tr><td>Test / Release</td><td>TST-001~004、REL-001~003</td><td>25%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>准备 TST-002 sidecar 与证书生命周期测试</td></tr>
+        <tr><td>Test / Release</td><td>TST-001~004、REL-001~003</td><td>30%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>继续 TST-002 HTTP/2 与证书生命周期测试</td></tr>
       </tbody></table></div>
 
       <h2 id="current-sprint">5. 当前迭代：S4</h2>
@@ -79,7 +79,7 @@
         <tr><td class="task-id">CAP-001</td><td>实现 Local AI Gateway</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>OpenAI-compatible 本地端点保持双向流式、取消传播、头清理与稳定 502</td></tr>
         <tr><td class="task-id">CAP-002</td><td>实现请求/响应 tee 与背压</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>有界前缀、非阻塞队列、截断/取消/降级指标和暂停控制通过集成测试</td></tr>
         <tr><td class="task-id">CAP-003</td><td>打包 mitmproxy sidecar 与最小 addon</td><td><span class="status active">In progress</span></td><td>95%</td><td>Codex / Release Owner TBD</td><td>2026-08-25</td><td>三平台 bundle、manifest、SBOM、原子安装、Tauri 资源、运行时校验、最小环境与 Windows Job Object/Unix 进程组清理完成；正式 Authenticode/Developer ID 制品待发布凭据</td></tr>
-        <tr><td class="task-id">CAP-004</td><td>显式代理与 TLS flow</td><td><span class="status active">In progress</span></td><td>55%</td><td>Codex / TBD</td><td>2026-08-25</td><td>桌面端可启动已验证 sidecar，以 256-bit 短期 token 接收请求/响应/失败并二次清洗入库；Gateway/Proxy 切换、暂停转发和真实进程清理通过，HTTP/2、压缩与非目标 tunnel 待完成</td></tr>
+        <tr><td class="task-id">CAP-004</td><td>显式代理与 TLS flow</td><td><span class="status active">In progress</span></td><td>75%</td><td>Codex / TBD</td><td>2026-08-25</td><td>桌面端可启动已验证 sidecar，以 256-bit 短期 token 接收请求/响应/失败并二次清洗入库；模式切换、暂停转发、进程树清理、非目标 TLS 证书直通、gzip/brotli 透明转发与解压捕获、SSE/NDJSON/JSON-seq 凭据清理通过，HTTP/2 待完成</td></tr>
         <tr><td class="task-id">CAP-005</td><td>证书生命周期</td><td><span class="status">Not started</span></td><td>0%</td><td>Codex / TBD</td><td>2026-08-25</td><td>每设备 CA、指纹、信任检查和卸载流程待实现</td></tr>
         <tr><td class="task-id">DAT-001</td><td>SQLCipher、迁移、WAL 与 OS 凭据库</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>schema v2 可从 v0/v1 升级，响应类型、状态码和耗时可查询；备份恢复、DB/WAL canary 与 OS 凭据库均通过</td></tr>
         <tr><td class="task-id">DAT-002</td><td>写入、查询、保留与磁盘压力</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>批量写入原子提交；默认保留 30 天/50,000 条并以 500 条事务清理；低于 256 MiB 或 SQLITE_FULL 时暂停记录但保持 Gateway 转发</td></tr>
@@ -89,7 +89,7 @@
         <tr><td class="task-id">PAR-003</td><td>OpenAI-compatible 适配器</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>Responses、Chat、Completions、多模态与 tools golden fixtures 通过</td></tr>
         <tr><td class="task-id">PAR-004</td><td>Anthropic 适配器</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>Messages/Complete 请求与 JSON/SSE 响应完整重组；文本、thinking、tool use、usage、错误及未知事件均保留证据</td></tr>
         <tr><td class="task-id">TST-001</td><td>协议 fixture 与 golden tests</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>版本化能力矩阵覆盖 OpenAI 与 Anthropic 的请求、响应、流式、工具、多模态、错误和 Raw fallback；声明均由 fixture 与 golden 验证</td></tr>
-        <tr><td class="task-id">TST-002</td><td>Gateway/Proxy 集成测试</td><td><span class="status active">In progress</span></td><td>20%</td><td>Codex / TBD</td><td>2026-08-25</td><td>认证 IPC 请求/响应入库、暂停丢弃、真实 Windows 模式切换与进程树清理通过；fake provider、HTTP/2、压缩、取消与协议一致性待扩展</td></tr>
+        <tr><td class="task-id">TST-002</td><td>Gateway/Proxy 集成测试</td><td><span class="status active">In progress</span></td><td>40%</td><td>Codex / TBD</td><td>2026-08-25</td><td>认证 IPC 请求/响应入库、暂停丢弃、真实 Windows 模式切换与进程树清理、压缩响应、结构化流式脱敏和非目标 TLS 直通通过；HTTP/2、取消与完整协议一致性待扩展</td></tr>
         <tr><td class="task-id">SPIKE-001</td><td>Gateway 流式透明转发验证</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-14</td><td>双向流式、取消传递、头清理与稳定 502 集成测试通过</td></tr>
         <tr><td class="task-id">SPIKE-002</td><td>mitmproxy sidecar IPC/打包验证</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-14</td><td><a href="spikes/mitmproxy-sidecar.html">凭据清理、IPC、打包与真实转发通过</a></td></tr>
         <tr><td class="task-id">SPIKE-003</td><td>Windows/macOS 代理恢复验证</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-14</td><td><a href="spikes/windows-proxy-recovery.html">Windows</a> / <a href="spikes/macos-proxy-recovery.html">macOS</a> 真实强杀恢复通过</td></tr>
@@ -111,7 +111,7 @@
         <tr><td>S1</td><td>APP-001/002、DAT-001、SEC-001、Core 事件骨架</td><td><span class="status active">In progress</span></td><td>加密桌面链路已通过；SEC-001、Core event 与独立安全评审待完成</td></tr>
         <tr><td>S2</td><td>CAP-001/002、PAR-002/003、APP-003</td><td><span class="status done">Done</span></td><td>Gateway、OpenAI 解析与千条实时工作台全部通过验收</td></tr>
         <tr><td>S3</td><td>PAR-004、APP-004、TST-001、DAT-002</td><td><span class="status done">Done</span></td><td>双厂商 Inspector、能力矩阵与数据生命周期全部通过验收</td></tr>
-        <tr><td>S4</td><td>CAP-003~005、TST-002</td><td><span class="status active">In progress</span></td><td>sidecar bundle、桌面运行时、模式控制与认证入库已通过；签名、协议矩阵与 CA 生命周期待推进</td></tr>
+        <tr><td>S4</td><td>CAP-003~005、TST-002</td><td><span class="status active">In progress</span></td><td>sidecar bundle、桌面运行时、模式控制、认证入库、压缩与非目标 TLS 直通已通过；签名、HTTP/2 与 CA 生命周期待推进</td></tr>
         <tr><td>S5</td><td>CAP-006/007、SEC-002/003、APP-006、TST-003</td><td><span class="status">Not started</span></td><td>显式代理可用</td></tr>
         <tr><td>S6</td><td>PAR-005~007、APP-005</td><td><span class="status">Not started</span></td><td>双厂商 Inspector 稳定</td></tr>
         <tr><td>S7</td><td>TST-004、性能、可访问性、诊断与保留</td><td><span class="status">Not started</span></td><td>功能冻结</td></tr>
@@ -184,6 +184,7 @@
         <tr><td>2026-07-15</td><td>Data / Runtime</td><td>DAT-002 数据生命周期完成</td><td>SQLCipher 支持批量原子写入、分页查询、分批保留清理和磁盘余量保护；压力时桌面自动暂停记录而不停止 Gateway</td><td>Codex</td></tr>
         <tr><td>2026-07-15</td><td>Capture / Packaging</td><td>CAP-003 sidecar 运行边界完成</td><td>target-triple bundle 经原子安装进入 Tauri resource；Rust 启动时复核 manifest/hash/SBOM/policy，release 强制签名，子进程只继承必要系统变量和四个 CIC 配置</td><td>Codex</td></tr>
         <tr><td>2026-07-15</td><td>Desktop / Proxy</td><td>CAP-004 桌面显式代理闭环完成首段</td><td>已验证 sidecar 由 Tauri 按需启动；256-bit token 保护回环 IPC，Gateway/Proxy 互斥写入，暂停不停止转发，Windows Job Object 与 Unix 进程组负责进程树清理</td><td>Codex</td></tr>
+        <tr><td>2026-07-15</td><td>Capture / Protocol</td><td>CAP-004 HTTP/1.1 协议矩阵扩展</td><td>目标域名使用锚定 allow-hosts；非目标 TLS 保持上游证书直通且不产生捕获；gzip/brotli 响应透明转发并解压捕获，SSE/NDJSON/JSON-seq 中的凭据字段在 IPC 前移除</td><td>Codex</td></tr>
         <tr><td colspan="5">后续范围、架构、日期或资源变化均在此追加，并链接对应 ADR/会议结论。</td></tr>
       </tbody></table></div>
 
