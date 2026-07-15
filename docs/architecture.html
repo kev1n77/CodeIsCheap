@@ -33,6 +33,7 @@
       <tr><td>数据</td><td>SQLite / SQLCipher</td><td>本地事务、全文检索和加密</td></tr>
       <tr><td>扩展</td><td>声明式映射，复杂插件用 WASI</td><td>最小权限、可隔离</td></tr>
     </tbody></table></div>
+    <p>桌面边界使用版本化 Desktop API：Rust DTO 同时生成 <a href="../schemas/desktop-api/v0.1.schema.json">JSON Schema</a> 与 React TypeScript bindings。Tauri command 惰性打开 OS 凭据库和 SQLCipher，失败时保留 WebView 并允许用户重试。</p>
 
     <h2 id="rules">架构原则</h2>
     <ul><li>网络转发优先于记录；压力过高时降级记录，不阻塞用户请求。</li><li>sidecar 不访问数据库和工作区密钥。</li><li>新厂商适配器只产出 Prompt IR，不直接依赖 UI。</li><li>未知协议和解析失败都可降级 Raw。</li><li>系统代理由独立 watchdog 负责异常恢复。</li></ul>

@@ -37,7 +37,13 @@ Rust crate 位于 `crates/prompt-ir`，公开 JSON Schema 位于 `schemas/prompt
 
 加密存储位于 `crates/storage`：使用 SQLCipher、WAL、版本化迁移与 FTS5，数据库 key 由 Windows Credential Manager 或 macOS Keychain 持有，并覆盖错误密钥拒绝、加密备份恢复与落盘明文 canary 测试。
 
-桌面应用位于 `apps/desktop`。当前以无真实凭据的合成请求展示三栏工作台、筛选、Anatomy / Timeline / Raw 检查器、明暗主题和托盘生命周期；实时捕获与持久化将在后续接入。
+桌面应用位于 `apps/desktop`。Tauri 通过 OS 凭据库打开 SQLCipher，并从加密数据库加载三栏工作台；首次启动会幂等写入一条经过共享 Capture Policy 清洗的演示请求。浏览器开发模式继续使用无凭据 fixture，实时 Gateway 捕获将在后续接入。
+
+桌面 command DTO 定义在 `crates/desktop-api`，公开 Schema 位于 `schemas/desktop-api/v0.1.schema.json`，React 使用的 TypeScript 类型由 Rust 生成。契约变更后执行：
+
+```powershell
+cargo run -p codeischeap-desktop-api --bin export-desktop-contract
+```
 
 捕获 sidecar 位于 `sidecars/mitmproxy`，跨进程契约位于 `crates/capture-ipc`，公开 CaptureEnvelope Schema 位于 `schemas/capture-envelope/v0.1.schema.json`。sidecar 的安装、测试与打包命令见 [`sidecars/mitmproxy/README.md`](./sidecars/mitmproxy/README.md)。
 

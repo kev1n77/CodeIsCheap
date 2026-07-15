@@ -9,5 +9,6 @@ __pycache__/
 node_modules/
 *.tsbuildinfo
 /apps/desktop/dist/
+/apps/desktop/.vite/
 /apps/desktop/src-tauri/gen/
 /apps/desktop/src-tauri/target/

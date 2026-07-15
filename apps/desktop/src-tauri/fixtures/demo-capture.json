@@ -1,0 +1,47 @@
+{
+  "version": "0.1",
+  "capture_id": "demo_openai_parser",
+  "observed_at_unix_ms": 1784070400000,
+  "source": "mitmproxy",
+  "request": {
+    "method": "POST",
+    "scheme": "https",
+    "host": "api.openai.com",
+    "port": 443,
+    "path": "/v1/responses",
+    "query": [],
+    "headers": [
+      { "name": "content-type", "value": "application/json" }
+    ],
+    "body": {
+      "state": "json",
+      "content": {
+        "model": "gpt-example",
+        "instructions": "You are a coding assistant.",
+        "input": [
+          {
+            "role": "user",
+            "content": [
+              { "type": "input_text", "text": "Fix the failing parser test." }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "type": "function",
+            "name": "read_file",
+            "description": "Read a UTF-8 file from the workspace.",
+            "parameters": {
+              "type": "object",
+              "properties": { "path": { "type": "string" } },
+              "required": ["path"]
+            }
+          }
+        ]
+      }
+    }
+  },
+  "redactions": [
+    { "location": "header", "name": "authorization" }
+  ]
+}

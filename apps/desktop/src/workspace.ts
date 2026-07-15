@@ -6,5 +6,5 @@ export async function loadWorkspace(): Promise<WorkspaceBootstrap> {
   if (window.__TAURI_INTERNALS__) {
     return invoke<WorkspaceBootstrap>("bootstrap_workspace");
   }
-  return fixture as WorkspaceBootstrap;
+  return fixture as unknown as WorkspaceBootstrap;
 }

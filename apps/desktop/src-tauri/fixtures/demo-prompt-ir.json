@@ -1,0 +1,84 @@
+{
+  "ir_version": "0.1.0",
+  "request_id": "demo_openai_parser",
+  "provider": {
+    "id": "openai",
+    "host": "api.openai.com",
+    "confidence": 1.0
+  },
+  "operation": "responses.create",
+  "model": "gpt-example",
+  "instructions": [
+    {
+      "id": "instruction_system_1",
+      "role": "system",
+      "parts": [
+        {
+          "kind": "text",
+          "id": "part_system_text_1",
+          "text": "You are a coding assistant.",
+          "evidence": {
+            "level": "observed",
+            "source": { "kind": "json_pointer", "pointer": "/instructions" },
+            "confidence": 1.0
+          }
+        }
+      ],
+      "evidence": {
+        "level": "observed",
+        "source": { "kind": "json_pointer", "pointer": "/instructions" },
+        "confidence": 1.0
+      }
+    }
+  ],
+  "messages": [
+    {
+      "id": "message_user_1",
+      "role": "user",
+      "parts": [
+        {
+          "kind": "text",
+          "id": "part_user_text_1",
+          "text": "Fix the failing parser test.",
+          "evidence": {
+            "level": "observed",
+            "source": { "kind": "json_pointer", "pointer": "/input/0/content/0/text" },
+            "confidence": 1.0
+          }
+        }
+      ],
+      "evidence": {
+        "level": "observed",
+        "source": { "kind": "json_pointer", "pointer": "/input/0" },
+        "confidence": 1.0
+      }
+    }
+  ],
+  "context": [],
+  "tools": [
+    {
+      "id": "tool_read_file",
+      "name": "read_file",
+      "description": "Read a UTF-8 file from the workspace.",
+      "input_schema": {
+        "type": "object",
+        "properties": { "path": { "type": "string" } },
+        "required": ["path"]
+      },
+      "evidence": {
+        "level": "observed",
+        "source": { "kind": "json_pointer", "pointer": "/tools/0" },
+        "confidence": 1.0
+      }
+    }
+  ],
+  "generation": {
+    "temperature": 0.2,
+    "max_output_tokens": 4096
+  },
+  "vendor": { "store": false },
+  "completeness": {
+    "request_body": "complete",
+    "response_body": "missing"
+  }
+}
