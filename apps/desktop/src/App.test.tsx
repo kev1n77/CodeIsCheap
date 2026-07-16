@@ -256,6 +256,29 @@ describe("request workbench", () => {
     expect(await screen.findByText("Invalid · trusted")).toBeInTheDocument();
     expect(screen.getByText("11:22:33:44")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Proxy" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Remove trust" })).toBeInTheDocument();
+  });
+
+  it("does not offer to trust an invalid certificate authority", async () => {
+    window.__TAURI_INTERNALS__ = {};
+    const workspace = structuredClone(fixture) as unknown as WorkspaceBootstrap;
+    workspace.capture.certificateAuthority = {
+      state: "invalid",
+      canManageTrust: true,
+      fingerprintSha256: "11:22:33:44",
+      subject: "mitmproxy",
+      validFromUnixMs: 1_577_836_800_000,
+      validUntilUnixMs: 1_609_459_200_000,
+      privateMaterial: "restricted",
+      trust: "not_trusted",
+      detail: "certificate authority is outside its validity period",
+    };
+    vi.mocked(invoke).mockResolvedValue(structuredClone(workspace));
+
+    render(<App />);
+
+    expect(await screen.findByText("Invalid · not trusted")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Trust CA" })).not.toBeInTheDocument();
   });
 
   it("installs certificate trust and refreshes the workspace state", async () => {

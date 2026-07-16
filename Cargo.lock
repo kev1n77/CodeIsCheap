@@ -313,9 +313,12 @@ dependencies = [
 name = "codeischeap-sidecar-runtime"
 version = "0.1.0"
 dependencies = [
+ "core-foundation 0.10.1",
+ "core-foundation-sys",
  "libc",
  "regex",
  "security-framework 3.7.0",
+ "security-framework-sys",
  "serde",
  "serde_json",
  "sha2",

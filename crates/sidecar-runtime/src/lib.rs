@@ -16,7 +16,20 @@ use sha2::{Digest, Sha256};
 use x509_parser::{parse_x509_certificate, pem::parse_x509_pem};
 
 #[cfg(target_os = "macos")]
-use security_framework::trust_settings::{Domain, TrustSettings, TrustSettingsForCertificate};
+use core_foundation::base::TCFType as _;
+#[cfg(target_os = "macos")]
+use core_foundation_sys::base::OSStatus;
+#[cfg(target_os = "macos")]
+use security_framework::{
+    certificate::SecCertificate,
+    os::macos::keychain::SecKeychain,
+    trust_settings::{Domain, TrustSettings, TrustSettingsForCertificate},
+};
+#[cfg(target_os = "macos")]
+use security_framework_sys::{
+    base::SecCertificateRef,
+    trust_settings::{SecTrustSettingsDomain, kSecTrustSettingsDomainUser},
+};
 #[cfg(windows)]
 use std::mem::size_of;
 #[cfg(unix)]
@@ -77,6 +90,20 @@ pub const MANIFEST_FILENAME: &str = "sidecar-manifest.json";
 pub const CA_CERTIFICATE_FILENAME: &str = "mitmproxy-ca-cert.pem";
 pub const CA_PRIVATE_PEM_FILENAME: &str = "mitmproxy-ca.pem";
 pub const CA_PRIVATE_P12_FILENAME: &str = "mitmproxy-ca.p12";
+
+#[cfg(target_os = "macos")]
+const ERR_SEC_DUPLICATE_ITEM: i32 = -25_299;
+#[cfg(target_os = "macos")]
+const ERR_SEC_ITEM_NOT_FOUND: i32 = -25_300;
+
+#[cfg(target_os = "macos")]
+#[link(name = "Security", kind = "framework")]
+unsafe extern "C" {
+    fn SecTrustSettingsRemoveTrustSettings(
+        certificate: SecCertificateRef,
+        domain: SecTrustSettingsDomain,
+    ) -> OSStatus;
+}
 
 const CAPTURE_ENVIRONMENT: [&str; 4] = [
     "CIC_CAPTURE_HOSTS",
@@ -180,7 +207,13 @@ pub fn install_certificate_authority(
         validate_trust_anchor(&certificate_der)?;
         windows_install_certificate(&certificate_der).map_err(CertificateAuthorityError::Platform)
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        let certificate_der = load_certificate_der(confdir.as_ref())?;
+        validate_trust_anchor(&certificate_der)?;
+        macos_install_certificate(&certificate_der).map_err(CertificateAuthorityError::Platform)
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = confdir;
         Err(CertificateAuthorityError::UnsupportedPlatform)
@@ -196,14 +229,19 @@ pub fn uninstall_certificate_authority(
         let certificate_der = load_certificate_der(confdir.as_ref())?;
         windows_uninstall_certificate(&certificate_der).map_err(CertificateAuthorityError::Platform)
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        let certificate_der = load_certificate_der(confdir.as_ref())?;
+        macos_uninstall_certificate(&certificate_der).map_err(CertificateAuthorityError::Platform)
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = confdir;
         Err(CertificateAuthorityError::UnsupportedPlatform)
     }
 }
 
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "macos", test))]
 fn load_certificate_der(confdir: &Path) -> Result<Vec<u8>, CertificateAuthorityError> {
     let encoded = fs::read(confdir.join(CA_CERTIFICATE_FILENAME)).map_err(|error| {
         if error.kind() == io::ErrorKind::NotFound {
@@ -229,7 +267,7 @@ fn load_certificate_der(confdir: &Path) -> Result<Vec<u8>, CertificateAuthorityE
     Ok(pem.contents)
 }
 
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "macos", test))]
 fn validate_trust_anchor(certificate_der: &[u8]) -> Result<(), CertificateAuthorityError> {
     let (_, certificate) = parse_x509_certificate(certificate_der)
         .map_err(|_| CertificateAuthorityError::InvalidCertificate("invalid X.509".to_owned()))?;
@@ -677,7 +715,7 @@ fn certificate_trust_status(certificate_der: &[u8]) -> (CertificateTrustState, b
     }
     #[cfg(target_os = "macos")]
     {
-        (macos_certificate_trust_state(certificate_der), false)
+        macos_certificate_trust_status(certificate_der)
     }
     #[cfg(not(any(windows, target_os = "macos")))]
     {
@@ -687,24 +725,42 @@ fn certificate_trust_status(certificate_der: &[u8]) -> (CertificateTrustState, b
 }
 
 #[cfg(target_os = "macos")]
-fn macos_certificate_trust_state(certificate_der: &[u8]) -> CertificateTrustState {
-    for domain in [Domain::User, Domain::Admin, Domain::System] {
-        let settings = TrustSettings::new(domain);
-        let certificates = match settings.iter() {
-            Ok(certificates) => certificates,
-            Err(_) => return CertificateTrustState::Unchecked,
-        };
-        for candidate in certificates {
-            if candidate.to_der() != certificate_der {
-                continue;
-            }
-            return match settings.tls_trust_settings_for_certificate(&candidate) {
-                Ok(result) => macos_trust_result_state(result),
-                Err(_) => CertificateTrustState::Unchecked,
-            };
+fn macos_certificate_trust_status(certificate_der: &[u8]) -> (CertificateTrustState, bool) {
+    match macos_domain_certificate_trust(Domain::User, certificate_der) {
+        Ok(Some((_, trust))) => return (trust, true),
+        Ok(None) => {}
+        Err(_) => return (CertificateTrustState::Unchecked, false),
+    }
+    for domain in [Domain::Admin, Domain::System] {
+        match macos_domain_certificate_trust(domain, certificate_der) {
+            Ok(Some((_, trust))) => return (trust, false),
+            Ok(None) => {}
+            Err(_) => return (CertificateTrustState::Unchecked, false),
         }
     }
-    CertificateTrustState::NotTrusted
+    (CertificateTrustState::NotTrusted, true)
+}
+
+#[cfg(target_os = "macos")]
+fn macos_domain_certificate_trust(
+    domain: Domain,
+    certificate_der: &[u8],
+) -> io::Result<Option<(SecCertificate, CertificateTrustState)>> {
+    let settings = TrustSettings::new(domain);
+    let certificates = settings
+        .iter()
+        .map_err(|error| macos_security_error("read trust settings", error.code()))?;
+    for candidate in certificates {
+        if candidate.to_der() != certificate_der {
+            continue;
+        }
+        let trust = settings
+            .tls_trust_settings_for_certificate(&candidate)
+            .map(macos_trust_result_state)
+            .map_err(|error| macos_security_error("read certificate trust", error.code()))?;
+        return Ok(Some((candidate, trust)));
+    }
+    Ok(None)
 }
 
 #[cfg(target_os = "macos")]
@@ -719,6 +775,112 @@ fn macos_trust_result_state(result: Option<TrustSettingsForCertificate>) -> Cert
             | TrustSettingsForCertificate::Invalid,
         ) => CertificateTrustState::NotTrusted,
     }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_install_certificate(certificate_der: &[u8]) -> io::Result<bool> {
+    let settings = TrustSettings::new(Domain::User);
+    let (certificate, added_to_keychain) =
+        match macos_domain_certificate_trust(Domain::User, certificate_der)? {
+            Some((_, CertificateTrustState::Trusted)) => return Ok(false),
+            Some((certificate, _)) => (certificate, false),
+            None => {
+                let certificate = SecCertificate::from_der(certificate_der)
+                    .map_err(|error| macos_security_error("create certificate", error.code()))?;
+                let keychain = SecKeychain::default()
+                    .map_err(|error| macos_security_error("open login keychain", error.code()))?;
+                let added = match certificate.add_to_keychain(Some(keychain)) {
+                    Ok(()) => true,
+                    Err(error) if error.code() == ERR_SEC_DUPLICATE_ITEM => false,
+                    Err(error) => {
+                        return Err(macos_security_error(
+                            "add certificate to login keychain",
+                            error.code(),
+                        ));
+                    }
+                };
+                (certificate, added)
+            }
+        };
+    if let Err(error) = settings.set_trust_settings_always(&certificate) {
+        if added_to_keychain {
+            let _ = certificate.delete();
+        }
+        return Err(macos_security_error(
+            "set user certificate trust",
+            error.code(),
+        ));
+    }
+    macos_wait_for_user_trust(certificate_der, Some(CertificateTrustState::Trusted))?;
+    Ok(true)
+}
+
+#[cfg(target_os = "macos")]
+fn macos_uninstall_certificate(certificate_der: &[u8]) -> io::Result<bool> {
+    let user_certificate = macos_domain_certificate_trust(Domain::User, certificate_der)?;
+    let mut changed = user_certificate.is_some();
+    if let Some((certificate, _)) = user_certificate {
+        let status = unsafe {
+            SecTrustSettingsRemoveTrustSettings(
+                certificate.as_concrete_TypeRef(),
+                kSecTrustSettingsDomainUser,
+            )
+        };
+        if status != 0 && status != ERR_SEC_ITEM_NOT_FOUND {
+            return Err(macos_security_error(
+                "remove user certificate trust",
+                status,
+            ));
+        }
+    }
+
+    let certificate = SecCertificate::from_der(certificate_der)
+        .map_err(|error| macos_security_error("create certificate", error.code()))?;
+    match certificate.delete() {
+        Ok(()) => changed = true,
+        Err(error) if error.code() == ERR_SEC_ITEM_NOT_FOUND => {}
+        Err(error) => {
+            return Err(macos_security_error(
+                "remove certificate from login keychain",
+                error.code(),
+            ));
+        }
+    }
+    macos_wait_for_user_trust(certificate_der, None)?;
+    Ok(changed)
+}
+
+#[cfg(target_os = "macos")]
+fn macos_wait_for_user_trust(
+    certificate_der: &[u8],
+    expected: Option<CertificateTrustState>,
+) -> io::Result<()> {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        let actual =
+            macos_domain_certificate_trust(Domain::User, certificate_der)?.map(|(_, trust)| trust);
+        if actual == expected {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            return Err(io::Error::other(
+                "macOS trust settings did not reach the requested state",
+            ));
+        }
+        thread::sleep(Duration::from_millis(25));
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_security_error(action: &str, code: i32) -> io::Error {
+    let detail = match code {
+        -128 | -60_006 => "the user cancelled the security prompt",
+        -25_293 => "login keychain authentication failed",
+        -25_308 => "login keychain interaction is unavailable",
+        -2_070 => "the security prompt requires an interactive GUI session",
+        _ => "Security.framework returned an error",
+    };
+    io::Error::other(format!("{action} failed: {detail} (OSStatus {code})"))
 }
 
 #[cfg(windows)]
@@ -1768,6 +1930,43 @@ MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
         assert!(status.can_manage_trust);
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "requires an interactive macOS session and mutates User trust settings"]
+    fn real_macos_user_ca_trust_round_trip() {
+        struct TrustCleanup(PathBuf);
+
+        impl Drop for TrustCleanup {
+            fn drop(&mut self) {
+                let _ = uninstall_certificate_authority(&self.0);
+            }
+        }
+
+        let directory = tempdir().expect("CA directory");
+        fs::write(
+            directory.path().join(CA_CERTIFICATE_FILENAME),
+            TEST_CA_CERTIFICATE,
+        )
+        .unwrap();
+        let _cleanup = TrustCleanup(directory.path().to_path_buf());
+        let _ = uninstall_certificate_authority(directory.path()).expect("initial cleanup");
+        let status = inspect_certificate_authority(directory.path());
+        assert_eq!(status.trust, CertificateTrustState::NotTrusted);
+        assert!(status.can_manage_trust);
+
+        assert!(install_certificate_authority(directory.path()).expect("install CA"));
+        assert!(!install_certificate_authority(directory.path()).expect("idempotent install"));
+        let status = inspect_certificate_authority(directory.path());
+        assert_eq!(status.trust, CertificateTrustState::Trusted);
+        assert!(status.can_manage_trust);
+
+        assert!(uninstall_certificate_authority(directory.path()).expect("remove CA"));
+        assert!(!uninstall_certificate_authority(directory.path()).expect("idempotent removal"));
+        let status = inspect_certificate_authority(directory.path());
+        assert_eq!(status.trust, CertificateTrustState::NotTrusted);
+        assert!(status.can_manage_trust);
+    }
+
     #[cfg(unix)]
     #[test]
     fn certificate_authority_rejects_private_material_visible_to_other_users() {
@@ -1830,7 +2029,7 @@ MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
         #[cfg(target_os = "macos")]
         {
             assert_eq!(status.trust, CertificateTrustState::NotTrusted);
-            assert!(!status.can_manage_trust);
+            assert!(status.can_manage_trust);
         }
         #[cfg(not(any(windows, target_os = "macos")))]
         {
