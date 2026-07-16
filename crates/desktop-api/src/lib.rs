@@ -1,5 +1,12 @@
 //! Versioned DTOs shared by the Tauri command layer and React workbench.
 
+mod export;
+
+pub use export::{
+    EXPORT_FORMAT_VERSION, EXPORT_POLICY_VERSION, ExportPreview, ExportProfile, ExportReceipt,
+    ExportRedaction, build_export_preview,
+};
+
 use std::{fmt, ops::Range};
 
 use codeischeap_capture_ipc::{CaptureOutcome, CapturedBodyState, ResponseCompleteness};
@@ -1077,6 +1084,10 @@ mod tests {
             .with_out_dir(generated.path())
             .with_large_int("number");
         WorkspaceBootstrap::export_all(&config).expect("bindings must export");
+        ExportProfile::export_all(&config).expect("export profile binding must export");
+        ExportRedaction::export_all(&config).expect("export redaction binding must export");
+        ExportPreview::export_all(&config).expect("export preview binding must export");
+        ExportReceipt::export_all(&config).expect("export receipt binding must export");
         let checked_in = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../apps/desktop/src/generated/desktop-api");
 

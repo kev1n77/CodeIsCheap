@@ -266,9 +266,11 @@ dependencies = [
  "codeischeap-capture-policy",
  "codeischeap-prompt-ir",
  "codeischeap-storage",
+ "regex",
  "schemars",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "ts-rs",
 ]

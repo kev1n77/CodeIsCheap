@@ -9,6 +9,7 @@ import {
   ChevronRight,
   CircleStop,
   Database,
+  Download,
   Filter,
   LocateFixed,
   LoaderCircle,
@@ -23,6 +24,7 @@ import {
   Sun,
   TerminalSquare,
   Wrench,
+  X,
 } from "lucide-react";
 import type {
   AnatomySection,
@@ -30,6 +32,8 @@ import type {
   CapturedRequest,
   CertificateAuthority,
   EvidenceLocator,
+  ExportPreview,
+  ExportProfile,
   InspectorTab,
   WorkspaceBootstrap,
   WorkspaceSource,
@@ -37,6 +41,8 @@ import type {
 import {
   installCertificateAuthorityTrust,
   loadWorkspace,
+  previewCaptureExport,
+  saveCaptureExport,
   setCaptureActive as persistCaptureActive,
   setCaptureMode as persistCaptureMode,
   subscribeToCaptureEvents,
@@ -74,6 +80,7 @@ export function App() {
   const [modeChanging, setModeChanging] = useState(false);
   const [certificateChanging, setCertificateChanging] = useState(false);
   const [certificateError, setCertificateError] = useState("");
+  const [exportRequestId, setExportRequestId] = useState<string | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(218);
   const [listWidth, setListWidth] = useState(390);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -156,6 +163,7 @@ export function App() {
     ? selectedId
     : (requests[0]?.id ?? "");
   const selected = workspace?.requests.find((request) => request.id === effectiveSelectedId);
+  const exportRequest = workspace?.requests.find((request) => request.id === exportRequestId) ?? null;
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -284,8 +292,9 @@ export function App() {
           onSelect={(id) => { setSelectedId(id); setTab("anatomy"); }}
         />
         <ResizeHandle label="Resize request list" onResize={(delta) => setListWidth((width) => clamp(width + delta, 320, 560))} />
-        {selected ? <Inspector request={selected} tab={tab} onTab={setTab} /> : <EmptyInspector />}
+        {selected ? <Inspector request={selected} tab={tab} onTab={setTab} onExport={() => setExportRequestId(selected.id)} /> : <EmptyInspector />}
       </main>
+      {exportRequest && <ExportDialog request={exportRequest} onClose={() => setExportRequestId(null)} />}
     </div>
   );
 }
@@ -452,7 +461,7 @@ function RequestPane({ requests, allRequests, selectedId, query, provider, appli
   );
 }
 
-function Inspector({ request, tab, onTab }: { request: CapturedRequest; tab: InspectorTab; onTab: (tab: InspectorTab) => void }) {
+function Inspector({ request, tab, onTab, onExport }: { request: CapturedRequest; tab: InspectorTab; onTab: (tab: InspectorTab) => void; onExport: () => void }) {
   const [rawEvidence, setRawEvidence] = useState<ResolvedRawEvidence | null>(null);
   useEffect(() => { setRawEvidence(null); }, [request.id]);
   const locateRawEvidence = (source: string) => {
@@ -471,7 +480,7 @@ function Inspector({ request, tab, onTab }: { request: CapturedRequest; tab: Ins
     <section className="inspector" aria-label="Request inspector">
       <header className="inspector-header">
         <div><div className="inspector-provider"><span className={`provider-mark provider-${request.provider.toLowerCase()}`}>{request.provider[0]}</span><strong>{request.provider}</strong><span>{request.operation}</span></div><h2>{request.model}</h2></div>
-        <div className="inspector-metrics"><span><b>{request.tokens == null ? "Unknown" : number.format(request.tokens)}</b> tokens</span><span><b>{request.durationMs == null ? "Unknown" : formatDuration(request.durationMs)}</b> duration</span><span className={`request-state state-${request.status}`}>{request.status}</span></div>
+        <div className="inspector-actions"><div className="inspector-metrics"><span><b>{request.tokens == null ? "Unknown" : number.format(request.tokens)}</b> tokens</span><span><b>{request.durationMs == null ? "Unknown" : formatDuration(request.durationMs)}</b> duration</span><span className={`request-state state-${request.status}`}>{request.status}</span></div><button className="icon-button" title="Export request" aria-label="Export request" onClick={onExport}><Download size={16} /></button></div>
       </header>
       <nav className="inspector-tabs" aria-label="Inspector views">
         <button aria-selected={tab === "anatomy"} onClick={() => onTab("anatomy")}><Braces size={14} />Anatomy</button>
@@ -485,6 +494,73 @@ function Inspector({ request, tab, onTab }: { request: CapturedRequest; tab: Ins
       </div>
     </section>
   );
+}
+
+function ExportDialog({ request, onClose }: { request: CapturedRequest; onClose: () => void }) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const [profile, setProfile] = useState<ExportProfile>("minimal");
+  const [preview, setPreview] = useState<ExportPreview | null>(null);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [savedPath, setSavedPath] = useState("");
+
+  useEffect(() => {
+    const background = document.querySelectorAll(".app-shell > .titlebar, .app-shell > .workspace");
+    background.forEach((element) => element.setAttribute("inert", ""));
+    closeRef.current?.focus();
+    return () => background.forEach((element) => element.removeAttribute("inert"));
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPreview(null);
+    setError("");
+    setSavedPath("");
+    previewCaptureExport(request.id, profile)
+      .then((value) => { if (!cancelled) setPreview(value); })
+      .catch((reason: unknown) => {
+        if (!cancelled) setError(reason instanceof Error ? reason.message : "Export preview could not be generated.");
+      });
+    return () => { cancelled = true; };
+  }, [request.id, profile]);
+
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !saving) onClose();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose, saving]);
+
+  const savePreview = () => {
+    if (!preview || saving) return;
+    setSaving(true);
+    setError("");
+    saveCaptureExport(request.id, preview)
+      .then((receipt) => { if (receipt) setSavedPath(receipt.path); })
+      .catch((reason: unknown) => {
+        setError(reason instanceof Error ? reason.message : "Export file could not be written.");
+      })
+      .finally(() => setSaving(false));
+  };
+
+  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) onClose(); }}>
+    <section className="export-dialog" role="dialog" aria-modal="true" aria-labelledby="export-title">
+      <header><div><span className="dialog-eyebrow">{request.provider} · {request.operation}</span><h2 id="export-title">Export request</h2></div><button ref={closeRef} className="icon-button" title="Close" aria-label="Close export" disabled={saving} onClick={onClose}><X size={17} /></button></header>
+      <div className="export-toolbar">
+        <div className="export-profiles" aria-label="Export profile">
+          {(["minimal", "reproducible", "forensic"] as ExportProfile[]).map((value) => <button key={value} aria-pressed={profile === value} onClick={() => setProfile(value)}>{value}</button>)}
+        </div>
+        <div className={`export-scan ${preview?.redactions.length ? "has-redactions" : ""}`}><ShieldCheck size={14} /><span>{preview ? `${preview.redactions.length} credential${preview.redactions.length === 1 ? "" : "s"} replaced` : "Scanning"}</span></div>
+      </div>
+      <div className="export-meta"><span>{preview ? `${number.format(preview.byteCount)} bytes` : "Generating preview"}</span><code>{preview?.policyVersion ? `policy ${preview.policyVersion}` : ""}</code></div>
+      <pre className="export-preview" aria-label="Export JSON preview">{preview?.content ?? ""}</pre>
+      {preview && preview.redactions.length > 0 && <div className="export-redactions"><strong>Replacements</strong>{preview.redactions.map((redaction, index) => <span key={`${redaction.pointer}-${redaction.category}-${index}`}><code>{redaction.category}</code><code title={redaction.pointer}>{redaction.pointer}</code></span>)}</div>}
+      {error && <div className="export-error" role="alert"><AlertTriangle size={14} />{error}</div>}
+      {savedPath && <div className="export-success" role="status"><ShieldCheck size={14} /><span>Saved</span><code title={savedPath}>{savedPath}</code></div>}
+      <footer><button onClick={onClose} disabled={saving}>{savedPath ? "Done" : "Cancel"}</button>{!savedPath && <button className="primary-command" onClick={savePreview} disabled={!preview || saving}>{saving ? <LoaderCircle className="is-spinning" size={14} /> : <Download size={14} />}Save JSON</button>}</footer>
+    </section>
+  </div>;
 }
 
 function AnatomyView({ sections, raw, onLocate }: { sections: AnatomySection[]; raw: CapturedRequest["detail"]["raw"]; onLocate: (source: string) => void }) {

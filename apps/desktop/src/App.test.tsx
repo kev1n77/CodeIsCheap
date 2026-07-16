@@ -2,13 +2,15 @@ import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { save } from "@tauri-apps/plugin-dialog";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import fixture from "./data/workspace.json";
-import type { WorkspaceBootstrap } from "./types";
+import type { ExportPreview, ExportProfile, WorkspaceBootstrap } from "./types";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
+vi.mock("@tauri-apps/plugin-dialog", () => ({ save: vi.fn() }));
 
 function makeWorkspace(requestCount: number): WorkspaceBootstrap {
   const workspace = structuredClone(fixture) as unknown as WorkspaceBootstrap;
@@ -31,6 +33,7 @@ describe("request workbench", () => {
     vi.mocked(invoke).mockReset();
     vi.mocked(listen).mockReset();
     vi.mocked(listen).mockResolvedValue(() => {});
+    vi.mocked(save).mockReset();
   });
 
   it("filters requests without losing the inspector workflow", async () => {
@@ -442,6 +445,63 @@ describe("request workbench", () => {
       "title",
       "The explicit proxy process exited unexpectedly (exit code: 1).",
     );
+  });
+
+  it("previews and saves a scanned request export", async () => {
+    const user = userEvent.setup();
+    window.__TAURI_INTERNALS__ = {};
+    const workspace = structuredClone(fixture) as unknown as WorkspaceBootstrap;
+    const preview = (profile: ExportProfile): ExportPreview => ({
+      profile,
+      suggestedFilename: `codeischeap-request-${profile}.json`,
+      content: `{"profile":"${profile}","secret":"[REDACTED:bearer_token]"}\n`,
+      byteCount: 68,
+      contentSha256: "a".repeat(64),
+      exportedAtUnixMs: 1_700_000_000_000,
+      redactions: [{ category: "bearer_token", pointer: "/request/promptPreview" }],
+      policyVersion: "0.1",
+    });
+    vi.mocked(save).mockResolvedValue("D:\\exports\\request.json");
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === "bootstrap_workspace") return structuredClone(workspace);
+      if (command === "preview_capture_export") {
+        return preview((args?.profile as ExportProfile) ?? "minimal");
+      }
+      if (command === "write_capture_export") {
+        return { path: args?.path, byteCount: 68, redactionCount: 1 };
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Export request" }));
+    const dialog = await screen.findByRole("dialog", { name: "Export request" });
+    expect(within(dialog).getByRole("button", { name: "Close export" })).toHaveFocus();
+    expect(within(dialog).getByRole("button", { name: "minimal" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(await within(dialog).findByText("1 credential replaced")).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Export JSON preview")).toHaveTextContent(
+      "[REDACTED:bearer_token]",
+    );
+
+    await user.click(within(dialog).getByRole("button", { name: "forensic" }));
+    expect(await within(dialog).findByText(/"profile":"forensic"/)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Save JSON" }));
+
+    expect(save).toHaveBeenCalledWith({
+      defaultPath: "codeischeap-request-forensic.json",
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+    expect(invoke).toHaveBeenCalledWith("write_capture_export", {
+      captureId: workspace.requests[0].id,
+      profile: "forensic",
+      exportedAtUnixMs: 1_700_000_000_000,
+      expectedSha256: "a".repeat(64),
+      path: "D:\\exports\\request.json",
+    });
+    expect(await within(dialog).findByText("Saved")).toBeInTheDocument();
   });
 
   it("virtualizes one thousand requests and keeps filtered selection coherent", async () => {

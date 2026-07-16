@@ -34,6 +34,7 @@
       <tr><td>Reproducible</td><td>脱敏 IR、工具 schema、关键参数</td><td>团队复现</td></tr>
       <tr><td>Forensic</td><td>脱敏 Raw、流事件、解析问题</td><td>受控支持与安全分析</td></tr>
     </tbody></table></div>
+    <p class="note">当前单请求导出由后端生成并扫描已知 API key、Bearer、JWT 与私钥模式；命中内容替换为稳定占位符并在预览中列出位置。保存时校验预览 SHA-256，且不会覆盖已有文件。</p>
     <footer class="doc-footer"><a href="architecture.html">← 系统架构</a><a href="experience.html">下一篇：UI/UX →</a></footer>
   </main><aside class="toc"><strong>本页</strong><a href="#lifecycle">数据生命周期</a><a href="#controls">关键控制</a><a href="#certificate">证书与代理</a><a href="#export">导出等级</a></aside></div>
 </body></html>

@@ -10,6 +10,10 @@ export type { CertificatePrivateMaterial } from "./generated/desktop-api/Certifi
 export type { CertificateTrust } from "./generated/desktop-api/CertificateTrust";
 export type { EvidenceLevel } from "./generated/desktop-api/EvidenceLevel";
 export type { EvidenceLocator } from "./generated/desktop-api/EvidenceLocator";
+export type { ExportPreview } from "./generated/desktop-api/ExportPreview";
+export type { ExportProfile } from "./generated/desktop-api/ExportProfile";
+export type { ExportReceipt } from "./generated/desktop-api/ExportReceipt";
+export type { ExportRedaction } from "./generated/desktop-api/ExportRedaction";
 export type { RequestDetail } from "./generated/desktop-api/RequestDetail";
 export type { TimelineEvent } from "./generated/desktop-api/TimelineEvent";
 export type { WorkspaceBootstrap } from "./generated/desktop-api/WorkspaceBootstrap";

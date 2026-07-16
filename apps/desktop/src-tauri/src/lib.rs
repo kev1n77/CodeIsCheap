@@ -1,11 +1,16 @@
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::error::Error;
 use std::fmt;
+use std::fs::OpenOptions;
+use std::io::Write as _;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener as StdTcpListener};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt as _;
 
 use codeischeap_adapters::AdapterRegistry;
 #[cfg(test)]
@@ -16,8 +21,9 @@ use codeischeap_core::{
     process_gateway_event,
 };
 use codeischeap_desktop_api::{
-    CaptureMode, CertificateAuthority, CertificateAuthorityState, CertificatePrivateMaterial,
-    CertificateTrust, WorkspaceBootstrap, load_workspace,
+    CaptureMode, CapturedRequest, CertificateAuthority, CertificateAuthorityState,
+    CertificatePrivateMaterial, CertificateTrust, ExportPreview, ExportProfile, ExportReceipt,
+    WorkspaceBootstrap, build_export_preview, load_workspace,
 };
 use codeischeap_gateway::{Gateway, GatewayCapture, GatewayCaptureEvent};
 use codeischeap_proxy_recovery::recover_from_journal;
@@ -269,8 +275,53 @@ async fn uninstall_certificate_authority_trust(
     load_runtime_workspace(&app, &state).await
 }
 
+#[tauri::command]
+async fn preview_capture_export(
+    capture_id: String,
+    profile: ExportProfile,
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+) -> Result<ExportPreview, String> {
+    initialize_store(&app, &state.store)?;
+    let store = state.store.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        build_capture_export(&store, &capture_id, profile, current_unix_ms()?)
+    })
+    .await
+    .map_err(|error| format!("capture export preview task failed: {error}"))?
+}
+
+#[tauri::command]
+async fn write_capture_export(
+    capture_id: String,
+    profile: ExportProfile,
+    exported_at_unix_ms: u64,
+    expected_sha256: String,
+    path: PathBuf,
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+) -> Result<ExportReceipt, String> {
+    initialize_store(&app, &state.store)?;
+    let store = state.store.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let preview = build_capture_export(&store, &capture_id, profile, exported_at_unix_ms)?;
+        if preview.content_sha256 != expected_sha256 {
+            return Err("capture changed after preview; review the refreshed export".to_owned());
+        }
+        write_export_file(&path, preview.content.as_bytes())?;
+        Ok(ExportReceipt {
+            path: path.to_string_lossy().into_owned(),
+            byte_count: preview.byte_count,
+            redaction_count: u64::try_from(preview.redactions.len()).unwrap_or(u64::MAX),
+        })
+    })
+    .await
+    .map_err(|error| format!("capture export write task failed: {error}"))?
+}
+
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let (sidecar_bundle, sidecar_error) =
                 optional_sidecar(open_application_sidecar(app.handle()));
@@ -321,9 +372,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             bootstrap_workspace,
             install_certificate_authority_trust,
+            preview_capture_export,
             set_capture_active,
             set_capture_mode,
-            uninstall_certificate_authority_trust
+            uninstall_certificate_authority_trust,
+            write_capture_export
         ])
         .run(tauri::generate_context!())
         .expect("CodeIsCheap desktop runtime failed");
@@ -412,6 +465,63 @@ async fn load_runtime_workspace(
     };
     apply_runtime_state(&mut workspace, runtime_snapshot(app, state).await);
     Ok(workspace)
+}
+
+fn build_capture_export(
+    store: &SharedStore,
+    capture_id: &str,
+    profile: ExportProfile,
+    exported_at_unix_ms: u64,
+) -> Result<ExportPreview, String> {
+    let request = export_request(store, capture_id)?;
+    build_export_preview(&request, profile, exported_at_unix_ms)
+        .map_err(|error| format!("capture export could not be encoded: {error}"))
+}
+
+fn export_request(store: &SharedStore, capture_id: &str) -> Result<CapturedRequest, String> {
+    let store = store
+        .lock()
+        .map_err(|_| "encrypted workspace is temporarily unavailable".to_owned())?;
+    let workspace = load_workspace(
+        store
+            .as_ref()
+            .ok_or_else(|| "encrypted workspace has not initialized".to_owned())?,
+    )
+    .map_err(|error| error.to_string())?;
+    workspace
+        .requests
+        .into_iter()
+        .find(|request| request.id == capture_id)
+        .ok_or_else(|| format!("capture {capture_id} is unavailable for export"))
+}
+
+fn current_unix_ms() -> Result<u64, String> {
+    let elapsed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| "system clock is before the Unix epoch".to_owned())?;
+    u64::try_from(elapsed.as_millis()).map_err(|_| "system time is out of range".to_owned())
+}
+
+fn write_export_file(path: &Path, content: &[u8]) -> Result<(), String> {
+    if !path.is_absolute()
+        || path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_none_or(|extension| !extension.eq_ignore_ascii_case("json"))
+    {
+        return Err("capture exports require a new absolute .json path".to_owned());
+    }
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    let mut file = options
+        .open(path)
+        .map_err(|error| format!("capture export file could not be created: {error}"))?;
+    file.write_all(content)
+        .map_err(|error| format!("capture export file could not be written: {error}"))?;
+    file.sync_all()
+        .map_err(|error| format!("capture export file could not be synced: {error}"))
 }
 
 async fn runtime_snapshot(app: &AppHandle, state: &DesktopState) -> RuntimeSnapshot {
@@ -1505,6 +1615,20 @@ mod tests {
         assert!(state.proxy.lock().await.is_none());
         assert!(capture.is_enabled());
         runtime.shutdown().expect("empty runtime must shut down");
+    }
+
+    #[test]
+    fn export_files_are_new_json_documents_and_never_overwrite() {
+        let directory = tempdir().expect("export directory");
+        let path = directory.path().join("capture.json");
+
+        write_export_file(&path, b"{\"safe\":true}\n").expect("new export must write");
+        assert_eq!(
+            std::fs::read(&path).expect("export must be readable"),
+            b"{\"safe\":true}\n"
+        );
+        assert!(write_export_file(&path, b"replacement").is_err());
+        assert!(write_export_file(&directory.path().join("capture.txt"), b"{}").is_err());
     }
 
     #[test]
