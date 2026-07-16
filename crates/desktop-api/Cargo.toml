@@ -9,9 +9,11 @@ description = "Versioned desktop command DTOs for CodeIsCheap"
 codeischeap-capture-ipc = { path = "../capture-ipc" }
 codeischeap-prompt-ir = { path = "../prompt-ir" }
 codeischeap-storage = { path = "../storage" }
+regex.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 ts-rs.workspace = true
 
 [dev-dependencies]

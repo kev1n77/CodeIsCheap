@@ -1,7 +1,9 @@
 use std::fs;
 use std::path::PathBuf;
 
-use codeischeap_desktop_api::WorkspaceBootstrap;
+use codeischeap_desktop_api::{
+    ExportPreview, ExportProfile, ExportReceipt, ExportRedaction, WorkspaceBootstrap,
+};
 use ts_rs::{Config, TS};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -20,5 +22,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_out_dir(bindings_path)
         .with_large_int("number");
     WorkspaceBootstrap::export_all(&config)?;
+    ExportProfile::export_all(&config)?;
+    ExportRedaction::export_all(&config)?;
+    ExportPreview::export_all(&config)?;
+    ExportReceipt::export_all(&config)?;
     Ok(())
 }
