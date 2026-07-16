@@ -34,12 +34,18 @@ use windows_sys::Win32::Foundation::{
 #[cfg(windows)]
 use windows_sys::Win32::Security::Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT};
 #[cfg(windows)]
+use windows_sys::Win32::Security::Cryptography::UI::{
+    CRYPTUI_WIZ_IMPORT_NO_CHANGE_DEST_STORE, CRYPTUI_WIZ_IMPORT_SRC_INFO,
+    CRYPTUI_WIZ_IMPORT_SRC_INFO_0, CRYPTUI_WIZ_IMPORT_SUBJECT_CERT_CONTEXT,
+    CRYPTUI_WIZ_IMPORT_TO_CURRENTUSER, CRYPTUI_WIZ_NO_UI, CryptUIWizImport,
+};
+#[cfg(windows)]
 use windows_sys::Win32::Security::Cryptography::{
-    CERT_CONTEXT, CERT_STORE_ADD_USE_EXISTING, CERT_STORE_OPEN_EXISTING_FLAG,
-    CERT_STORE_PROV_SYSTEM_W, CERT_STORE_READONLY_FLAG, CERT_SYSTEM_STORE_CURRENT_USER,
-    CERT_SYSTEM_STORE_LOCAL_MACHINE, CertAddCertificateContextToStore, CertCloseStore,
-    CertCreateCertificateContext, CertDeleteCertificateFromStore, CertEnumCertificatesInStore,
-    CertFreeCertificateContext, CertOpenStore, HCERTSTORE, X509_ASN_ENCODING,
+    CERT_CONTEXT, CERT_STORE_OPEN_EXISTING_FLAG, CERT_STORE_PROV_SYSTEM_W,
+    CERT_STORE_READONLY_FLAG, CERT_SYSTEM_STORE_CURRENT_USER, CERT_SYSTEM_STORE_LOCAL_MACHINE,
+    CertCloseStore, CertCreateCertificateContext, CertDeleteCertificateFromStore,
+    CertEnumCertificatesInStore, CertFreeCertificateContext, CertOpenStore, HCERTSTORE,
+    X509_ASN_ENCODING,
 };
 #[cfg(windows)]
 use windows_sys::Win32::Security::{
@@ -795,12 +801,25 @@ fn windows_install_certificate(certificate_der: &[u8]) -> io::Result<bool> {
         return Err(io::Error::last_os_error());
     }
     let context = WindowsCertificateContext(context);
+    let source = CRYPTUI_WIZ_IMPORT_SRC_INFO {
+        dwSize: size_of::<CRYPTUI_WIZ_IMPORT_SRC_INFO>() as u32,
+        dwSubjectChoice: CRYPTUI_WIZ_IMPORT_SUBJECT_CERT_CONTEXT,
+        Anonymous: CRYPTUI_WIZ_IMPORT_SRC_INFO_0 {
+            pCertContext: context.0,
+        },
+        dwFlags: 0,
+        pwszPassword: std::ptr::null(),
+    };
+    let flags = CRYPTUI_WIZ_NO_UI
+        | CRYPTUI_WIZ_IMPORT_TO_CURRENTUSER
+        | CRYPTUI_WIZ_IMPORT_NO_CHANGE_DEST_STORE;
     if unsafe {
-        CertAddCertificateContextToStore(
-            store.0,
-            context.0,
-            CERT_STORE_ADD_USE_EXISTING,
+        CryptUIWizImport(
+            flags,
             std::ptr::null_mut(),
+            std::ptr::null(),
+            &source,
+            store.0,
         )
     } == 0
     {
