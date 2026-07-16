@@ -20,6 +20,9 @@ use codeischeap_desktop_api::{
     CertificateTrust, WorkspaceBootstrap, load_workspace,
 };
 use codeischeap_gateway::{Gateway, GatewayCapture, GatewayCaptureEvent};
+use codeischeap_proxy_recovery::recover_from_journal;
+#[cfg(windows)]
+use codeischeap_proxy_recovery::{ProxySession, ProxySettings, WindowsProxyBackend};
 use codeischeap_sidecar_runtime::{
     BundleRequirements, CertificateAuthorityState as SidecarCertificateAuthorityState,
     CertificateTrustState as SidecarCertificateTrustState, MANIFEST_FILENAME,
@@ -51,6 +54,7 @@ const CAPTURE_RUNTIME_ERROR_EVENT: &str = "capture-runtime-error";
 const MAX_PENDING_CAPTURE_OUTCOMES: usize = 256;
 const CAPTURES_PER_RETENTION_RUN: usize = 100;
 const SIDECAR_STARTUP_TIMEOUT: Duration = Duration::from_secs(10);
+const PROXY_RECOVERY_JOURNAL_FILENAME: &str = "proxy-recovery.v0.1.json";
 
 type SharedStore = Arc<Mutex<Option<EncryptedStore>>>;
 
@@ -60,6 +64,7 @@ struct DesktopState {
     proxy: AsyncMutex<Option<ProxyRuntime>>,
     mode: AsyncMutex<CaptureMode>,
     capture_active: Arc<AtomicBool>,
+    proxy_recovery_checked: AtomicBool,
     sidecar_bundle: Option<Arc<SidecarBundle>>,
     sidecar_error: Mutex<Option<String>>,
 }
@@ -79,9 +84,23 @@ impl Drop for GatewayRuntime {
 }
 
 struct ProxyRuntime {
-    _process: SidecarProcess,
+    system_proxy: Option<PlatformProxySession>,
+    process: Option<SidecarProcess>,
     endpoint: String,
     shutdown: Option<oneshot::Sender<()>>,
+}
+
+impl ProxyRuntime {
+    fn shutdown(mut self) -> Result<(), String> {
+        if let Some(shutdown) = self.shutdown.take() {
+            let _ = shutdown.send(());
+        }
+        if let Some(session) = self.system_proxy.take() {
+            session.restore()?;
+        }
+        self.process.take();
+        Ok(())
+    }
 }
 
 impl Drop for ProxyRuntime {
@@ -92,12 +111,27 @@ impl Drop for ProxyRuntime {
     }
 }
 
+enum PlatformProxySession {
+    #[cfg(windows)]
+    Windows(ProxySession<WindowsProxyBackend>),
+}
+
+impl PlatformProxySession {
+    fn restore(self) -> Result<(), String> {
+        match self {
+            #[cfg(windows)]
+            Self::Windows(session) => session.restore().map_err(|error| error.to_string()),
+        }
+    }
+}
+
 struct RuntimeSnapshot {
     mode: CaptureMode,
     active: bool,
     proxy_available: bool,
     gateway_endpoint: Option<String>,
     proxy_endpoint: Option<String>,
+    system_proxy_active: bool,
     certificate_authority: CertificateAuthority,
 }
 
@@ -154,6 +188,7 @@ async fn bootstrap_workspace(
     app: AppHandle,
     state: State<'_, DesktopState>,
 ) -> Result<WorkspaceBootstrap, String> {
+    ensure_proxy_recovery(&app, &state).await?;
     initialize_store(&app, &state.store)?;
     ensure_gateway(&app, &state).await?;
     let workspace = load_runtime_workspace(&app, &state).await?;
@@ -205,6 +240,12 @@ async fn install_certificate_authority_trust(
         .await
         .map_err(|error| format!("certificate trust task failed: {error}"))?
         .map_err(|error| error.to_string())?;
+    if *state.mode.lock().await == CaptureMode::Proxy {
+        let mut runtime = state.proxy.lock().await;
+        if let Some(runtime) = runtime.as_mut() {
+            activate_system_proxy(&app, runtime).await?;
+        }
+    }
     load_runtime_workspace(&app, &state).await
 }
 
@@ -236,6 +277,7 @@ pub fn run() {
                 proxy: AsyncMutex::new(None),
                 mode: AsyncMutex::new(CaptureMode::Gateway),
                 capture_active: Arc::new(AtomicBool::new(true)),
+                proxy_recovery_checked: AtomicBool::new(false),
                 sidecar_bundle,
                 sidecar_error: Mutex::new(sidecar_error),
             });
@@ -376,18 +418,24 @@ async fn runtime_snapshot(app: &AppHandle, state: &DesktopState) -> RuntimeSnaps
         .await
         .as_ref()
         .map(|runtime| runtime.endpoint.clone());
-    let proxy_endpoint = state
+    let (proxy_endpoint, system_proxy_active) = state
         .proxy
         .lock()
         .await
         .as_ref()
-        .map(|runtime| runtime.endpoint.clone());
+        .map_or((None, false), |runtime| {
+            (
+                Some(runtime.endpoint.clone()),
+                runtime.system_proxy.is_some(),
+            )
+        });
     RuntimeSnapshot {
         mode,
         active: state.capture_active.load(Ordering::Acquire),
         proxy_available: state.sidecar_bundle.is_some(),
         gateway_endpoint,
         proxy_endpoint,
+        system_proxy_active,
         certificate_authority: application_certificate_authority(app),
     }
 }
@@ -398,7 +446,14 @@ fn apply_runtime_state(workspace: &mut WorkspaceBootstrap, snapshot: RuntimeSnap
             "OpenAI-compatible local gateway",
             snapshot.gateway_endpoint.as_deref(),
         ),
-        CaptureMode::Proxy => ("Explicit TLS proxy", snapshot.proxy_endpoint.as_deref()),
+        CaptureMode::Proxy => (
+            if snapshot.system_proxy_active {
+                "System-managed explicit TLS proxy"
+            } else {
+                "Manual explicit TLS proxy"
+            },
+            snapshot.proxy_endpoint.as_deref(),
+        ),
     };
     workspace.capture.active = snapshot.active && endpoint.is_some();
     workspace.capture.can_control = endpoint.is_some();
@@ -459,6 +514,26 @@ fn application_certificate_confdir(app: &AppHandle) -> Result<PathBuf, String> {
         .app_data_dir()
         .map(|path| path.join("mitmproxy"))
         .map_err(|error| format!("certificate directory is unavailable: {error}"))
+}
+
+fn application_proxy_recovery_journal(app: &AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_data_dir()
+        .map(|path| path.join("recovery").join(PROXY_RECOVERY_JOURNAL_FILENAME))
+        .map_err(|error| format!("proxy recovery directory is unavailable: {error}"))
+}
+
+async fn ensure_proxy_recovery(app: &AppHandle, state: &DesktopState) -> Result<(), String> {
+    if state.proxy_recovery_checked.load(Ordering::Acquire) {
+        return Ok(());
+    }
+    let journal = application_proxy_recovery_journal(app)?;
+    tauri::async_runtime::spawn_blocking(move || recover_from_journal(&journal))
+        .await
+        .map_err(|error| format!("proxy recovery task failed: {error}"))?
+        .map_err(|error| error.to_string())?;
+    state.proxy_recovery_checked.store(true, Ordering::Release);
+    Ok(())
 }
 
 async fn ensure_gateway(app: &AppHandle, state: &DesktopState) -> Result<(), String> {
@@ -549,7 +624,8 @@ async fn switch_capture_mode(
 
 async fn ensure_proxy(app: &AppHandle, state: &DesktopState) -> Result<(), String> {
     let mut runtime = state.proxy.lock().await;
-    if runtime.is_some() {
+    if let Some(runtime) = runtime.as_mut() {
+        activate_system_proxy(app, runtime).await?;
         return Ok(());
     }
 
@@ -587,6 +663,13 @@ async fn ensure_proxy(app: &AppHandle, state: &DesktopState) -> Result<(), Strin
     .map_err(|error| format!("explicit proxy launch task failed: {error}"))?
     .map_err(|error| error.to_string())?;
     let endpoint = format!("http://{}", process.endpoint());
+    let mut next_runtime = ProxyRuntime {
+        system_proxy: None,
+        process: Some(process),
+        endpoint: endpoint.clone(),
+        shutdown: None,
+    };
+    activate_system_proxy(app, &mut next_runtime).await?;
     let (shutdown, shutdown_rx) = oneshot::channel();
     tauri::async_runtime::spawn(process_proxy_events(
         app.clone(),
@@ -597,22 +680,81 @@ async fn ensure_proxy(app: &AppHandle, state: &DesktopState) -> Result<(), Strin
         policy,
         shutdown_rx,
     ));
-    *runtime = Some(ProxyRuntime {
-        _process: process,
-        endpoint,
-        shutdown: Some(shutdown),
-    });
+    next_runtime.shutdown = Some(shutdown);
+    *runtime = Some(next_runtime);
     Ok(())
 }
 
 async fn stop_proxy(state: &DesktopState) -> Result<(), String> {
     let runtime = state.proxy.lock().await.take();
     if let Some(runtime) = runtime {
-        tauri::async_runtime::spawn_blocking(move || drop(runtime))
+        tauri::async_runtime::spawn_blocking(move || runtime.shutdown())
             .await
-            .map_err(|error| format!("explicit proxy shutdown task failed: {error}"))?;
+            .map_err(|error| format!("explicit proxy shutdown task failed: {error}"))??;
     }
     Ok(())
+}
+
+#[cfg(windows)]
+async fn activate_system_proxy(app: &AppHandle, runtime: &mut ProxyRuntime) -> Result<(), String> {
+    if runtime.system_proxy.is_some() {
+        return Ok(());
+    }
+    let certificate = application_certificate_authority(app);
+    if certificate.state != CertificateAuthorityState::Ready
+        || certificate.trust != CertificateTrust::Trusted
+    {
+        return Ok(());
+    }
+    let desired = system_proxy_settings(&runtime.endpoint);
+    let journal = application_proxy_recovery_journal(app)?;
+    let watchdog = std::env::current_exe()
+        .map_err(|error| format!("proxy watchdog executable is unavailable: {error}"))?;
+    let session = tauri::async_runtime::spawn_blocking(move || {
+        begin_platform_proxy_session(desired, journal, watchdog)
+    })
+    .await
+    .map_err(|error| format!("system proxy task failed: {error}"))??;
+    runtime.system_proxy = Some(session);
+    Ok(())
+}
+
+#[cfg(not(windows))]
+async fn activate_system_proxy(
+    _app: &AppHandle,
+    _runtime: &mut ProxyRuntime,
+) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(windows)]
+fn system_proxy_settings(endpoint: &str) -> ProxySettings {
+    ProxySettings::Manual {
+        http_proxy: endpoint.to_owned(),
+        https_proxy: endpoint.to_owned(),
+        bypass: system_proxy_bypass(),
+    }
+}
+
+#[cfg(windows)]
+fn system_proxy_bypass() -> Vec<String> {
+    vec![
+        "<local>".to_owned(),
+        "localhost".to_owned(),
+        "127.0.0.1".to_owned(),
+        "::1".to_owned(),
+    ]
+}
+
+#[cfg(windows)]
+fn begin_platform_proxy_session(
+    desired: ProxySettings,
+    journal: PathBuf,
+    watchdog: PathBuf,
+) -> Result<PlatformProxySession, String> {
+    ProxySession::begin(WindowsProxyBackend::system(), desired, journal, watchdog)
+        .map(PlatformProxySession::Windows)
+        .map_err(|error| error.to_string())
 }
 
 fn reserve_loopback_address() -> Result<SocketAddr, String> {
@@ -1004,6 +1146,7 @@ mod tests {
                 proxy_available: true,
                 gateway_endpoint: Some("http://127.0.0.1:8787".to_owned()),
                 proxy_endpoint: None,
+                system_proxy_active: false,
                 certificate_authority: CertificateAuthority::missing(),
             },
         );
@@ -1045,6 +1188,7 @@ mod tests {
                 proxy_available: true,
                 gateway_endpoint: Some("http://127.0.0.1:8787".to_owned()),
                 proxy_endpoint: Some("http://127.0.0.1:43125".to_owned()),
+                system_proxy_active: true,
                 certificate_authority: certificate_authority.clone(),
             },
         );
@@ -1054,10 +1198,32 @@ mod tests {
         assert!(workspace.capture.proxy_available);
         assert_eq!(workspace.capture.mode, CaptureMode::Proxy);
         assert_eq!(workspace.capture.endpoint, "http://127.0.0.1:43125");
-        assert_eq!(workspace.capture.profile, "Explicit TLS proxy");
+        assert_eq!(
+            workspace.capture.profile,
+            "System-managed explicit TLS proxy"
+        );
         assert_eq!(
             workspace.capture.certificate_authority,
             certificate_authority
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn system_proxy_settings_use_the_verified_loopback_endpoint() {
+        let settings = system_proxy_settings("http://127.0.0.1:43125");
+        assert_eq!(
+            settings,
+            ProxySettings::Manual {
+                http_proxy: "http://127.0.0.1:43125".to_owned(),
+                https_proxy: "http://127.0.0.1:43125".to_owned(),
+                bypass: vec![
+                    "<local>".to_owned(),
+                    "localhost".to_owned(),
+                    "127.0.0.1".to_owned(),
+                    "::1".to_owned(),
+                ],
+            }
         );
     }
 

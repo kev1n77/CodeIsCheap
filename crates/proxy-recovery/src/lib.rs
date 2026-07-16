@@ -4,12 +4,15 @@
 //! deterministic crash injection and must not be used as a system proxy backend.
 
 use std::fmt;
-use std::fs::{self, File};
+use std::fs::{self, OpenOptions};
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
 
 use serde::{Deserialize, Serialize};
 
@@ -169,6 +172,7 @@ pub enum RecoveryError {
     InvalidJournalVersion(String),
     WatchdogDidNotBecomeReady,
     WatchdogExitedEarly,
+    OwnerStillRunning(u32),
     UnsupportedBackend,
     SnapshotBackendMismatch,
     InvalidProxyEndpoint(String),
@@ -192,6 +196,12 @@ impl fmt::Display for RecoveryError {
                 write!(formatter, "proxy watchdog did not become ready")
             }
             Self::WatchdogExitedEarly => write!(formatter, "proxy watchdog exited before arming"),
+            Self::OwnerStillRunning(pid) => {
+                write!(
+                    formatter,
+                    "proxy recovery owner process {pid} is still running"
+                )
+            }
             Self::UnsupportedBackend => write!(formatter, "proxy recovery backend is unsupported"),
             Self::SnapshotBackendMismatch => {
                 write!(formatter, "proxy snapshot does not match its backend")
@@ -388,9 +398,58 @@ pub fn recover_from_journal(journal_path: &Path) -> Result<bool, RecoveryError> 
         remove_if_exists(journal_path)?;
         return Ok(false);
     }
+    if owner_process_is_running(journal.owner_pid)? {
+        return Err(RecoveryError::OwnerStillRunning(journal.owner_pid));
+    }
 
     restore_snapshot(journal_path, &journal)?;
     Ok(true)
+}
+
+fn owner_process_is_running(pid: u32) -> Result<bool, RecoveryError> {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::{
+            CloseHandle, ERROR_ACCESS_DENIED, ERROR_INVALID_PARAMETER,
+        };
+        use windows_sys::Win32::System::Threading::{
+            OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+        };
+
+        let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+        if !handle.is_null() {
+            unsafe {
+                CloseHandle(handle);
+            }
+            return Ok(true);
+        }
+        let error = io::Error::last_os_error();
+        match error.raw_os_error().map(|value| value as u32) {
+            Some(ERROR_ACCESS_DENIED) => Ok(true),
+            Some(ERROR_INVALID_PARAMETER) => Ok(false),
+            _ => Err(RecoveryError::Io(error)),
+        }
+    }
+    #[cfg(unix)]
+    {
+        let Ok(pid) = i32::try_from(pid) else {
+            return Ok(false);
+        };
+        if unsafe { libc::kill(pid, 0) } == 0 {
+            return Ok(true);
+        }
+        let error = io::Error::last_os_error();
+        match error.raw_os_error() {
+            Some(libc::EPERM) => Ok(true),
+            Some(libc::ESRCH) => Ok(false),
+            _ => Err(RecoveryError::Io(error)),
+        }
+    }
+    #[cfg(not(any(windows, unix)))]
+    {
+        let _ = pid;
+        Ok(false)
+    }
 }
 
 fn restore_snapshot(journal_path: &Path, journal: &RecoveryJournal) -> Result<(), RecoveryError> {
@@ -451,9 +510,21 @@ fn mark_restored(path: &Path) -> Result<(), RecoveryError> {
 fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> Result<(), RecoveryError> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
+        #[cfg(unix)]
+        fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
     }
-    let temporary = temporary_path(path);
-    let mut file = File::create(&temporary)?;
+    let (temporary, mut file) = loop {
+        let temporary = temporary_path(path);
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        options.mode(0o600);
+        match options.open(&temporary) {
+            Ok(file) => break (temporary, file),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(RecoveryError::Io(error)),
+        }
+    };
     serde_json::to_writer_pretty(&mut file, value).map_err(RecoveryError::Json)?;
     file.write_all(b"\n")?;
     file.sync_all()?;

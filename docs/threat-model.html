@@ -47,8 +47,8 @@
       <tr><td class="task-id">TM-02</td><td>捕获非目标应用或端点</td><td>Rust/Python 共用精确 host、POST method 与 path pattern 策略</td><td>Profile UI 与自定义端点策略管理</td></tr>
       <tr><td class="task-id">TM-03</td><td>本机其他进程伪造或读取 IPC</td><td>loopback 限制、首帧随机 token、4 MiB 帧上限</td><td>用户级 socket ACL、token 轮换、失败限速</td></tr>
       <tr><td class="task-id">TM-04</td><td>数据库文件被离线读取</td><td>SQLCipher、WAL、迁移、加密备份、错误密钥、DB/WAL canary 与跨平台 OS 凭据库 CI</td><td>锁定状态与 key 丢失恢复体验</td></tr>
-      <tr><td class="task-id">TM-05</td><td>本地 CA 私钥泄露或残留信任</td><td>生产 CA 生命周期尚未实现</td><td>每设备生成、受限权限、指纹 UI、一键卸载；代理 Beta 硬门槛</td></tr>
-      <tr><td class="task-id">TM-06</td><td>崩溃后系统代理残留</td><td>Windows/macOS 强杀恢复实验通过</td><td>journal 私有目录与 macOS 特权 helper</td></tr>
+      <tr><td class="task-id">TM-05</td><td>本地 CA 私钥泄露或残留信任</td><td>每设备 CA、跨平台私钥权限检查、指纹 UI、Windows CurrentUser 与 macOS User 幂等卸载已实现</td><td>两平台交互式验收；发布前独立安全评审</td></tr>
+      <tr><td class="task-id">TM-06</td><td>崩溃后系统代理残留</td><td>Windows/macOS 强杀恢复实验；Windows 桌面已接入私有 journal、watchdog、启动恢复和活 owner 校验</td><td>macOS 特权 helper；sidecar 单独退出故障注入</td></tr>
       <tr><td class="task-id">TM-07</td><td>sidecar 或更新包被替换</td><td>打包 manifest 含 SHA-256</td><td>签名、SBOM、启动前 hash 校验；发布硬门槛</td></tr>
       <tr><td class="task-id">TM-08</td><td>复制或导出泄露秘密</td><td>功能尚未实现</td><td>稳定占位符、秘密扫描、预览确认、策略版本</td></tr>
       <tr><td class="task-id">TM-09</td><td>恶意 Prompt 触发 UI 注入</td><td>React 默认转义、Tauri CSP</td><td>Raw 仅纯文本、URL 不自动执行、XSS fixture</td></tr>
