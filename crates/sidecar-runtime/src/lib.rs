@@ -18,6 +18,8 @@ use x509_parser::{parse_x509_certificate, pem::parse_x509_pem};
 #[cfg(target_os = "macos")]
 use security_framework::trust_settings::{Domain, TrustSettings, TrustSettingsForCertificate};
 #[cfg(windows)]
+use std::io::Write as _;
+#[cfg(windows)]
 use std::mem::size_of;
 #[cfg(unix)]
 use std::os::unix::process::CommandExt as _;
@@ -25,6 +27,7 @@ use std::os::unix::process::CommandExt as _;
 use std::os::windows::{
     ffi::OsStrExt as _,
     io::{AsRawHandle, FromRawHandle, OwnedHandle},
+    process::CommandExt as _,
 };
 #[cfg(windows)]
 use windows_sys::Win32::Foundation::{
@@ -34,18 +37,11 @@ use windows_sys::Win32::Foundation::{
 #[cfg(windows)]
 use windows_sys::Win32::Security::Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT};
 #[cfg(windows)]
-use windows_sys::Win32::Security::Cryptography::UI::{
-    CRYPTUI_WIZ_IMPORT_NO_CHANGE_DEST_STORE, CRYPTUI_WIZ_IMPORT_SRC_INFO,
-    CRYPTUI_WIZ_IMPORT_SRC_INFO_0, CRYPTUI_WIZ_IMPORT_SUBJECT_CERT_CONTEXT,
-    CRYPTUI_WIZ_IMPORT_TO_CURRENTUSER, CRYPTUI_WIZ_NO_UI, CryptUIWizImport,
-};
-#[cfg(windows)]
 use windows_sys::Win32::Security::Cryptography::{
     CERT_CONTEXT, CERT_STORE_OPEN_EXISTING_FLAG, CERT_STORE_PROV_SYSTEM_W,
     CERT_STORE_READONLY_FLAG, CERT_SYSTEM_STORE_CURRENT_USER, CERT_SYSTEM_STORE_LOCAL_MACHINE,
-    CertCloseStore, CertCreateCertificateContext, CertDeleteCertificateFromStore,
-    CertEnumCertificatesInStore, CertFreeCertificateContext, CertOpenStore, HCERTSTORE,
-    X509_ASN_ENCODING,
+    CertCloseStore, CertDeleteCertificateFromStore, CertEnumCertificatesInStore,
+    CertFreeCertificateContext, CertOpenStore, HCERTSTORE,
 };
 #[cfg(windows)]
 use windows_sys::Win32::Security::{
@@ -73,7 +69,9 @@ use windows_sys::Win32::System::SystemServices::{
     ACCESS_ALLOWED_OBJECT_ACE_TYPE,
 };
 #[cfg(windows)]
-use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+use windows_sys::Win32::System::Threading::{
+    CREATE_NO_WINDOW, GetCurrentProcess, OpenProcessToken,
+};
 
 pub const SIDECAR_MANIFEST_VERSION: &str = "0.1";
 pub const CAPTURE_CONTRACT_VERSION: &str = "0.1";
@@ -184,7 +182,8 @@ pub fn install_certificate_authority(
     {
         let certificate_der = load_certificate_der(confdir.as_ref())?;
         validate_trust_anchor(&certificate_der)?;
-        windows_install_certificate(&certificate_der).map_err(CertificateAuthorityError::Platform)
+        windows_install_certificate(confdir.as_ref(), &certificate_der)
+            .map_err(CertificateAuthorityError::Platform)
     }
     #[cfg(not(windows))]
     {
@@ -740,20 +739,6 @@ impl Drop for WindowsCertificateStore {
 }
 
 #[cfg(windows)]
-struct WindowsCertificateContext(*mut CERT_CONTEXT);
-
-#[cfg(windows)]
-impl Drop for WindowsCertificateContext {
-    fn drop(&mut self) {
-        if !self.0.is_null() {
-            unsafe {
-                CertFreeCertificateContext(self.0);
-            }
-        }
-    }
-}
-
-#[cfg(windows)]
 fn windows_certificate_trust_status(certificate_der: &[u8]) -> (CertificateTrustState, bool) {
     match windows_root_store_contains(CERT_SYSTEM_STORE_CURRENT_USER, certificate_der) {
         Ok(true) => return (CertificateTrustState::Trusted, true),
@@ -782,48 +767,56 @@ fn windows_root_store_contains(scope: u32, certificate_der: &[u8]) -> io::Result
 }
 
 #[cfg(windows)]
-fn windows_install_certificate(certificate_der: &[u8]) -> io::Result<bool> {
-    let store = windows_open_root_store(CERT_SYSTEM_STORE_CURRENT_USER, false)?;
-    if let Some(context) = windows_find_certificate(store.0, certificate_der)? {
-        unsafe {
-            CertFreeCertificateContext(context);
-        }
+fn windows_install_certificate(confdir: &Path, certificate_der: &[u8]) -> io::Result<bool> {
+    if windows_root_store_contains(CERT_SYSTEM_STORE_CURRENT_USER, certificate_der)? {
         return Ok(false);
     }
-    let context = unsafe {
-        CertCreateCertificateContext(
-            X509_ASN_ENCODING,
-            certificate_der.as_ptr(),
-            certificate_der.len() as u32,
-        )
+    let mut certificate_file = tempfile::Builder::new()
+        .prefix("codeischeap-ca-")
+        .suffix(".cer")
+        .tempfile_in(confdir)?;
+    certificate_file.write_all(certificate_der)?;
+    certificate_file.flush()?;
+    let certificate_path = certificate_file.into_temp_path();
+    let system_root = std::env::var_os("SystemRoot")
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "SystemRoot is unavailable"))?;
+    let certutil = PathBuf::from(system_root)
+        .join("System32")
+        .join("certutil.exe");
+    let mut command = Command::new(certutil);
+    command
+        .env_clear()
+        .args(["-user", "-f", "-addstore", "Root"])
+        .arg(&certificate_path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .creation_flags(CREATE_NO_WINDOW);
+    let mut child = command.spawn()?;
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "certutil certificate import timed out",
+            ));
+        }
+        thread::sleep(Duration::from_millis(25));
     };
-    if context.is_null() {
-        return Err(io::Error::last_os_error());
+    if !status.success() {
+        return Err(io::Error::other(format!(
+            "certutil certificate import exited with {status}"
+        )));
     }
-    let context = WindowsCertificateContext(context);
-    let source = CRYPTUI_WIZ_IMPORT_SRC_INFO {
-        dwSize: size_of::<CRYPTUI_WIZ_IMPORT_SRC_INFO>() as u32,
-        dwSubjectChoice: CRYPTUI_WIZ_IMPORT_SUBJECT_CERT_CONTEXT,
-        Anonymous: CRYPTUI_WIZ_IMPORT_SRC_INFO_0 {
-            pCertContext: context.0,
-        },
-        dwFlags: 0,
-        pwszPassword: std::ptr::null(),
-    };
-    let flags = CRYPTUI_WIZ_NO_UI
-        | CRYPTUI_WIZ_IMPORT_TO_CURRENTUSER
-        | CRYPTUI_WIZ_IMPORT_NO_CHANGE_DEST_STORE;
-    if unsafe {
-        CryptUIWizImport(
-            flags,
-            std::ptr::null_mut(),
-            std::ptr::null(),
-            &source,
-            store.0,
-        )
-    } == 0
-    {
-        return Err(io::Error::last_os_error());
+    if !windows_root_store_contains(CERT_SYSTEM_STORE_CURRENT_USER, certificate_der)? {
+        return Err(io::Error::other(
+            "certutil completed without importing the exact certificate",
+        ));
     }
     Ok(true)
 }

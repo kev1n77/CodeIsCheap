@@ -10,6 +10,7 @@ regex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+tempfile.workspace = true
 x509-parser.workspace = true
 
 [target.'cfg(unix)'.dependencies]
@@ -19,7 +20,4 @@ libc = "0.2"
 security-framework = "3.7.0"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Security_Cryptography", "Win32_Security_Cryptography_UI", "Win32_System_JobObjects", "Win32_System_SystemServices", "Win32_System_Threading"] }
-
-[dev-dependencies]
-tempfile.workspace = true
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Security_Cryptography", "Win32_System_JobObjects", "Win32_System_SystemServices", "Win32_System_Threading"] }
