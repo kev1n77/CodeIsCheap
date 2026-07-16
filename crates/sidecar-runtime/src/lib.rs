@@ -203,6 +203,7 @@ pub fn uninstall_certificate_authority(
     }
 }
 
+#[cfg(any(windows, test))]
 fn load_certificate_der(confdir: &Path) -> Result<Vec<u8>, CertificateAuthorityError> {
     let encoded = fs::read(confdir.join(CA_CERTIFICATE_FILENAME)).map_err(|error| {
         if error.kind() == io::ErrorKind::NotFound {
@@ -228,6 +229,7 @@ fn load_certificate_der(confdir: &Path) -> Result<Vec<u8>, CertificateAuthorityE
     Ok(pem.contents)
 }
 
+#[cfg(any(windows, test))]
 fn validate_trust_anchor(certificate_der: &[u8]) -> Result<(), CertificateAuthorityError> {
     let (_, certificate) = parse_x509_certificate(certificate_der)
         .map_err(|_| CertificateAuthorityError::InvalidCertificate("invalid X.509".to_owned()))?;
