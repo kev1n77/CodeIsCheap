@@ -26,10 +26,18 @@ use std::os::windows::{
 };
 #[cfg(windows)]
 use windows_sys::Win32::Foundation::{
-    ERROR_SUCCESS, GENERIC_ALL, GENERIC_EXECUTE, GENERIC_READ, GENERIC_WRITE, HANDLE, LocalFree,
+    CRYPT_E_NOT_FOUND, ERROR_SUCCESS, GENERIC_ALL, GENERIC_EXECUTE, GENERIC_READ, GENERIC_WRITE,
+    GetLastError, HANDLE, LocalFree,
 };
 #[cfg(windows)]
 use windows_sys::Win32::Security::Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT};
+#[cfg(windows)]
+use windows_sys::Win32::Security::Cryptography::{
+    CERT_CONTEXT, CERT_STORE_OPEN_EXISTING_FLAG, CERT_STORE_PROV_SYSTEM_W,
+    CERT_STORE_READONLY_FLAG, CERT_SYSTEM_STORE_CURRENT_USER, CERT_SYSTEM_STORE_LOCAL_MACHINE,
+    CertCloseStore, CertEnumCertificatesInStore, CertFreeCertificateContext, CertOpenStore,
+    HCERTSTORE,
+};
 #[cfg(windows)]
 use windows_sys::Win32::Security::{
     ACCESS_ALLOWED_ACE, CreateWellKnownSid, DACL_SECURITY_INFORMATION, GetAce, GetLengthSid,
@@ -89,6 +97,14 @@ pub enum PrivateMaterialState {
     Insecure,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CertificateTrustState {
+    Unchecked,
+    Trusted,
+    NotTrusted,
+    Unsupported,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CertificateAuthorityStatus {
     pub state: CertificateAuthorityState,
@@ -97,6 +113,7 @@ pub struct CertificateAuthorityStatus {
     pub valid_from_unix_ms: Option<i64>,
     pub valid_until_unix_ms: Option<i64>,
     pub private_material: PrivateMaterialState,
+    pub trust: CertificateTrustState,
     pub detail: Option<String>,
 }
 
@@ -110,6 +127,7 @@ impl CertificateAuthorityStatus {
             valid_from_unix_ms: None,
             valid_until_unix_ms: None,
             private_material: PrivateMaterialState::Missing,
+            trust: CertificateTrustState::Unchecked,
             detail: None,
         }
     }
@@ -130,7 +148,7 @@ pub fn inspect_certificate_authority(confdir: impl AsRef<Path>) -> CertificateAu
     }
 
     let private_material = private_material_state(&private_paths, private_exists);
-    if !certificate_exists || private_material == PrivateMaterialState::Missing {
+    if !certificate_exists {
         return invalid_certificate_authority(
             private_material,
             "certificate authority files are incomplete",
@@ -186,7 +204,12 @@ pub fn inspect_certificate_authority(confdir: impl AsRef<Path>) -> CertificateAu
     let validity = certificate.validity();
     let private_material_secure = !matches!(private_material, PrivateMaterialState::Insecure);
     let certificate_valid = validity.is_valid();
-    let (state, detail) = if !private_material_secure {
+    let (state, detail) = if private_material == PrivateMaterialState::Missing {
+        (
+            CertificateAuthorityState::Invalid,
+            Some("certificate authority files are incomplete".to_owned()),
+        )
+    } else if !private_material_secure {
         (
             CertificateAuthorityState::Invalid,
             Some("certificate authority private material permissions are too broad".to_owned()),
@@ -206,6 +229,7 @@ pub fn inspect_certificate_authority(confdir: impl AsRef<Path>) -> CertificateAu
         valid_from_unix_ms: Some(validity.not_before.timestamp().saturating_mul(1_000)),
         valid_until_unix_ms: Some(validity.not_after.timestamp().saturating_mul(1_000)),
         private_material,
+        trust: certificate_trust_state(&pem.contents),
         detail,
     }
 }
@@ -221,6 +245,7 @@ fn invalid_certificate_authority(
         valid_from_unix_ms: None,
         valid_until_unix_ms: None,
         private_material,
+        trust: CertificateTrustState::Unchecked,
         detail: Some(detail.to_owned()),
     }
 }
@@ -512,6 +537,95 @@ fn sid_is_allowed(sid: PSID, allowed_sids: &[OwnedSid]) -> io::Result<bool> {
     let length = unsafe { GetLengthSid(sid) } as usize;
     let bytes = unsafe { std::slice::from_raw_parts(sid.cast::<u8>(), length) };
     Ok(allowed_sids.iter().any(|allowed| allowed.bytes() == bytes))
+}
+
+fn certificate_trust_state(certificate_der: &[u8]) -> CertificateTrustState {
+    #[cfg(windows)]
+    {
+        windows_certificate_trust_state(certificate_der)
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = certificate_der;
+        CertificateTrustState::Unchecked
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        let _ = certificate_der;
+        CertificateTrustState::Unsupported
+    }
+}
+
+#[cfg(windows)]
+struct WindowsCertificateStore(HCERTSTORE);
+
+#[cfg(windows)]
+impl Drop for WindowsCertificateStore {
+    fn drop(&mut self) {
+        unsafe {
+            CertCloseStore(self.0, 0);
+        }
+    }
+}
+
+#[cfg(windows)]
+fn windows_certificate_trust_state(certificate_der: &[u8]) -> CertificateTrustState {
+    let mut lookup_failed = false;
+    for scope in [
+        CERT_SYSTEM_STORE_CURRENT_USER,
+        CERT_SYSTEM_STORE_LOCAL_MACHINE,
+    ] {
+        match windows_root_store_contains(scope, certificate_der) {
+            Ok(true) => return CertificateTrustState::Trusted,
+            Ok(false) => {}
+            Err(_) => lookup_failed = true,
+        }
+    }
+    if lookup_failed {
+        CertificateTrustState::Unchecked
+    } else {
+        CertificateTrustState::NotTrusted
+    }
+}
+
+#[cfg(windows)]
+fn windows_root_store_contains(scope: u32, certificate_der: &[u8]) -> io::Result<bool> {
+    const ROOT_STORE: [u16; 5] = [b'R' as u16, b'O' as u16, b'O' as u16, b'T' as u16, 0];
+    let store = unsafe {
+        CertOpenStore(
+            CERT_STORE_PROV_SYSTEM_W,
+            0,
+            0,
+            scope | CERT_STORE_OPEN_EXISTING_FLAG | CERT_STORE_READONLY_FLAG,
+            ROOT_STORE.as_ptr().cast(),
+        )
+    };
+    if store.is_null() {
+        return Err(io::Error::last_os_error());
+    }
+    let store = WindowsCertificateStore(store);
+    let mut context: *mut CERT_CONTEXT = std::ptr::null_mut();
+    loop {
+        context = unsafe { CertEnumCertificatesInStore(store.0, context) };
+        if context.is_null() {
+            let error = unsafe { GetLastError() };
+            return if error == CRYPT_E_NOT_FOUND as u32 {
+                Ok(false)
+            } else {
+                Err(io::Error::from_raw_os_error(error as i32))
+            };
+        }
+        let encoded = unsafe {
+            std::slice::from_raw_parts((*context).pbCertEncoded, (*context).cbCertEncoded as usize)
+        };
+        // Subject and serial are not strong enough to identify the exact local CA.
+        if encoded == certificate_der {
+            unsafe {
+                CertFreeCertificateContext(context);
+            }
+            return Ok(true);
+        }
+    }
 }
 
 fn format_fingerprint(bytes: &[u8]) -> String {
@@ -1270,11 +1384,29 @@ MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
         assert_eq!(ready.private_material, PrivateMaterialState::Restricted);
         #[cfg(not(any(unix, windows)))]
         assert_eq!(ready.private_material, PrivateMaterialState::Unchecked);
+        assert_platform_trust_state(ready.trust);
 
         fs::write(root.join(CA_CERTIFICATE_FILENAME), b"not a certificate").unwrap();
         let invalid = inspect_certificate_authority(root);
         assert_eq!(invalid.state, CertificateAuthorityState::Invalid);
         assert!(invalid.detail.as_deref().unwrap().contains("invalid PEM"));
+    }
+
+    #[test]
+    fn certificate_metadata_survives_missing_private_material_for_uninstall() {
+        let directory = tempdir().expect("CA directory");
+        fs::write(
+            directory.path().join(CA_CERTIFICATE_FILENAME),
+            TEST_CA_CERTIFICATE,
+        )
+        .unwrap();
+
+        let status = inspect_certificate_authority(directory.path());
+        assert_eq!(status.state, CertificateAuthorityState::Invalid);
+        assert_eq!(status.private_material, PrivateMaterialState::Missing);
+        assert!(status.fingerprint_sha256.is_some());
+        assert_eq!(status.subject.as_deref(), Some("CodeIsCheap Test CA"));
+        assert_platform_trust_state(status.trust);
     }
 
     #[cfg(unix)]
@@ -1328,6 +1460,15 @@ MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
         }
         #[cfg(not(any(unix, windows)))]
         let _ = root;
+    }
+
+    fn assert_platform_trust_state(state: CertificateTrustState) {
+        #[cfg(windows)]
+        assert_eq!(state, CertificateTrustState::NotTrusted);
+        #[cfg(target_os = "macos")]
+        assert_eq!(state, CertificateTrustState::Unchecked);
+        #[cfg(not(any(windows, target_os = "macos")))]
+        assert_eq!(state, CertificateTrustState::Unsupported);
     }
 
     #[cfg(windows)]

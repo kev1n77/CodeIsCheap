@@ -237,21 +237,21 @@ describe("request workbench", () => {
       ...workspace.capture,
       proxyAvailable: false,
       certificateAuthority: {
-        state: "ready",
+        state: "invalid",
         fingerprintSha256: "11:22:33:44",
         subject: "mitmproxy",
         validFromUnixMs: 1_577_836_800_000,
         validUntilUnixMs: 4_070_908_800_000,
-        privateMaterial: "unchecked",
-        trust: "unchecked",
-        detail: null,
+        privateMaterial: "missing",
+        trust: "trusted",
+        detail: "certificate authority files are incomplete",
       },
     };
     vi.mocked(invoke).mockResolvedValue(structuredClone(workspace));
 
     render(<App />);
 
-    expect(await screen.findByText("Ready · trust unchecked")).toBeInTheDocument();
+    expect(await screen.findByText("Invalid · trusted")).toBeInTheDocument();
     expect(screen.getByText("11:22:33:44")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Proxy" })).toBeDisabled();
   });
