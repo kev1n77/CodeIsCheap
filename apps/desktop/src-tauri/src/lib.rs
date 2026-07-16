@@ -418,17 +418,18 @@ async fn runtime_snapshot(app: &AppHandle, state: &DesktopState) -> RuntimeSnaps
         .await
         .as_ref()
         .map(|runtime| runtime.endpoint.clone());
-    let (proxy_endpoint, system_proxy_active) = state
-        .proxy
-        .lock()
-        .await
-        .as_ref()
-        .map_or((None, false), |runtime| {
-            (
-                Some(runtime.endpoint.clone()),
-                runtime.system_proxy.is_some(),
-            )
-        });
+    let (proxy_endpoint, system_proxy_active) =
+        state
+            .proxy
+            .lock()
+            .await
+            .as_ref()
+            .map_or((None, false), |runtime| {
+                (
+                    Some(runtime.endpoint.clone()),
+                    runtime.system_proxy.is_some(),
+                )
+            });
     RuntimeSnapshot {
         mode,
         active: state.capture_active.load(Ordering::Acquire),
