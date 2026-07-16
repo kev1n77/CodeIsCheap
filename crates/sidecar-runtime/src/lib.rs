@@ -18,8 +18,6 @@ use x509_parser::{parse_x509_certificate, pem::parse_x509_pem};
 #[cfg(target_os = "macos")]
 use security_framework::trust_settings::{Domain, TrustSettings, TrustSettingsForCertificate};
 #[cfg(windows)]
-use std::io::Write as _;
-#[cfg(windows)]
 use std::mem::size_of;
 #[cfg(unix)]
 use std::os::unix::process::CommandExt as _;
@@ -27,7 +25,6 @@ use std::os::unix::process::CommandExt as _;
 use std::os::windows::{
     ffi::OsStrExt as _,
     io::{AsRawHandle, FromRawHandle, OwnedHandle},
-    process::CommandExt as _,
 };
 #[cfg(windows)]
 use windows_sys::Win32::Foundation::{
@@ -38,10 +35,11 @@ use windows_sys::Win32::Foundation::{
 use windows_sys::Win32::Security::Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT};
 #[cfg(windows)]
 use windows_sys::Win32::Security::Cryptography::{
-    CERT_CONTEXT, CERT_STORE_OPEN_EXISTING_FLAG, CERT_STORE_PROV_SYSTEM_W,
-    CERT_STORE_READONLY_FLAG, CERT_SYSTEM_STORE_CURRENT_USER, CERT_SYSTEM_STORE_LOCAL_MACHINE,
-    CertCloseStore, CertDeleteCertificateFromStore, CertEnumCertificatesInStore,
-    CertFreeCertificateContext, CertOpenStore, HCERTSTORE,
+    CERT_CONTEXT, CERT_STORE_ADD_USE_EXISTING, CERT_STORE_OPEN_EXISTING_FLAG,
+    CERT_STORE_PROV_SYSTEM_W, CERT_STORE_READONLY_FLAG, CERT_SYSTEM_STORE_CURRENT_USER,
+    CERT_SYSTEM_STORE_LOCAL_MACHINE, CertAddCertificateContextToStore, CertCloseStore,
+    CertCreateCertificateContext, CertDeleteCertificateFromStore, CertEnumCertificatesInStore,
+    CertFreeCertificateContext, CertOpenStore, HCERTSTORE, X509_ASN_ENCODING,
 };
 #[cfg(windows)]
 use windows_sys::Win32::Security::{
@@ -69,9 +67,7 @@ use windows_sys::Win32::System::SystemServices::{
     ACCESS_ALLOWED_OBJECT_ACE_TYPE,
 };
 #[cfg(windows)]
-use windows_sys::Win32::System::Threading::{
-    CREATE_NO_WINDOW, GetCurrentProcess, OpenProcessToken,
-};
+use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
 pub const SIDECAR_MANIFEST_VERSION: &str = "0.1";
 pub const CAPTURE_CONTRACT_VERSION: &str = "0.1";
@@ -182,8 +178,7 @@ pub fn install_certificate_authority(
     {
         let certificate_der = load_certificate_der(confdir.as_ref())?;
         validate_trust_anchor(&certificate_der)?;
-        windows_install_certificate(confdir.as_ref(), &certificate_der)
-            .map_err(CertificateAuthorityError::Platform)
+        windows_install_certificate(&certificate_der).map_err(CertificateAuthorityError::Platform)
     }
     #[cfg(not(windows))]
     {
@@ -739,6 +734,20 @@ impl Drop for WindowsCertificateStore {
 }
 
 #[cfg(windows)]
+struct WindowsCertificateContext(*mut CERT_CONTEXT);
+
+#[cfg(windows)]
+impl Drop for WindowsCertificateContext {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            unsafe {
+                CertFreeCertificateContext(self.0);
+            }
+        }
+    }
+}
+
+#[cfg(windows)]
 fn windows_certificate_trust_status(certificate_der: &[u8]) -> (CertificateTrustState, bool) {
     match windows_root_store_contains(CERT_SYSTEM_STORE_CURRENT_USER, certificate_der) {
         Ok(true) => return (CertificateTrustState::Trusted, true),
@@ -755,7 +764,15 @@ fn windows_certificate_trust_status(certificate_der: &[u8]) -> (CertificateTrust
 #[cfg(windows)]
 fn windows_root_store_contains(scope: u32, certificate_der: &[u8]) -> io::Result<bool> {
     let store = windows_open_root_store(scope, true)?;
-    match windows_find_certificate(store.0, certificate_der)? {
+    windows_certificate_store_contains(store.0, certificate_der)
+}
+
+#[cfg(windows)]
+fn windows_certificate_store_contains(
+    store: HCERTSTORE,
+    certificate_der: &[u8],
+) -> io::Result<bool> {
+    match windows_find_certificate(store, certificate_der)? {
         Some(context) => {
             unsafe {
                 CertFreeCertificateContext(context);
@@ -767,64 +784,56 @@ fn windows_root_store_contains(scope: u32, certificate_der: &[u8]) -> io::Result
 }
 
 #[cfg(windows)]
-fn windows_install_certificate(confdir: &Path, certificate_der: &[u8]) -> io::Result<bool> {
-    if windows_root_store_contains(CERT_SYSTEM_STORE_CURRENT_USER, certificate_der)? {
-        return Ok(false);
-    }
-    let mut certificate_file = tempfile::Builder::new()
-        .prefix("codeischeap-ca-")
-        .suffix(".cer")
-        .tempfile_in(confdir)?;
-    certificate_file.write_all(certificate_der)?;
-    certificate_file.flush()?;
-    let certificate_path = certificate_file.into_temp_path();
-    let system_root = std::env::var_os("SystemRoot")
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "SystemRoot is unavailable"))?;
-    let certutil = PathBuf::from(system_root)
-        .join("System32")
-        .join("certutil.exe");
-    let mut command = Command::new(certutil);
-    command
-        .env_clear()
-        .args(["-user", "-f", "-addstore", "Root"])
-        .arg(&certificate_path)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .creation_flags(CREATE_NO_WINDOW);
-    let mut child = command.spawn()?;
-    let deadline = Instant::now() + Duration::from_secs(30);
-    let status = loop {
-        if let Some(status) = child.try_wait()? {
-            break status;
-        }
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(io::Error::new(
-                io::ErrorKind::TimedOut,
-                "certutil certificate import timed out",
-            ));
-        }
-        thread::sleep(Duration::from_millis(25));
-    };
-    if !status.success() {
-        return Err(io::Error::other(format!(
-            "certutil certificate import exited with {status}"
-        )));
-    }
-    if !windows_root_store_contains(CERT_SYSTEM_STORE_CURRENT_USER, certificate_der)? {
-        return Err(io::Error::other(
-            "certutil completed without importing the exact certificate",
-        ));
-    }
-    Ok(true)
+fn windows_install_certificate(certificate_der: &[u8]) -> io::Result<bool> {
+    let store = windows_open_root_store(CERT_SYSTEM_STORE_CURRENT_USER, false)?;
+    windows_add_certificate_to_store(store.0, certificate_der)
 }
 
 #[cfg(windows)]
 fn windows_uninstall_certificate(certificate_der: &[u8]) -> io::Result<bool> {
     let store = windows_open_root_store(CERT_SYSTEM_STORE_CURRENT_USER, false)?;
-    let Some(context) = windows_find_certificate(store.0, certificate_der)? else {
+    windows_delete_certificate_from_store(store.0, certificate_der)
+}
+
+#[cfg(windows)]
+fn windows_add_certificate_to_store(store: HCERTSTORE, certificate_der: &[u8]) -> io::Result<bool> {
+    if let Some(context) = windows_find_certificate(store, certificate_der)? {
+        unsafe {
+            CertFreeCertificateContext(context);
+        }
+        return Ok(false);
+    }
+    let context = unsafe {
+        CertCreateCertificateContext(
+            X509_ASN_ENCODING,
+            certificate_der.as_ptr(),
+            certificate_der.len() as u32,
+        )
+    };
+    if context.is_null() {
+        return Err(io::Error::last_os_error());
+    }
+    let context = WindowsCertificateContext(context);
+    if unsafe {
+        CertAddCertificateContextToStore(
+            store,
+            context.0,
+            CERT_STORE_ADD_USE_EXISTING,
+            std::ptr::null_mut(),
+        )
+    } == 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(true)
+}
+
+#[cfg(windows)]
+fn windows_delete_certificate_from_store(
+    store: HCERTSTORE,
+    certificate_der: &[u8],
+) -> io::Result<bool> {
+    let Some(context) = windows_find_certificate(store, certificate_der)? else {
         return Ok(false);
     };
     if unsafe { CertDeleteCertificateFromStore(context) } == 0 {
@@ -1687,7 +1696,36 @@ MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
 
     #[cfg(windows)]
     #[test]
-    #[ignore = "mutates the ephemeral runner CurrentUser ROOT certificate store"]
+    fn windows_certificate_store_lifecycle_is_exact_and_idempotent() {
+        use windows_sys::Win32::Security::Cryptography::CERT_STORE_PROV_MEMORY;
+
+        let (_, pem) = parse_x509_pem(TEST_CA_CERTIFICATE.as_bytes()).expect("test CA PEM");
+        let store = unsafe {
+            CertOpenStore(
+                CERT_STORE_PROV_MEMORY,
+                0,
+                0,
+                0,
+                std::ptr::null::<std::ffi::c_void>(),
+            )
+        };
+        assert!(!store.is_null(), "memory certificate store must open");
+        let store = WindowsCertificateStore(store);
+
+        assert!(windows_add_certificate_to_store(store.0, &pem.contents).expect("add CA"));
+        assert!(windows_certificate_store_contains(store.0, &pem.contents).expect("find CA"));
+        assert!(!windows_add_certificate_to_store(store.0, &pem.contents).expect("idempotent add"));
+        assert!(windows_delete_certificate_from_store(store.0, &pem.contents).expect("remove CA"));
+        assert!(!windows_certificate_store_contains(store.0, &pem.contents).expect("CA removed"));
+        assert!(
+            !windows_delete_certificate_from_store(store.0, &pem.contents)
+                .expect("idempotent remove")
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "requires an interactive Windows session and mutates CurrentUser ROOT"]
     fn real_windows_ca_trust_round_trip() {
         struct TrustCleanup(PathBuf);
 

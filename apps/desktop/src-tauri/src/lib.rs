@@ -201,7 +201,10 @@ async fn install_certificate_authority_trust(
 ) -> Result<WorkspaceBootstrap, String> {
     initialize_store(&app, &state.store)?;
     let confdir = application_certificate_confdir(&app)?;
-    install_ca_trust(confdir).map_err(|error| error.to_string())?;
+    tokio::task::spawn_blocking(move || install_ca_trust(confdir))
+        .await
+        .map_err(|error| format!("certificate trust task failed: {error}"))?
+        .map_err(|error| error.to_string())?;
     load_runtime_workspace(&app, &state).await
 }
 
@@ -215,7 +218,10 @@ async fn uninstall_certificate_authority_trust(
         switch_capture_mode(&app, &state, CaptureMode::Gateway).await?;
     }
     let confdir = application_certificate_confdir(&app)?;
-    uninstall_ca_trust(confdir).map_err(|error| error.to_string())?;
+    tokio::task::spawn_blocking(move || uninstall_ca_trust(confdir))
+        .await
+        .map_err(|error| format!("certificate trust task failed: {error}"))?
+        .map_err(|error| error.to_string())?;
     load_runtime_workspace(&app, &state).await
 }
 
