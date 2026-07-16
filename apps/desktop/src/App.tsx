@@ -515,11 +515,14 @@ function formatDuration(milliseconds: number) {
 
 function certificateSummary(certificate: CertificateAuthority) {
   if (certificate.state === "missing") return "Not generated";
-  if (certificate.state === "invalid") return "Invalid";
-  if (certificate.trust === "trusted") return "Ready · trusted";
-  if (certificate.trust === "not_trusted") return "Ready · not trusted";
-  if (certificate.trust === "unsupported") return "Ready · trust unsupported";
-  return "Ready · trust unchecked";
+  const state = certificate.state === "invalid" ? "Invalid" : "Ready";
+  const trust = {
+    trusted: "trusted",
+    not_trusted: "not trusted",
+    unsupported: "trust unsupported",
+    unchecked: "trust unchecked",
+  }[certificate.trust];
+  return `${state} · ${trust}`;
 }
 
 function certificateDetail(certificate: CertificateAuthority) {
@@ -529,6 +532,7 @@ function certificateDetail(certificate: CertificateAuthority) {
     certificate.fingerprintSha256,
     certificate.validUntilUnixMs == null ? null : `Valid until ${new Date(certificate.validUntilUnixMs).toLocaleDateString()}`,
     `Private material: ${certificate.privateMaterial}`,
+    `System trust: ${certificate.trust}`,
   ].filter(Boolean).join("\n");
 }
 

@@ -22,8 +22,9 @@ use codeischeap_desktop_api::{
 use codeischeap_gateway::{Gateway, GatewayCapture, GatewayCaptureEvent};
 use codeischeap_sidecar_runtime::{
     BundleRequirements, CertificateAuthorityState as SidecarCertificateAuthorityState,
-    MANIFEST_FILENAME, PrivateMaterialState as SidecarPrivateMaterialState, SidecarBundle,
-    SidecarLaunchConfig, SidecarProcess, inspect_certificate_authority,
+    CertificateTrustState as SidecarCertificateTrustState, MANIFEST_FILENAME,
+    PrivateMaterialState as SidecarPrivateMaterialState, SidecarBundle, SidecarLaunchConfig,
+    SidecarProcess, inspect_certificate_authority,
 };
 use codeischeap_storage::{
     EncryptedStore, OsKeyStore, RetentionPolicy, RetentionReport, StorageError,
@@ -406,7 +407,12 @@ fn application_certificate_authority(app: &AppHandle) -> CertificateAuthority {
             SidecarPrivateMaterialState::Unchecked => CertificatePrivateMaterial::Unchecked,
             SidecarPrivateMaterialState::Insecure => CertificatePrivateMaterial::Insecure,
         },
-        trust: CertificateTrust::Unchecked,
+        trust: match status.trust {
+            SidecarCertificateTrustState::Unchecked => CertificateTrust::Unchecked,
+            SidecarCertificateTrustState::Trusted => CertificateTrust::Trusted,
+            SidecarCertificateTrustState::NotTrusted => CertificateTrust::NotTrusted,
+            SidecarCertificateTrustState::Unsupported => CertificateTrust::Unsupported,
+        },
         detail: status.detail,
     }
 }
