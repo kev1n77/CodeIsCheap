@@ -15,18 +15,48 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use x509_parser::{parse_x509_certificate, pem::parse_x509_pem};
 
+#[cfg(windows)]
+use std::mem::size_of;
 #[cfg(unix)]
 use std::os::unix::process::CommandExt as _;
 #[cfg(windows)]
-use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+use std::os::windows::{
+    ffi::OsStrExt as _,
+    io::{AsRawHandle, FromRawHandle, OwnedHandle},
+};
 #[cfg(windows)]
-use windows_sys::Win32::Foundation::HANDLE;
+use windows_sys::Win32::Foundation::{
+    ERROR_SUCCESS, GENERIC_ALL, GENERIC_EXECUTE, GENERIC_READ, GENERIC_WRITE, HANDLE, LocalFree,
+};
+#[cfg(windows)]
+use windows_sys::Win32::Security::Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT};
+#[cfg(windows)]
+use windows_sys::Win32::Security::{
+    ACCESS_ALLOWED_ACE, CreateWellKnownSid, DACL_SECURITY_INFORMATION, GetAce, GetLengthSid,
+    GetTokenInformation, IsValidAcl, IsValidSid, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR,
+    PSID, SECURITY_MAX_SID_SIZE, TOKEN_QUERY, TOKEN_USER, TokenUser, WinBuiltinAdministratorsSid,
+    WinCreatorOwnerRightsSid, WinCreatorOwnerSid, WinLocalSystemSid,
+};
+#[cfg(windows)]
+use windows_sys::Win32::Storage::FileSystem::{
+    DELETE, FILE_APPEND_DATA, FILE_DELETE_CHILD, FILE_EXECUTE, FILE_READ_ATTRIBUTES,
+    FILE_READ_DATA, FILE_READ_EA, FILE_WRITE_ATTRIBUTES, FILE_WRITE_DATA, FILE_WRITE_EA, WRITE_DAC,
+    WRITE_OWNER,
+};
 #[cfg(windows)]
 use windows_sys::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
     SetInformationJobObject,
 };
+#[cfg(windows)]
+use windows_sys::Win32::System::SystemServices::{
+    ACCESS_ALLOWED_ACE_TYPE, ACCESS_ALLOWED_CALLBACK_ACE_TYPE,
+    ACCESS_ALLOWED_CALLBACK_OBJECT_ACE_TYPE, ACCESS_ALLOWED_COMPOUND_ACE_TYPE,
+    ACCESS_ALLOWED_OBJECT_ACE_TYPE,
+};
+#[cfg(windows)]
+use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
 pub const SIDECAR_MANIFEST_VERSION: &str = "0.1";
 pub const CAPTURE_CONTRACT_VERSION: &str = "0.1";
@@ -214,11 +244,274 @@ fn private_material_state(paths: &[PathBuf; 2], exists: [bool; 2]) -> PrivateMat
             PrivateMaterialState::Insecure
         }
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        windows_private_material_state(paths)
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = paths;
         PrivateMaterialState::Unchecked
     }
+}
+
+#[cfg(windows)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WindowsAclState {
+    Restricted,
+    Unchecked,
+    Insecure,
+}
+
+#[cfg(windows)]
+struct OwnedSid {
+    storage: Vec<usize>,
+    length: usize,
+}
+
+#[cfg(windows)]
+impl OwnedSid {
+    fn from_psid(sid: PSID) -> io::Result<Self> {
+        if sid.is_null() || unsafe { IsValidSid(sid) } == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "invalid Windows SID",
+            ));
+        }
+        let length = unsafe { GetLengthSid(sid) } as usize;
+        let mut storage = vec![0usize; length.div_ceil(size_of::<usize>())];
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                sid.cast::<u8>(),
+                storage.as_mut_ptr().cast::<u8>(),
+                length,
+            );
+        }
+        Ok(Self { storage, length })
+    }
+
+    fn well_known(kind: i32) -> io::Result<Self> {
+        let capacity = SECURITY_MAX_SID_SIZE as usize;
+        let mut storage = vec![0usize; capacity.div_ceil(size_of::<usize>())];
+        let mut length = capacity as u32;
+        if unsafe {
+            CreateWellKnownSid(
+                kind,
+                std::ptr::null_mut(),
+                storage.as_mut_ptr().cast(),
+                &mut length,
+            )
+        } == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(Self {
+            storage,
+            length: length as usize,
+        })
+    }
+
+    #[cfg(test)]
+    fn as_psid(&self) -> PSID {
+        self.storage.as_ptr().cast_mut().cast()
+    }
+
+    fn bytes(&self) -> &[u8] {
+        unsafe { std::slice::from_raw_parts(self.storage.as_ptr().cast(), self.length) }
+    }
+}
+
+#[cfg(windows)]
+struct LocalSecurityDescriptor(PSECURITY_DESCRIPTOR);
+
+#[cfg(windows)]
+impl Drop for LocalSecurityDescriptor {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            unsafe {
+                LocalFree(self.0);
+            }
+        }
+    }
+}
+
+#[cfg(windows)]
+fn windows_private_material_state(paths: &[PathBuf; 2]) -> PrivateMaterialState {
+    if paths.iter().any(|path| File::open(path).is_err()) {
+        return PrivateMaterialState::Unchecked;
+    }
+    let allowed_sids = match windows_allowed_private_material_sids() {
+        Ok(sids) => sids,
+        Err(_) => return PrivateMaterialState::Unchecked,
+    };
+    let mut state = WindowsAclState::Restricted;
+    for path in paths {
+        match windows_file_acl_state(path, &allowed_sids) {
+            Ok(WindowsAclState::Restricted) => {}
+            Ok(WindowsAclState::Unchecked) | Err(_) => state = WindowsAclState::Unchecked,
+            Ok(WindowsAclState::Insecure) => return PrivateMaterialState::Insecure,
+        }
+    }
+    match state {
+        WindowsAclState::Restricted => PrivateMaterialState::Restricted,
+        WindowsAclState::Unchecked => PrivateMaterialState::Unchecked,
+        WindowsAclState::Insecure => PrivateMaterialState::Insecure,
+    }
+}
+
+#[cfg(windows)]
+fn windows_allowed_private_material_sids() -> io::Result<Vec<OwnedSid>> {
+    Ok(vec![
+        current_user_sid()?,
+        OwnedSid::well_known(WinLocalSystemSid)?,
+        OwnedSid::well_known(WinBuiltinAdministratorsSid)?,
+        OwnedSid::well_known(WinCreatorOwnerSid)?,
+        OwnedSid::well_known(WinCreatorOwnerRightsSid)?,
+    ])
+}
+
+#[cfg(windows)]
+fn current_user_sid() -> io::Result<OwnedSid> {
+    let mut token_handle = std::ptr::null_mut();
+    if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token_handle) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let token = unsafe { OwnedHandle::from_raw_handle(token_handle) };
+    let mut required = 0;
+    unsafe {
+        GetTokenInformation(
+            token.as_raw_handle(),
+            TokenUser,
+            std::ptr::null_mut(),
+            0,
+            &mut required,
+        );
+    }
+    if required == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let mut buffer = vec![0usize; (required as usize).div_ceil(size_of::<usize>())];
+    if unsafe {
+        GetTokenInformation(
+            token.as_raw_handle(),
+            TokenUser,
+            buffer.as_mut_ptr().cast(),
+            required,
+            &mut required,
+        )
+    } == 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    let token_user = unsafe { &*buffer.as_ptr().cast::<TOKEN_USER>() };
+    OwnedSid::from_psid(token_user.User.Sid)
+}
+
+#[cfg(windows)]
+fn windows_file_acl_state(path: &Path, allowed_sids: &[OwnedSid]) -> io::Result<WindowsAclState> {
+    let mut wide_path = path.as_os_str().encode_wide().collect::<Vec<_>>();
+    wide_path.push(0);
+    let mut owner = std::ptr::null_mut();
+    let mut dacl = std::ptr::null_mut();
+    let mut descriptor = std::ptr::null_mut();
+    let result = unsafe {
+        GetNamedSecurityInfoW(
+            wide_path.as_ptr(),
+            SE_FILE_OBJECT,
+            OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+            &mut owner,
+            std::ptr::null_mut(),
+            &mut dacl,
+            std::ptr::null_mut(),
+            &mut descriptor,
+        )
+    };
+    if result != ERROR_SUCCESS {
+        return Err(io::Error::from_raw_os_error(result as i32));
+    }
+    let _descriptor = LocalSecurityDescriptor(descriptor);
+    if dacl.is_null() {
+        return Ok(WindowsAclState::Insecure);
+    }
+    if unsafe { IsValidAcl(dacl) } == 0 {
+        return Ok(WindowsAclState::Unchecked);
+    }
+    if !sid_is_allowed(owner, allowed_sids)? {
+        return Ok(WindowsAclState::Insecure);
+    }
+
+    let mut state = WindowsAclState::Restricted;
+    let ace_count = unsafe { (*dacl).AceCount } as u32;
+    for index in 0..ace_count {
+        let mut raw_ace = std::ptr::null_mut();
+        if unsafe { GetAce(dacl, index, &mut raw_ace) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let header = unsafe { &*raw_ace.cast::<windows_sys::Win32::Security::ACE_HEADER>() };
+        let ace_type = header.AceType as u32;
+        if !matches!(
+            ace_type,
+            ACCESS_ALLOWED_ACE_TYPE
+                | ACCESS_ALLOWED_CALLBACK_ACE_TYPE
+                | ACCESS_ALLOWED_OBJECT_ACE_TYPE
+                | ACCESS_ALLOWED_CALLBACK_OBJECT_ACE_TYPE
+                | ACCESS_ALLOWED_COMPOUND_ACE_TYPE
+        ) {
+            continue;
+        }
+        if (header.AceSize as usize) < size_of::<ACCESS_ALLOWED_ACE>() {
+            state = WindowsAclState::Unchecked;
+            continue;
+        }
+        let mask = unsafe { (*raw_ace.cast::<ACCESS_ALLOWED_ACE>()).Mask };
+        if mask & WINDOWS_PRIVATE_MATERIAL_ACCESS == 0 {
+            continue;
+        }
+        if !matches!(
+            ace_type,
+            ACCESS_ALLOWED_ACE_TYPE | ACCESS_ALLOWED_CALLBACK_ACE_TYPE
+        ) {
+            state = WindowsAclState::Unchecked;
+            continue;
+        }
+        let ace = raw_ace.cast::<ACCESS_ALLOWED_ACE>();
+        let sid = unsafe { std::ptr::addr_of_mut!((*ace).SidStart).cast() };
+        if !sid_is_allowed(sid, allowed_sids)? {
+            return Ok(WindowsAclState::Insecure);
+        }
+    }
+    Ok(state)
+}
+
+#[cfg(windows)]
+const WINDOWS_PRIVATE_MATERIAL_ACCESS: u32 = GENERIC_ALL
+    | GENERIC_READ
+    | GENERIC_WRITE
+    | GENERIC_EXECUTE
+    | FILE_READ_DATA
+    | FILE_WRITE_DATA
+    | FILE_APPEND_DATA
+    | FILE_READ_EA
+    | FILE_WRITE_EA
+    | FILE_EXECUTE
+    | FILE_DELETE_CHILD
+    | FILE_READ_ATTRIBUTES
+    | FILE_WRITE_ATTRIBUTES
+    | DELETE
+    | WRITE_DAC
+    | WRITE_OWNER;
+
+#[cfg(windows)]
+fn sid_is_allowed(sid: PSID, allowed_sids: &[OwnedSid]) -> io::Result<bool> {
+    if sid.is_null() || unsafe { IsValidSid(sid) } == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid Windows SID",
+        ));
+    }
+    let length = unsafe { GetLengthSid(sid) } as usize;
+    let bytes = unsafe { std::slice::from_raw_parts(sid.cast::<u8>(), length) };
+    Ok(allowed_sids.iter().any(|allowed| allowed.bytes() == bytes))
 }
 
 fn format_fingerprint(bytes: &[u8]) -> String {
@@ -973,9 +1266,9 @@ MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
                 "4F:4C:45:B1:BF:86:99:E3:1C:5F:B7:23:3F:29:9E:47:80:1E:72:93:AB:11:99:6C:83:A7:15:00:55:2C:22:AA"
             )
         );
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         assert_eq!(ready.private_material, PrivateMaterialState::Restricted);
-        #[cfg(not(unix))]
+        #[cfg(not(any(unix, windows)))]
         assert_eq!(ready.private_material, PrivateMaterialState::Unchecked);
 
         fs::write(root.join(CA_CERTIFICATE_FILENAME), b"not a certificate").unwrap();
@@ -1003,6 +1296,23 @@ MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
         assert_eq!(status.private_material, PrivateMaterialState::Insecure);
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn certificate_authority_rejects_windows_private_material_visible_to_everyone() {
+        let directory = tempdir().expect("CA directory");
+        let root = directory.path();
+        fs::write(root.join(CA_CERTIFICATE_FILENAME), TEST_CA_CERTIFICATE).unwrap();
+        for name in [CA_PRIVATE_PEM_FILENAME, CA_PRIVATE_P12_FILENAME] {
+            let path = root.join(name);
+            fs::write(&path, b"private").unwrap();
+            set_windows_test_acl(&path, true);
+        }
+
+        let status = inspect_certificate_authority(root);
+        assert_eq!(status.state, CertificateAuthorityState::Invalid);
+        assert_eq!(status.private_material, PrivateMaterialState::Insecure);
+    }
+
     fn restrict_test_private_material(root: &Path) {
         #[cfg(unix)]
         {
@@ -1012,8 +1322,79 @@ MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
                 fs::set_permissions(root.join(name), fs::Permissions::from_mode(0o600)).unwrap();
             }
         }
-        #[cfg(not(unix))]
+        #[cfg(windows)]
+        for name in [CA_PRIVATE_PEM_FILENAME, CA_PRIVATE_P12_FILENAME] {
+            set_windows_test_acl(&root.join(name), false);
+        }
+        #[cfg(not(any(unix, windows)))]
         let _ = root;
+    }
+
+    #[cfg(windows)]
+    fn set_windows_test_acl(path: &Path, include_world: bool) {
+        use std::os::windows::ffi::OsStrExt as _;
+
+        use windows_sys::Win32::Security::Authorization::{SE_FILE_OBJECT, SetNamedSecurityInfoW};
+        use windows_sys::Win32::Security::{
+            ACL, ACL_REVISION, AddAccessAllowedAce, DACL_SECURITY_INFORMATION, InitializeAcl,
+            PROTECTED_DACL_SECURITY_INFORMATION, WinBuiltinAdministratorsSid, WinLocalSystemSid,
+            WinWorldSid,
+        };
+        use windows_sys::Win32::Storage::FileSystem::{FILE_ALL_ACCESS, FILE_GENERIC_READ};
+
+        let mut sids = vec![
+            current_user_sid().expect("current user SID"),
+            OwnedSid::well_known(WinLocalSystemSid).expect("SYSTEM SID"),
+            OwnedSid::well_known(WinBuiltinAdministratorsSid).expect("Administrators SID"),
+        ];
+        if include_world {
+            sids.push(OwnedSid::well_known(WinWorldSid).expect("Everyone SID"));
+        }
+        let acl_size = size_of::<ACL>()
+            + sids
+                .iter()
+                .map(|sid| size_of::<ACCESS_ALLOWED_ACE>() - size_of::<u32>() + sid.length)
+                .sum::<usize>();
+        let mut acl_storage = vec![0usize; acl_size.div_ceil(size_of::<usize>())];
+        let acl = acl_storage.as_mut_ptr().cast::<ACL>();
+        assert_ne!(
+            unsafe { InitializeAcl(acl, acl_size as u32, ACL_REVISION) },
+            0,
+            "initialize test ACL: {}",
+            io::Error::last_os_error()
+        );
+        for (index, sid) in sids.iter().enumerate() {
+            let access = if include_world && index == sids.len() - 1 {
+                FILE_GENERIC_READ
+            } else {
+                FILE_ALL_ACCESS
+            };
+            assert_ne!(
+                unsafe { AddAccessAllowedAce(acl, ACL_REVISION, access, sid.as_psid()) },
+                0,
+                "add test ACL entry: {}",
+                io::Error::last_os_error()
+            );
+        }
+        let mut wide_path = path.as_os_str().encode_wide().collect::<Vec<_>>();
+        wide_path.push(0);
+        let result = unsafe {
+            SetNamedSecurityInfoW(
+                wide_path.as_mut_ptr(),
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                acl,
+                std::ptr::null_mut(),
+            )
+        };
+        assert_eq!(
+            result,
+            ERROR_SUCCESS,
+            "set test ACL: {}",
+            io::Error::from_raw_os_error(result as i32)
+        );
     }
 
     fn sha256(bytes: &[u8]) -> String {
