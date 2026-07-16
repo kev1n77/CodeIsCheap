@@ -330,7 +330,8 @@ function CaptureSidebar({ workspace, active, canControl, proxyAvailable, mode, m
   const showCertificate = proxyAvailable || certificate.state !== "missing";
   const canChangeTrust = certificate.canManageTrust
     && certificate.fingerprintSha256 != null
-    && (certificate.trust === "trusted" || certificate.trust === "not_trusted");
+    && (certificate.trust === "trusted"
+      || (certificate.state === "ready" && certificate.trust === "not_trusted"));
   return (
     <aside className="capture-sidebar" aria-label="Capture controls">
       <section className="sidebar-section capture-summary">
