@@ -92,6 +92,10 @@ jobs:
         if: runner.os == 'Windows'
         run: cargo test -p codeischeap-proxy-recovery --test windows_registry real_windows_proxy_is_restored_after_force_kill -- --ignored --exact --nocapture --test-threads=1
 
+      - name: Run real Windows CA trust lifecycle experiment
+        if: runner.os == 'Windows'
+        run: cargo test -p codeischeap-sidecar-runtime tests::real_windows_ca_trust_round_trip -- --ignored --exact --nocapture --test-threads=1
+
       - name: Run Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 

@@ -3,4 +3,4 @@ import type { CertificateAuthorityState } from "./CertificateAuthorityState";
 import type { CertificatePrivateMaterial } from "./CertificatePrivateMaterial";
 import type { CertificateTrust } from "./CertificateTrust";
 
-export type CertificateAuthority = { state: CertificateAuthorityState, fingerprintSha256: string | null, subject: string | null, validFromUnixMs: number | null, validUntilUnixMs: number | null, privateMaterial: CertificatePrivateMaterial, trust: CertificateTrust, detail: string | null, };
+export type CertificateAuthority = { state: CertificateAuthorityState, canManageTrust: boolean, fingerprintSha256: string | null, subject: string | null, validFromUnixMs: number | null, validUntilUnixMs: number | null, privateMaterial: CertificatePrivateMaterial, trust: CertificateTrust, detail: string | null, };

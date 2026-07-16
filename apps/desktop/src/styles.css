@@ -86,6 +86,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, [role="separato
 .capture-facts dd { margin: 2px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .capture-facts .certificate-fingerprint dd { overflow: visible; white-space: normal; }
 .certificate-fingerprint code { overflow-wrap: anywhere; color: var(--text-secondary); font-size: 9px; line-height: 1.45; }
+.certificate-actions { display: grid; gap: 6px; margin-top: 10px; }
+.certificate-actions button { height: 29px; display: flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--border-strong); border-radius: 5px; background: var(--surface); color: var(--text-secondary); cursor: pointer; }
+.certificate-actions button:hover { background: var(--surface-raised); color: var(--text); }
+.certificate-actions button:disabled { cursor: wait; opacity: 0.55; }
+.certificate-actions span { overflow-wrap: anywhere; color: var(--danger); font-size: 10px; line-height: 1.35; }
+.is-spinning { animation: spin 900ms linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .check-row { min-height: 31px; display: grid; grid-template-columns: 16px 16px 1fr auto; align-items: center; gap: 7px; color: var(--text-secondary); cursor: pointer; }
 .check-row input { accent-color: var(--accent); }
 .check-row b { color: var(--text-tertiary); font-size: 11px; }

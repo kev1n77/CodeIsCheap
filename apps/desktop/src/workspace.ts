@@ -35,6 +35,20 @@ export async function setCaptureMode(mode: CaptureMode): Promise<WorkspaceBootst
   return workspace;
 }
 
+export async function installCertificateAuthorityTrust(): Promise<WorkspaceBootstrap> {
+  if (window.__TAURI_INTERNALS__) {
+    return invoke<WorkspaceBootstrap>("install_certificate_authority_trust");
+  }
+  return structuredClone(fixture) as unknown as WorkspaceBootstrap;
+}
+
+export async function uninstallCertificateAuthorityTrust(): Promise<WorkspaceBootstrap> {
+  if (window.__TAURI_INTERNALS__) {
+    return invoke<WorkspaceBootstrap>("uninstall_certificate_authority_trust");
+  }
+  return structuredClone(fixture) as unknown as WorkspaceBootstrap;
+}
+
 export async function subscribeToCaptureEvents(handlers: {
   onUpdated: (event: CaptureUpdated) => void;
   onError: (event: CaptureRuntimeError) => void;

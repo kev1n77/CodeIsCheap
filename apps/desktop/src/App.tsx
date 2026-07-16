@@ -3,6 +3,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   Activity,
   AlertTriangle,
+  BadgeCheck,
   Braces,
   ChevronDown,
   ChevronRight,
@@ -10,6 +11,7 @@ import {
   Database,
   Filter,
   LocateFixed,
+  LoaderCircle,
   Moon,
   Network,
   Pause,
@@ -17,6 +19,7 @@ import {
   Search,
   Settings,
   ShieldCheck,
+  ShieldOff,
   Sun,
   TerminalSquare,
   Wrench,
@@ -32,10 +35,12 @@ import type {
   WorkspaceSource,
 } from "./types";
 import {
+  installCertificateAuthorityTrust,
   loadWorkspace,
   setCaptureActive as persistCaptureActive,
   setCaptureMode as persistCaptureMode,
   subscribeToCaptureEvents,
+  uninstallCertificateAuthorityTrust,
 } from "./workspace";
 import { formatRawJson, resolveEvidenceLocator, resolveEvidencePointer } from "./raw-evidence";
 import type { ResolvedRawEvidence } from "./raw-evidence";
@@ -67,6 +72,8 @@ export function App() {
   const [captureError, setCaptureError] = useState("");
   const [captureMode, setCaptureMode] = useState<CaptureMode>("gateway");
   const [modeChanging, setModeChanging] = useState(false);
+  const [certificateChanging, setCertificateChanging] = useState(false);
+  const [certificateError, setCertificateError] = useState("");
   const [sidebarWidth, setSidebarWidth] = useState(218);
   const [listWidth, setListWidth] = useState(390);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -196,6 +203,27 @@ export function App() {
       .finally(() => setModeChanging(false));
   };
 
+  const changeCertificateTrust = (trusted: boolean) => {
+    if (certificateChanging) return;
+    setCertificateChanging(true);
+    setCertificateError("");
+    const operation = trusted
+      ? installCertificateAuthorityTrust()
+      : uninstallCertificateAuthorityTrust();
+    operation
+      .then((nextWorkspace) => {
+        setWorkspace(nextWorkspace);
+        setCaptureActive(nextWorkspace.capture.active);
+        setCaptureMode(nextWorkspace.capture.mode);
+      })
+      .catch((error: unknown) => {
+        setCertificateError(
+          error instanceof Error ? error.message : "Certificate trust could not change.",
+        );
+      })
+      .finally(() => setCertificateChanging(false));
+  };
+
   if (loadError) {
     return <LoadFailure detail={loadError} onRetry={() => setReloadToken((value) => value + 1)} />;
   }
@@ -225,10 +253,13 @@ export function App() {
           proxyAvailable={workspace.capture.proxyAvailable}
           mode={captureMode}
           modeChanging={modeChanging}
+          certificateChanging={certificateChanging}
+          certificateError={certificateError}
           toolsOnly={toolsOnly}
           errorsOnly={errorsOnly}
           runtimeError={captureError}
           onModeChange={changeCaptureMode}
+          onCertificateTrustChange={changeCertificateTrust}
           onToolsOnly={setToolsOnly}
           onErrorsOnly={setErrorsOnly}
         />
@@ -278,21 +309,28 @@ function Titlebar({ active, canControl, source, theme, onToggleCapture, onToggle
   );
 }
 
-function CaptureSidebar({ workspace, active, canControl, proxyAvailable, mode, modeChanging, toolsOnly, errorsOnly, runtimeError, onModeChange, onToolsOnly, onErrorsOnly }: {
+function CaptureSidebar({ workspace, active, canControl, proxyAvailable, mode, modeChanging, certificateChanging, certificateError, toolsOnly, errorsOnly, runtimeError, onModeChange, onCertificateTrustChange, onToolsOnly, onErrorsOnly }: {
   workspace: WorkspaceBootstrap;
   active: boolean;
   canControl: boolean;
   proxyAvailable: boolean;
   mode: CaptureMode;
   modeChanging: boolean;
+  certificateChanging: boolean;
+  certificateError: string;
   toolsOnly: boolean;
   errorsOnly: boolean;
   runtimeError: string;
   onModeChange: (mode: CaptureMode) => void;
+  onCertificateTrustChange: (trusted: boolean) => void;
   onToolsOnly: (value: boolean) => void;
   onErrorsOnly: (value: boolean) => void;
 }) {
-  const showCertificate = proxyAvailable || workspace.capture.certificateAuthority.state !== "missing";
+  const certificate = workspace.capture.certificateAuthority;
+  const showCertificate = proxyAvailable || certificate.state !== "missing";
+  const canChangeTrust = certificate.canManageTrust
+    && certificate.fingerprintSha256 != null
+    && (certificate.trust === "trusted" || certificate.trust === "not_trusted");
   return (
     <aside className="capture-sidebar" aria-label="Capture controls">
       <section className="sidebar-section capture-summary">
@@ -306,9 +344,18 @@ function CaptureSidebar({ workspace, active, canControl, proxyAvailable, mode, m
           <div><dt>Profile</dt><dd>{workspace.capture.profile}</dd></div>
           <div><dt>Endpoint</dt><dd>{workspace.capture.endpoint}</dd></div>
           <div><dt>Storage</dt><dd>{workspace.capture.storage}</dd></div>
-          {showCertificate && <div><dt>Local CA</dt><dd title={certificateDetail(workspace.capture.certificateAuthority)}>{certificateSummary(workspace.capture.certificateAuthority)}</dd></div>}
-          {showCertificate && workspace.capture.certificateAuthority.fingerprintSha256 && <div className="certificate-fingerprint"><dt>SHA-256 fingerprint</dt><dd><code>{workspace.capture.certificateAuthority.fingerprintSha256}</code></dd></div>}
+          {showCertificate && <div><dt>Local CA</dt><dd title={certificateDetail(certificate)}>{certificateSummary(certificate)}</dd></div>}
+          {showCertificate && certificate.fingerprintSha256 && <div className="certificate-fingerprint"><dt>SHA-256 fingerprint</dt><dd><code>{certificate.fingerprintSha256}</code></dd></div>}
         </dl>
+        {canChangeTrust && <div className="certificate-actions">
+          <button disabled={certificateChanging} onClick={() => onCertificateTrustChange(certificate.trust !== "trusted")}>
+            {certificateChanging
+              ? <LoaderCircle className="is-spinning" size={13} />
+              : certificate.trust === "trusted" ? <ShieldOff size={13} /> : <BadgeCheck size={13} />}
+            {certificate.trust === "trusted" ? "Remove trust" : "Trust CA"}
+          </button>
+          {certificateError && <span role="alert">{certificateError}</span>}
+        </div>}
       </section>
       <section className="sidebar-section">
         <div className="section-label"><Filter size={13} />Filters</div>

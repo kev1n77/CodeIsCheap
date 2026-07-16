@@ -198,6 +198,7 @@ describe("request workbench", () => {
         endpoint: "http://127.0.0.1:43125",
         certificateAuthority: {
           state: "ready",
+          canManageTrust: true,
           fingerprintSha256: "AA:BB:CC:DD",
           subject: "mitmproxy",
           validFromUnixMs: 1_577_836_800_000,
@@ -238,6 +239,7 @@ describe("request workbench", () => {
       proxyAvailable: false,
       certificateAuthority: {
         state: "invalid",
+        canManageTrust: true,
         fingerprintSha256: "11:22:33:44",
         subject: "mitmproxy",
         validFromUnixMs: 1_577_836_800_000,
@@ -254,6 +256,78 @@ describe("request workbench", () => {
     expect(await screen.findByText("Invalid · trusted")).toBeInTheDocument();
     expect(screen.getByText("11:22:33:44")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Proxy" })).toBeDisabled();
+  });
+
+  it("installs certificate trust and refreshes the workspace state", async () => {
+    const user = userEvent.setup();
+    window.__TAURI_INTERNALS__ = {};
+    const untrusted = structuredClone(fixture) as unknown as WorkspaceBootstrap;
+    untrusted.capture.certificateAuthority = {
+      state: "ready",
+      canManageTrust: true,
+      fingerprintSha256: "AA:BB:CC:DD",
+      subject: "mitmproxy",
+      validFromUnixMs: 1_577_836_800_000,
+      validUntilUnixMs: 4_070_908_800_000,
+      privateMaterial: "restricted",
+      trust: "not_trusted",
+      detail: null,
+    };
+    const trusted = structuredClone(untrusted);
+    trusted.capture.certificateAuthority.trust = "trusted";
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === "bootstrap_workspace") return structuredClone(untrusted);
+      if (command === "install_certificate_authority_trust") return structuredClone(trusted);
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Trust CA" }));
+
+    expect(invoke).toHaveBeenCalledWith("install_certificate_authority_trust");
+    expect(await screen.findByText("Ready · trusted")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove trust" })).toBeInTheDocument();
+  });
+
+  it("removes certificate trust and accepts the safe gateway fallback", async () => {
+    const user = userEvent.setup();
+    window.__TAURI_INTERNALS__ = {};
+    const trusted = structuredClone(fixture) as unknown as WorkspaceBootstrap;
+    trusted.capture = {
+      ...trusted.capture,
+      active: true,
+      canControl: true,
+      proxyAvailable: true,
+      mode: "proxy",
+      certificateAuthority: {
+        state: "ready",
+        canManageTrust: true,
+        fingerprintSha256: "AA:BB:CC:DD",
+        subject: "mitmproxy",
+        validFromUnixMs: 1_577_836_800_000,
+        validUntilUnixMs: 4_070_908_800_000,
+        privateMaterial: "restricted",
+        trust: "trusted",
+        detail: null,
+      },
+    };
+    const untrusted = structuredClone(trusted);
+    untrusted.capture.mode = "gateway";
+    untrusted.capture.profile = "OpenAI-compatible local gateway";
+    untrusted.capture.endpoint = "http://127.0.0.1:8787";
+    untrusted.capture.certificateAuthority.trust = "not_trusted";
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === "bootstrap_workspace") return structuredClone(trusted);
+      if (command === "uninstall_certificate_authority_trust") return structuredClone(untrusted);
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Remove trust" }));
+
+    expect(invoke).toHaveBeenCalledWith("uninstall_certificate_authority_trust");
+    expect(await screen.findByText("Ready · not trusted")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Gateway" })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("shows disk pressure as a paused capture state", async () => {
