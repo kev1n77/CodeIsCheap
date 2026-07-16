@@ -118,6 +118,12 @@ export function App() {
             capture: { ...current.capture, active: false },
           });
         }
+        if (
+          event.code === "sidecar_process_exited" ||
+          event.code === "sidecar_process_monitor_failed"
+        ) {
+          setReloadToken((value) => value + 1);
+        }
       },
     })
       .then((value) => {

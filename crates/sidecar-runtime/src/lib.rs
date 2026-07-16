@@ -7,7 +7,7 @@ use std::fs::{self, File};
 use std::io::{self, Read};
 use std::net::{IpAddr, SocketAddr, TcpStream};
 use std::path::{Component, Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -1323,6 +1323,13 @@ impl SidecarProcess {
         self.endpoint
     }
 
+    pub fn try_wait(&mut self) -> Result<Option<ExitStatus>, SidecarError> {
+        let Some(child) = self.child.as_mut() else {
+            return Ok(None);
+        };
+        child.try_wait().map_err(SidecarError::Io)
+    }
+
     pub fn stop(&mut self) -> Result<(), SidecarError> {
         let Some(mut child) = self.child.take() else {
             return Ok(());
@@ -2308,6 +2315,37 @@ MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
                 Err(SidecarError::InvalidLaunchConfig(_))
             ));
         }
+    }
+
+    #[test]
+    fn sidecar_exit_status_can_be_polled_without_blocking() {
+        let child = if cfg!(windows) {
+            Command::new("cmd")
+                .args(["/C", "exit", "7"])
+                .spawn()
+                .expect("Windows fixture process must start")
+        } else {
+            Command::new("sh")
+                .args(["-c", "exit 7"])
+                .spawn()
+                .expect("Unix fixture process must start")
+        };
+        let mut process = SidecarProcess {
+            child: Some(child),
+            endpoint: "127.0.0.1:41002".parse().unwrap(),
+            #[cfg(windows)]
+            job: None,
+        };
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let status = loop {
+            if let Some(status) = process.try_wait().expect("process status must be readable") {
+                break status;
+            }
+            assert!(Instant::now() < deadline, "fixture process did not exit");
+            thread::sleep(Duration::from_millis(10));
+        };
+
+        assert_eq!(status.code(), Some(7));
     }
 
     #[test]

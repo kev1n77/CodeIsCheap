@@ -3,7 +3,7 @@ use std::error::Error;
 use std::fmt;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener as StdTcpListener};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -54,6 +54,7 @@ const CAPTURE_RUNTIME_ERROR_EVENT: &str = "capture-runtime-error";
 const MAX_PENDING_CAPTURE_OUTCOMES: usize = 256;
 const CAPTURES_PER_RETENTION_RUN: usize = 100;
 const SIDECAR_STARTUP_TIMEOUT: Duration = Duration::from_secs(10);
+const SIDECAR_MONITOR_INTERVAL: Duration = Duration::from_millis(250);
 const PROXY_RECOVERY_JOURNAL_FILENAME: &str = "proxy-recovery.v0.1.json";
 
 type SharedStore = Arc<Mutex<Option<EncryptedStore>>>;
@@ -64,6 +65,7 @@ struct DesktopState {
     proxy: AsyncMutex<Option<ProxyRuntime>>,
     mode: AsyncMutex<CaptureMode>,
     capture_active: Arc<AtomicBool>,
+    next_proxy_generation: AtomicU64,
     proxy_recovery_checked: AtomicBool,
     sidecar_bundle: Option<Arc<SidecarBundle>>,
     sidecar_error: Mutex<Option<String>>,
@@ -84,6 +86,7 @@ impl Drop for GatewayRuntime {
 }
 
 struct ProxyRuntime {
+    generation: u64,
     system_proxy: Option<PlatformProxySession>,
     process: Option<SidecarProcess>,
     endpoint: String,
@@ -277,6 +280,7 @@ pub fn run() {
                 proxy: AsyncMutex::new(None),
                 mode: AsyncMutex::new(CaptureMode::Gateway),
                 capture_active: Arc::new(AtomicBool::new(true)),
+                next_proxy_generation: AtomicU64::new(1),
                 proxy_recovery_checked: AtomicBool::new(false),
                 sidecar_bundle,
                 sidecar_error: Mutex::new(sidecar_error),
@@ -664,7 +668,9 @@ async fn ensure_proxy(app: &AppHandle, state: &DesktopState) -> Result<(), Strin
     .map_err(|error| format!("explicit proxy launch task failed: {error}"))?
     .map_err(|error| error.to_string())?;
     let endpoint = format!("http://{}", process.endpoint());
+    let generation = state.next_proxy_generation.fetch_add(1, Ordering::Relaxed);
     let mut next_runtime = ProxyRuntime {
+        generation,
         system_proxy: None,
         process: Some(process),
         endpoint: endpoint.clone(),
@@ -683,6 +689,8 @@ async fn ensure_proxy(app: &AppHandle, state: &DesktopState) -> Result<(), Strin
     ));
     next_runtime.shutdown = Some(shutdown);
     *runtime = Some(next_runtime);
+    drop(runtime);
+    tauri::async_runtime::spawn(monitor_proxy_process(app.clone(), generation));
     Ok(())
 }
 
@@ -694,6 +702,76 @@ async fn stop_proxy(state: &DesktopState) -> Result<(), String> {
             .map_err(|error| format!("explicit proxy shutdown task failed: {error}"))??;
     }
     Ok(())
+}
+
+async fn monitor_proxy_process(app: AppHandle, generation: u64) {
+    let state = app.state::<DesktopState>();
+    loop {
+        tokio::time::sleep(SIDECAR_MONITOR_INTERVAL).await;
+        let status = {
+            let mut proxy = state.proxy.lock().await;
+            let Some(runtime) = proxy.as_mut() else {
+                return;
+            };
+            if runtime.generation != generation {
+                return;
+            }
+            let Some(process) = runtime.process.as_mut() else {
+                return;
+            };
+            process.try_wait()
+        };
+        let (code, mut detail) = match status {
+            Ok(None) => continue,
+            Ok(Some(status)) => (
+                "sidecar_process_exited",
+                format!("The explicit proxy process exited unexpectedly ({status})."),
+            ),
+            Err(error) => (
+                "sidecar_process_monitor_failed",
+                format!("The explicit proxy process could not be monitored: {error}"),
+            ),
+        };
+        let Some(runtime) = take_failed_proxy_runtime(&state, generation).await else {
+            return;
+        };
+        let restore = tauri::async_runtime::spawn_blocking(move || runtime.shutdown()).await;
+        match restore {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                detail.push_str(&format!(" Original system proxy restoration failed: {error}"));
+            }
+            Err(error) => {
+                detail.push_str(&format!(" Proxy shutdown task failed: {error}"));
+            }
+        }
+        emit_runtime_error(&app, code, detail);
+        return;
+    }
+}
+
+async fn take_failed_proxy_runtime(
+    state: &DesktopState,
+    generation: u64,
+) -> Option<ProxyRuntime> {
+    let runtime = {
+        let mut proxy = state.proxy.lock().await;
+        if proxy.as_ref().map(|runtime| runtime.generation) != Some(generation) {
+            return None;
+        }
+        proxy.take()
+    };
+    let mut mode = state.mode.lock().await;
+    if *mode == CaptureMode::Proxy {
+        *mode = CaptureMode::Gateway;
+        let gateway = state.gateway.lock().await;
+        if let Some(gateway) = gateway.as_ref() {
+            gateway
+                .capture
+                .set_enabled(state.capture_active.load(Ordering::Acquire));
+        }
+    }
+    runtime
 }
 
 #[cfg(windows)]
@@ -1389,6 +1467,45 @@ mod tests {
                 complete: true,
             },
         })
+    }
+
+    #[tokio::test]
+    async fn failed_proxy_runtime_returns_to_gateway_and_ignores_stale_monitors() {
+        let (capture, _receiver, _) = GatewayCapture::defaults();
+        capture.set_enabled(false);
+        let state = DesktopState {
+            store: Arc::new(Mutex::new(None)),
+            gateway: AsyncMutex::new(Some(GatewayRuntime {
+                capture: capture.clone(),
+                endpoint: "http://127.0.0.1:8787".to_owned(),
+                shutdown: None,
+            })),
+            proxy: AsyncMutex::new(Some(ProxyRuntime {
+                generation: 7,
+                system_proxy: None,
+                process: None,
+                endpoint: "http://127.0.0.1:43125".to_owned(),
+                shutdown: None,
+            })),
+            mode: AsyncMutex::new(CaptureMode::Proxy),
+            capture_active: Arc::new(AtomicBool::new(true)),
+            next_proxy_generation: AtomicU64::new(8),
+            proxy_recovery_checked: AtomicBool::new(true),
+            sidecar_bundle: None,
+            sidecar_error: Mutex::new(None),
+        };
+
+        assert!(take_failed_proxy_runtime(&state, 6).await.is_none());
+        assert_eq!(*state.mode.lock().await, CaptureMode::Proxy);
+        assert!(state.proxy.lock().await.is_some());
+
+        let runtime = take_failed_proxy_runtime(&state, 7)
+            .await
+            .expect("current failed runtime must be removed");
+        assert_eq!(*state.mode.lock().await, CaptureMode::Gateway);
+        assert!(state.proxy.lock().await.is_none());
+        assert!(capture.is_enabled());
+        runtime.shutdown().expect("empty runtime must shut down");
     }
 
     #[test]
