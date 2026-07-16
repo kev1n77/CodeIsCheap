@@ -315,6 +315,7 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "regex",
+ "security-framework 3.7.0",
  "serde",
  "serde_json",
  "sha2",

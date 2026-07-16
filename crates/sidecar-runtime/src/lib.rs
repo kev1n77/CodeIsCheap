@@ -15,6 +15,8 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use x509_parser::{parse_x509_certificate, pem::parse_x509_pem};
 
+#[cfg(target_os = "macos")]
+use security_framework::trust_settings::{Domain, TrustSettings, TrustSettingsForCertificate};
 #[cfg(windows)]
 use std::mem::size_of;
 #[cfg(unix)]
@@ -546,13 +548,47 @@ fn certificate_trust_state(certificate_der: &[u8]) -> CertificateTrustState {
     }
     #[cfg(target_os = "macos")]
     {
-        let _ = certificate_der;
-        CertificateTrustState::Unchecked
+        macos_certificate_trust_state(certificate_der)
     }
     #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = certificate_der;
         CertificateTrustState::Unsupported
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_certificate_trust_state(certificate_der: &[u8]) -> CertificateTrustState {
+    for domain in [Domain::User, Domain::Admin, Domain::System] {
+        let settings = TrustSettings::new(domain);
+        let certificates = match settings.iter() {
+            Ok(certificates) => certificates,
+            Err(_) => return CertificateTrustState::Unchecked,
+        };
+        for candidate in certificates {
+            if candidate.to_der() != certificate_der {
+                continue;
+            }
+            return match settings.tls_trust_settings_for_certificate(&candidate) {
+                Ok(result) => macos_trust_result_state(result),
+                Err(_) => CertificateTrustState::Unchecked,
+            };
+        }
+    }
+    CertificateTrustState::NotTrusted
+}
+
+#[cfg(target_os = "macos")]
+fn macos_trust_result_state(result: Option<TrustSettingsForCertificate>) -> CertificateTrustState {
+    match result {
+        None
+        | Some(TrustSettingsForCertificate::TrustRoot)
+        | Some(TrustSettingsForCertificate::TrustAsRoot) => CertificateTrustState::Trusted,
+        Some(
+            TrustSettingsForCertificate::Deny
+            | TrustSettingsForCertificate::Unspecified
+            | TrustSettingsForCertificate::Invalid,
+        ) => CertificateTrustState::NotTrusted,
     }
 }
 
@@ -1466,9 +1502,37 @@ MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
         #[cfg(windows)]
         assert_eq!(state, CertificateTrustState::NotTrusted);
         #[cfg(target_os = "macos")]
-        assert_eq!(state, CertificateTrustState::Unchecked);
+        assert_eq!(state, CertificateTrustState::NotTrusted);
         #[cfg(not(any(windows, target_os = "macos")))]
         assert_eq!(state, CertificateTrustState::Unsupported);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_trust_results_preserve_explicit_trust_and_denial() {
+        assert_eq!(
+            macos_trust_result_state(None),
+            CertificateTrustState::Trusted
+        );
+        for trusted in [
+            TrustSettingsForCertificate::TrustRoot,
+            TrustSettingsForCertificate::TrustAsRoot,
+        ] {
+            assert_eq!(
+                macos_trust_result_state(Some(trusted)),
+                CertificateTrustState::Trusted
+            );
+        }
+        for untrusted in [
+            TrustSettingsForCertificate::Deny,
+            TrustSettingsForCertificate::Unspecified,
+            TrustSettingsForCertificate::Invalid,
+        ] {
+            assert_eq!(
+                macos_trust_result_state(Some(untrusted)),
+                CertificateTrustState::NotTrusted
+            );
+        }
     }
 
     #[cfg(windows)]

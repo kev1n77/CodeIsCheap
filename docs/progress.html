@@ -22,7 +22,7 @@
         <div class="meta-item"><span>最后更新</span><strong>2026-07-16</strong></div>
       </div>
 
-      <div class="decision"><strong>当前结论</strong>CAP-004 已完成。CAP-005 已建立 CA 资产状态闭环：解析 X.509、显示 SHA-256 指纹和有效期，检查 Unix 文件模式及 Windows owner/DACL，并只读查询 Windows 当前用户/本机根证书库；下一步实现 macOS 信任检查及安装/卸载。</div>
+      <div class="decision"><strong>当前结论</strong>CAP-004 已完成。CAP-005 已建立跨平台 CA 只读状态闭环：解析 X.509、显示 SHA-256 指纹和有效期，检查 Unix 文件模式及 Windows owner/DACL，并查询 Windows ROOT 与 macOS User/Admin/System trust settings；下一步实现带权限提升的安装/卸载。</div>
 
       <h2 id="usage">1. 更新规则</h2>
       <ol>
@@ -59,7 +59,7 @@
       <div class="table-wrap"><table><thead><tr><th>工作流</th><th>任务范围</th><th>进度</th><th>状态</th><th>Owner</th><th>本周重点</th></tr></thead><tbody>
         <tr><td>架构与工程基础</td><td>ARC-001~004</td><td>100%</td><td><span class="status done">Done</span></td><td>Codex / TBD</td><td>保持 schema、事件与 command 契约同步</td></tr>
         <tr><td>Desktop / Frontend</td><td>APP-001~006</td><td>75%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>准备 Compare 与设置诊断交互</td></tr>
-        <tr><td>Capture / Network</td><td>CAP-001~007</td><td>59%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>补齐 macOS 系统信任检查与 CA 安装/卸载恢复；生产签名随发布凭据补齐</td></tr>
+        <tr><td>Capture / Network</td><td>CAP-001~007</td><td>61%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>实现 CA 安装/卸载恢复；生产签名随发布凭据补齐</td></tr>
         <tr><td>Prompt / Adapters</td><td>PAR-001~007</td><td>57%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>准备 Gemini 适配器与 token 来源模型</td></tr>
         <tr><td>Data / Security</td><td>DAT-001~002、SEC-001~004</td><td>48%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>继续日志与临时文件 canary</td></tr>
         <tr><td>Test / Release</td><td>TST-001~004、REL-001~003</td><td>35%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>继续 TST-002 Proxy 取消/背压与证书生命周期测试</td></tr>
@@ -80,7 +80,7 @@
         <tr><td class="task-id">CAP-002</td><td>实现请求/响应 tee 与背压</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>有界前缀、非阻塞队列、截断/取消/降级指标和暂停控制通过集成测试</td></tr>
         <tr><td class="task-id">CAP-003</td><td>打包 mitmproxy sidecar 与最小 addon</td><td><span class="status active">In progress</span></td><td>95%</td><td>Codex / Release Owner TBD</td><td>2026-08-25</td><td>三平台 bundle、manifest、SBOM、原子安装、Tauri 资源、运行时校验、最小环境与 Windows Job Object/Unix 进程组清理完成；正式 Authenticode/Developer ID 制品待发布凭据</td></tr>
         <tr><td class="task-id">CAP-004</td><td>显式代理与 TLS flow</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>桌面 sidecar、认证 IPC、模式与暂停控制、进程树清理、非目标 TLS 直通、gzip/brotli、SSE/NDJSON/JSON-seq 脱敏完成；真实 TLS+ALPN HTTP/2 客户端/服务端证明代理请求响应与直连基线一致</td></tr>
-        <tr><td class="task-id">CAP-005</td><td>证书生命周期</td><td><span class="status active">In progress</span></td><td>45%</td><td>Codex / TBD</td><td>2026-08-25</td><td>固定应用数据 confdir 的 CA 可解析 X.509 subject/有效期并显示完整 SHA-256 指纹；Unix 文件模式、Windows owner/DACL 与 CurrentUser/LocalMachine ROOT 信任可只读核验，私钥缺失时仍保留残留证书证据；macOS 信任及安装/卸载待完成</td></tr>
+        <tr><td class="task-id">CAP-005</td><td>证书生命周期</td><td><span class="status active">In progress</span></td><td>55%</td><td>Codex / TBD</td><td>2026-08-25</td><td>固定应用数据 confdir 的 CA 可解析 X.509 subject/有效期并显示完整 SHA-256 指纹；Unix 文件模式、Windows owner/DACL、Windows ROOT 与 macOS User/Admin/System 信任可只读核验，私钥缺失时仍保留残留证书证据；安装/卸载待完成</td></tr>
         <tr><td class="task-id">DAT-001</td><td>SQLCipher、迁移、WAL 与 OS 凭据库</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>schema v2 可从 v0/v1 升级，响应类型、状态码和耗时可查询；备份恢复、DB/WAL canary 与 OS 凭据库均通过</td></tr>
         <tr><td class="task-id">DAT-002</td><td>写入、查询、保留与磁盘压力</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>批量写入原子提交；默认保留 30 天/50,000 条并以 500 条事务清理；低于 256 MiB 或 SQLITE_FULL 时暂停记录但保持 Gateway 转发</td></tr>
         <tr><td class="task-id">SEC-001</td><td>范围策略和凭据 scrubber</td><td><span class="status active">In progress</span></td><td>85%</td><td>Codex / Security Reviewer TBD</td><td>2026-07-28</td><td>请求与响应 header/JSON body 双层脱敏及 DB/WAL canary 通过；日志和临时文件待补</td></tr>
@@ -189,6 +189,7 @@
         <tr><td>2026-07-15</td><td>Capture / Certificate</td><td>CAP-005 CA 状态闭环完成首段</td><td>sidecar runtime 解析 mitmproxy CA、计算 DER SHA-256 指纹、校验证书有效期和 Unix 私钥权限；版本化 Desktop API 与工作台显示状态，信任未检查时不会误报 trusted</td><td>Codex</td></tr>
         <tr><td>2026-07-16</td><td>Capture / Certificate</td><td>CAP-005 Windows 私钥 ACL 检查完成</td><td>sidecar runtime 读取私钥文件 owner/DACL，仅接受当前用户、SYSTEM、Administrators 与 owner-rights 主体；空 DACL、未知可访问主体和不可解析 ACE 分别映射为 insecure/unchecked，并由真实 Windows ACL 测试覆盖</td><td>Codex</td></tr>
         <tr><td>2026-07-16</td><td>Capture / Certificate</td><td>CAP-005 Windows 系统信任查询完成</td><td>以 DER 精确匹配 CurrentUser/LocalMachine ROOT，查询失败不会误报 not trusted；私钥残缺时仍向桌面暴露指纹与系统信任状态，支持后续卸载恢复</td><td>Codex</td></tr>
+        <tr><td>2026-07-16</td><td>Capture / Certificate</td><td>CAP-005 macOS 系统信任查询完成</td><td>使用 Security.framework 按 User、Admin、System 覆盖顺序精确匹配 DER；TrustRoot/TrustAsRoot、deny 与查询失败分别映射 trusted、not trusted、unchecked，不依赖 security 命令文本</td><td>Codex</td></tr>
         <tr><td colspan="5">后续范围、架构、日期或资源变化均在此追加，并链接对应 ADR/会议结论。</td></tr>
       </tbody></table></div>
 
