@@ -387,6 +387,63 @@ describe("request workbench", () => {
     );
   });
 
+  it("reloads the safe gateway state after the proxy sidecar exits", async () => {
+    window.__TAURI_INTERNALS__ = {};
+    const proxy = structuredClone(fixture) as unknown as WorkspaceBootstrap;
+    proxy.capture = {
+      ...proxy.capture,
+      active: true,
+      canControl: true,
+      proxyAvailable: true,
+      mode: "proxy",
+      profile: "System-managed explicit TLS proxy",
+      endpoint: "http://127.0.0.1:43125",
+    };
+    const recovered = structuredClone(proxy);
+    recovered.capture.mode = "gateway";
+    recovered.capture.profile = "OpenAI-compatible local gateway";
+    recovered.capture.endpoint = "http://127.0.0.1:8787";
+    let notifyRuntimeError = () => {};
+    vi.mocked(listen).mockImplementation(async (event, handler) => {
+      if (event === "capture-runtime-error") {
+        notifyRuntimeError = () => handler({
+          event: "capture-runtime-error",
+          id: 3,
+          payload: {
+            code: "sidecar_process_exited",
+            detail: "The explicit proxy process exited unexpectedly (exit code: 1).",
+          },
+        });
+      }
+      return () => {};
+    });
+    let bootstrapCount = 0;
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === "bootstrap_workspace") {
+        bootstrapCount += 1;
+        return structuredClone(bootstrapCount === 1 ? proxy : recovered);
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    render(<App />);
+    expect(await screen.findByRole("button", { name: "Proxy" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await act(async () => notifyRuntimeError());
+
+    expect(await screen.findByRole("button", { name: "Gateway" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(bootstrapCount).toBe(2);
+    expect(screen.getByText("Issue").parentElement).toHaveAttribute(
+      "title",
+      "The explicit proxy process exited unexpectedly (exit code: 1).",
+    );
+  });
+
   it("virtualizes one thousand requests and keeps filtered selection coherent", async () => {
     const user = userEvent.setup();
     window.__TAURI_INTERNALS__ = {};
