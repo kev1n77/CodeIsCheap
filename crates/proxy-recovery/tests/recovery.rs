@@ -8,7 +8,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use codeischeap_proxy_recovery::{
     FileProxyBackend, JournalStatus, ProxyBackend, ProxySession, ProxySettings, ProxySnapshot,
-    RECOVERY_JOURNAL_VERSION, RecoveryJournal, recover_from_journal,
+    RECOVERY_JOURNAL_VERSION, RecoveryError, RecoveryJournal, recover_from_journal,
 };
 
 static PROCESS_TEST_LOCK: Mutex<()> = Mutex::new(());
@@ -48,6 +48,27 @@ fn normal_restore_returns_to_the_exact_snapshot() {
     )
     .expect("session must begin");
     assert_eq!(file_settings(&backend), desired_settings());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        assert_eq!(
+            fs::metadata(&root)
+                .expect("journal directory metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        assert_eq!(
+            fs::metadata(&journal)
+                .expect("journal metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+    }
 
     session.restore().expect("session must restore");
 
@@ -191,6 +212,41 @@ fn startup_recovery_repairs_an_armed_journal() {
     assert!(recover_from_journal(&journal).expect("startup recovery must succeed"));
     assert_eq!(file_settings(&backend), original_settings());
     assert!(!journal.exists());
+    fs::remove_dir_all(root).expect("test directory must clean up");
+}
+
+#[test]
+fn startup_recovery_does_not_override_a_live_owner() {
+    let root = test_directory("live-owner");
+    let state = root.join("proxy-state.json");
+    let journal = root.join("recovery.json");
+    let backend = FileProxyBackend::new(&state);
+    backend
+        .apply(&desired_settings())
+        .expect("desired state must write");
+    let recovery = RecoveryJournal {
+        version: RECOVERY_JOURNAL_VERSION.to_owned(),
+        transaction_id: "live-owner-test".to_owned(),
+        owner_pid: std::process::id(),
+        status: JournalStatus::Armed,
+        backend: backend.descriptor(),
+        original: ProxySnapshot::File {
+            settings: original_settings(),
+        },
+        desired: desired_settings(),
+    };
+    fs::write(
+        &journal,
+        serde_json::to_vec_pretty(&recovery).expect("journal must serialize"),
+    )
+    .expect("journal must write");
+
+    assert!(matches!(
+        recover_from_journal(&journal),
+        Err(RecoveryError::OwnerStillRunning(pid)) if pid == std::process::id()
+    ));
+    assert_eq!(file_settings(&backend), desired_settings());
+    assert!(journal.exists());
     fs::remove_dir_all(root).expect("test directory must clean up");
 }
 
