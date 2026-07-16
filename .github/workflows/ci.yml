@@ -94,6 +94,7 @@ jobs:
 
       - name: Run real Windows CA trust lifecycle experiment
         if: runner.os == 'Windows'
+        timeout-minutes: 2
         run: cargo test -p codeischeap-sidecar-runtime tests::real_windows_ca_trust_round_trip -- --ignored --exact --nocapture --test-threads=1
 
       - name: Run Clippy

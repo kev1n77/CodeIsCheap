@@ -1692,19 +1692,27 @@ MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
         )
         .unwrap();
         let _cleanup = TrustCleanup(directory.path().to_path_buf());
+        eprintln!("cleaning any pre-existing test CA trust");
         let _ = uninstall_certificate_authority(directory.path()).expect("initial cleanup");
+        eprintln!("checking initial trust state");
         let status = inspect_certificate_authority(directory.path());
         assert_eq!(status.trust, CertificateTrustState::NotTrusted);
         assert!(status.can_manage_trust);
 
+        eprintln!("installing test CA trust");
         assert!(install_certificate_authority(directory.path()).expect("install CA"));
+        eprintln!("checking idempotent test CA installation");
         assert!(!install_certificate_authority(directory.path()).expect("idempotent install"));
+        eprintln!("checking installed trust state");
         let status = inspect_certificate_authority(directory.path());
         assert_eq!(status.trust, CertificateTrustState::Trusted);
         assert!(status.can_manage_trust);
 
+        eprintln!("removing test CA trust");
         assert!(uninstall_certificate_authority(directory.path()).expect("remove CA"));
+        eprintln!("checking idempotent test CA removal");
         assert!(!uninstall_certificate_authority(directory.path()).expect("idempotent removal"));
+        eprintln!("checking final trust state");
         let status = inspect_certificate_authority(directory.path());
         assert_eq!(status.trust, CertificateTrustState::NotTrusted);
         assert!(status.can_manage_trust);
