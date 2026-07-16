@@ -35,10 +35,11 @@ use windows_sys::Win32::Foundation::{
 use windows_sys::Win32::Security::Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT};
 #[cfg(windows)]
 use windows_sys::Win32::Security::Cryptography::{
-    CERT_CONTEXT, CERT_STORE_OPEN_EXISTING_FLAG, CERT_STORE_PROV_SYSTEM_W,
-    CERT_STORE_READONLY_FLAG, CERT_SYSTEM_STORE_CURRENT_USER, CERT_SYSTEM_STORE_LOCAL_MACHINE,
-    CertCloseStore, CertEnumCertificatesInStore, CertFreeCertificateContext, CertOpenStore,
-    HCERTSTORE,
+    CERT_CONTEXT, CERT_STORE_ADD_USE_EXISTING, CERT_STORE_OPEN_EXISTING_FLAG,
+    CERT_STORE_PROV_SYSTEM_W, CERT_STORE_READONLY_FLAG, CERT_SYSTEM_STORE_CURRENT_USER,
+    CERT_SYSTEM_STORE_LOCAL_MACHINE, CertAddCertificateContextToStore, CertCloseStore,
+    CertCreateCertificateContext, CertDeleteCertificateFromStore, CertEnumCertificatesInStore,
+    CertFreeCertificateContext, CertOpenStore, HCERTSTORE, X509_ASN_ENCODING,
 };
 #[cfg(windows)]
 use windows_sys::Win32::Security::{
@@ -110,6 +111,7 @@ pub enum CertificateTrustState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CertificateAuthorityStatus {
     pub state: CertificateAuthorityState,
+    pub can_manage_trust: bool,
     pub fingerprint_sha256: Option<String>,
     pub subject: Option<String>,
     pub valid_from_unix_ms: Option<i64>,
@@ -124,6 +126,7 @@ impl CertificateAuthorityStatus {
     pub fn missing() -> Self {
         Self {
             state: CertificateAuthorityState::Missing,
+            can_manage_trust: false,
             fingerprint_sha256: None,
             subject: None,
             valid_from_unix_ms: None,
@@ -133,6 +136,129 @@ impl CertificateAuthorityStatus {
             detail: None,
         }
     }
+}
+
+#[derive(Debug)]
+pub enum CertificateAuthorityError {
+    UnsupportedPlatform,
+    MissingCertificate,
+    InvalidCertificate(String),
+    Platform(io::Error),
+}
+
+impl fmt::Display for CertificateAuthorityError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnsupportedPlatform => {
+                write!(formatter, "certificate trust management is unsupported")
+            }
+            Self::MissingCertificate => write!(formatter, "certificate authority is missing"),
+            Self::InvalidCertificate(detail) => {
+                write!(formatter, "certificate authority is invalid: {detail}")
+            }
+            Self::Platform(error) => write!(formatter, "certificate trust update failed: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for CertificateAuthorityError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Platform(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+
+#[must_use = "certificate trust installation can fail"]
+pub fn install_certificate_authority(
+    confdir: impl AsRef<Path>,
+) -> Result<bool, CertificateAuthorityError> {
+    #[cfg(windows)]
+    {
+        let certificate_der = load_certificate_der(confdir.as_ref())?;
+        validate_trust_anchor(&certificate_der)?;
+        windows_install_certificate(&certificate_der).map_err(CertificateAuthorityError::Platform)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = confdir;
+        Err(CertificateAuthorityError::UnsupportedPlatform)
+    }
+}
+
+#[must_use = "certificate trust removal can fail"]
+pub fn uninstall_certificate_authority(
+    confdir: impl AsRef<Path>,
+) -> Result<bool, CertificateAuthorityError> {
+    #[cfg(windows)]
+    {
+        let certificate_der = load_certificate_der(confdir.as_ref())?;
+        windows_uninstall_certificate(&certificate_der).map_err(CertificateAuthorityError::Platform)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = confdir;
+        Err(CertificateAuthorityError::UnsupportedPlatform)
+    }
+}
+
+#[cfg(any(windows, test))]
+fn load_certificate_der(confdir: &Path) -> Result<Vec<u8>, CertificateAuthorityError> {
+    let encoded = fs::read(confdir.join(CA_CERTIFICATE_FILENAME)).map_err(|error| {
+        if error.kind() == io::ErrorKind::NotFound {
+            CertificateAuthorityError::MissingCertificate
+        } else {
+            CertificateAuthorityError::Platform(error)
+        }
+    })?;
+    let (remaining, pem) = parse_x509_pem(&encoded)
+        .map_err(|_| CertificateAuthorityError::InvalidCertificate("invalid PEM".to_owned()))?;
+    if !remaining.iter().all(u8::is_ascii_whitespace) || pem.label != "CERTIFICATE" {
+        return Err(CertificateAuthorityError::InvalidCertificate(
+            "unexpected PEM content".to_owned(),
+        ));
+    }
+    let (remaining, _) = parse_x509_certificate(&pem.contents)
+        .map_err(|_| CertificateAuthorityError::InvalidCertificate("invalid X.509".to_owned()))?;
+    if !remaining.is_empty() {
+        return Err(CertificateAuthorityError::InvalidCertificate(
+            "trailing DER content".to_owned(),
+        ));
+    }
+    Ok(pem.contents)
+}
+
+#[cfg(any(windows, test))]
+fn validate_trust_anchor(certificate_der: &[u8]) -> Result<(), CertificateAuthorityError> {
+    let (_, certificate) = parse_x509_certificate(certificate_der)
+        .map_err(|_| CertificateAuthorityError::InvalidCertificate("invalid X.509".to_owned()))?;
+    if certificate.subject() != certificate.issuer() {
+        return Err(CertificateAuthorityError::InvalidCertificate(
+            "certificate is not self-issued".to_owned(),
+        ));
+    }
+    let is_ca = certificate
+        .basic_constraints()
+        .map_err(|_| {
+            CertificateAuthorityError::InvalidCertificate("invalid basic constraints".to_owned())
+        })?
+        .is_some_and(|constraints| constraints.value.ca);
+    if !is_ca {
+        return Err(CertificateAuthorityError::InvalidCertificate(
+            "basic constraints do not identify a CA".to_owned(),
+        ));
+    }
+    if !certificate.validity().is_valid() {
+        return Err(CertificateAuthorityError::InvalidCertificate(
+            "certificate is outside its validity period".to_owned(),
+        ));
+    }
+    certificate.verify_signature(None).map_err(|_| {
+        CertificateAuthorityError::InvalidCertificate(
+            "self-signature verification failed".to_owned(),
+        )
+    })
 }
 
 #[must_use]
@@ -224,14 +350,16 @@ pub fn inspect_certificate_authority(confdir: impl AsRef<Path>) -> CertificateAu
     } else {
         (CertificateAuthorityState::Ready, None)
     };
+    let (trust, can_manage_trust) = certificate_trust_status(&pem.contents);
     CertificateAuthorityStatus {
         state,
+        can_manage_trust,
         fingerprint_sha256: Some(format_fingerprint(Sha256::digest(&pem.contents).as_slice())),
         subject: Some(subject),
         valid_from_unix_ms: Some(validity.not_before.timestamp().saturating_mul(1_000)),
         valid_until_unix_ms: Some(validity.not_after.timestamp().saturating_mul(1_000)),
         private_material,
-        trust: certificate_trust_state(&pem.contents),
+        trust,
         detail,
     }
 }
@@ -242,6 +370,7 @@ fn invalid_certificate_authority(
 ) -> CertificateAuthorityStatus {
     CertificateAuthorityStatus {
         state: CertificateAuthorityState::Invalid,
+        can_manage_trust: false,
         fingerprint_sha256: None,
         subject: None,
         valid_from_unix_ms: None,
@@ -541,19 +670,19 @@ fn sid_is_allowed(sid: PSID, allowed_sids: &[OwnedSid]) -> io::Result<bool> {
     Ok(allowed_sids.iter().any(|allowed| allowed.bytes() == bytes))
 }
 
-fn certificate_trust_state(certificate_der: &[u8]) -> CertificateTrustState {
+fn certificate_trust_status(certificate_der: &[u8]) -> (CertificateTrustState, bool) {
     #[cfg(windows)]
     {
-        windows_certificate_trust_state(certificate_der)
+        windows_certificate_trust_status(certificate_der)
     }
     #[cfg(target_os = "macos")]
     {
-        macos_certificate_trust_state(certificate_der)
+        (macos_certificate_trust_state(certificate_der), false)
     }
     #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = certificate_der;
-        CertificateTrustState::Unsupported
+        (CertificateTrustState::Unsupported, false)
     }
 }
 
@@ -605,48 +734,149 @@ impl Drop for WindowsCertificateStore {
 }
 
 #[cfg(windows)]
-fn windows_certificate_trust_state(certificate_der: &[u8]) -> CertificateTrustState {
-    let mut lookup_failed = false;
-    for scope in [
-        CERT_SYSTEM_STORE_CURRENT_USER,
-        CERT_SYSTEM_STORE_LOCAL_MACHINE,
-    ] {
-        match windows_root_store_contains(scope, certificate_der) {
-            Ok(true) => return CertificateTrustState::Trusted,
-            Ok(false) => {}
-            Err(_) => lookup_failed = true,
+struct WindowsCertificateContext(*mut CERT_CONTEXT);
+
+#[cfg(windows)]
+impl Drop for WindowsCertificateContext {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            unsafe {
+                CertFreeCertificateContext(self.0);
+            }
         }
     }
-    if lookup_failed {
-        CertificateTrustState::Unchecked
-    } else {
-        CertificateTrustState::NotTrusted
+}
+
+#[cfg(windows)]
+fn windows_certificate_trust_status(certificate_der: &[u8]) -> (CertificateTrustState, bool) {
+    match windows_root_store_contains(CERT_SYSTEM_STORE_CURRENT_USER, certificate_der) {
+        Ok(true) => return (CertificateTrustState::Trusted, true),
+        Ok(false) => {}
+        Err(_) => return (CertificateTrustState::Unchecked, false),
+    }
+    match windows_root_store_contains(CERT_SYSTEM_STORE_LOCAL_MACHINE, certificate_der) {
+        Ok(true) => (CertificateTrustState::Trusted, false),
+        Ok(false) => (CertificateTrustState::NotTrusted, true),
+        Err(_) => (CertificateTrustState::Unchecked, false),
     }
 }
 
 #[cfg(windows)]
 fn windows_root_store_contains(scope: u32, certificate_der: &[u8]) -> io::Result<bool> {
+    let store = windows_open_root_store(scope, true)?;
+    windows_certificate_store_contains(store.0, certificate_der)
+}
+
+#[cfg(windows)]
+fn windows_certificate_store_contains(
+    store: HCERTSTORE,
+    certificate_der: &[u8],
+) -> io::Result<bool> {
+    match windows_find_certificate(store, certificate_der)? {
+        Some(context) => {
+            unsafe {
+                CertFreeCertificateContext(context);
+            }
+            Ok(true)
+        }
+        None => Ok(false),
+    }
+}
+
+#[cfg(windows)]
+fn windows_install_certificate(certificate_der: &[u8]) -> io::Result<bool> {
+    let store = windows_open_root_store(CERT_SYSTEM_STORE_CURRENT_USER, false)?;
+    windows_add_certificate_to_store(store.0, certificate_der)
+}
+
+#[cfg(windows)]
+fn windows_uninstall_certificate(certificate_der: &[u8]) -> io::Result<bool> {
+    let store = windows_open_root_store(CERT_SYSTEM_STORE_CURRENT_USER, false)?;
+    windows_delete_certificate_from_store(store.0, certificate_der)
+}
+
+#[cfg(windows)]
+fn windows_add_certificate_to_store(store: HCERTSTORE, certificate_der: &[u8]) -> io::Result<bool> {
+    if let Some(context) = windows_find_certificate(store, certificate_der)? {
+        unsafe {
+            CertFreeCertificateContext(context);
+        }
+        return Ok(false);
+    }
+    let context = unsafe {
+        CertCreateCertificateContext(
+            X509_ASN_ENCODING,
+            certificate_der.as_ptr(),
+            certificate_der.len() as u32,
+        )
+    };
+    if context.is_null() {
+        return Err(io::Error::last_os_error());
+    }
+    let context = WindowsCertificateContext(context);
+    if unsafe {
+        CertAddCertificateContextToStore(
+            store,
+            context.0,
+            CERT_STORE_ADD_USE_EXISTING,
+            std::ptr::null_mut(),
+        )
+    } == 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(true)
+}
+
+#[cfg(windows)]
+fn windows_delete_certificate_from_store(
+    store: HCERTSTORE,
+    certificate_der: &[u8],
+) -> io::Result<bool> {
+    let Some(context) = windows_find_certificate(store, certificate_der)? else {
+        return Ok(false);
+    };
+    if unsafe { CertDeleteCertificateFromStore(context) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(true)
+}
+
+#[cfg(windows)]
+fn windows_open_root_store(scope: u32, read_only: bool) -> io::Result<WindowsCertificateStore> {
     const ROOT_STORE: [u16; 5] = [b'R' as u16, b'O' as u16, b'O' as u16, b'T' as u16, 0];
+    let access = if read_only {
+        CERT_STORE_READONLY_FLAG
+    } else {
+        0
+    };
     let store = unsafe {
         CertOpenStore(
             CERT_STORE_PROV_SYSTEM_W,
             0,
             0,
-            scope | CERT_STORE_OPEN_EXISTING_FLAG | CERT_STORE_READONLY_FLAG,
+            scope | CERT_STORE_OPEN_EXISTING_FLAG | access,
             ROOT_STORE.as_ptr().cast(),
         )
     };
     if store.is_null() {
         return Err(io::Error::last_os_error());
     }
-    let store = WindowsCertificateStore(store);
+    Ok(WindowsCertificateStore(store))
+}
+
+#[cfg(windows)]
+fn windows_find_certificate(
+    store: HCERTSTORE,
+    certificate_der: &[u8],
+) -> io::Result<Option<*mut CERT_CONTEXT>> {
     let mut context: *mut CERT_CONTEXT = std::ptr::null_mut();
     loop {
-        context = unsafe { CertEnumCertificatesInStore(store.0, context) };
+        context = unsafe { CertEnumCertificatesInStore(store, context) };
         if context.is_null() {
             let error = unsafe { GetLastError() };
             return if error == CRYPT_E_NOT_FOUND as u32 {
-                Ok(false)
+                Ok(None)
             } else {
                 Err(io::Error::from_raw_os_error(error as i32))
             };
@@ -656,10 +886,7 @@ fn windows_root_store_contains(scope: u32, certificate_der: &[u8]) -> io::Result
         };
         // Subject and serial are not strong enough to identify the exact local CA.
         if encoded == certificate_der {
-            unsafe {
-                CertFreeCertificateContext(context);
-            }
-            return Ok(true);
+            return Ok(Some(context));
         }
     }
 }
@@ -1420,7 +1647,7 @@ MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
         assert_eq!(ready.private_material, PrivateMaterialState::Restricted);
         #[cfg(not(any(unix, windows)))]
         assert_eq!(ready.private_material, PrivateMaterialState::Unchecked);
-        assert_platform_trust_state(ready.trust);
+        assert_platform_trust_status(&ready);
 
         fs::write(root.join(CA_CERTIFICATE_FILENAME), b"not a certificate").unwrap();
         let invalid = inspect_certificate_authority(root);
@@ -1442,7 +1669,103 @@ MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
         assert_eq!(status.private_material, PrivateMaterialState::Missing);
         assert!(status.fingerprint_sha256.is_some());
         assert_eq!(status.subject.as_deref(), Some("CodeIsCheap Test CA"));
-        assert_platform_trust_state(status.trust);
+        assert_platform_trust_status(&status);
+    }
+
+    #[test]
+    fn certificate_trust_lifecycle_rejects_invalid_anchor_material() {
+        let directory = tempdir().expect("CA directory");
+        fs::write(
+            directory.path().join(CA_CERTIFICATE_FILENAME),
+            TEST_CA_CERTIFICATE,
+        )
+        .unwrap();
+        let certificate_der = load_certificate_der(directory.path()).expect("certificate DER");
+        validate_trust_anchor(&certificate_der).expect("valid self-signed CA");
+
+        fs::write(
+            directory.path().join(CA_CERTIFICATE_FILENAME),
+            b"not a certificate",
+        )
+        .unwrap();
+        assert!(matches!(
+            load_certificate_der(directory.path()),
+            Err(CertificateAuthorityError::InvalidCertificate(_))
+        ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_certificate_store_lifecycle_is_exact_and_idempotent() {
+        use windows_sys::Win32::Security::Cryptography::CERT_STORE_PROV_MEMORY;
+
+        let (_, pem) = parse_x509_pem(TEST_CA_CERTIFICATE.as_bytes()).expect("test CA PEM");
+        let store = unsafe {
+            CertOpenStore(
+                CERT_STORE_PROV_MEMORY,
+                0,
+                0,
+                0,
+                std::ptr::null::<std::ffi::c_void>(),
+            )
+        };
+        assert!(!store.is_null(), "memory certificate store must open");
+        let store = WindowsCertificateStore(store);
+
+        assert!(windows_add_certificate_to_store(store.0, &pem.contents).expect("add CA"));
+        assert!(windows_certificate_store_contains(store.0, &pem.contents).expect("find CA"));
+        assert!(!windows_add_certificate_to_store(store.0, &pem.contents).expect("idempotent add"));
+        assert!(windows_delete_certificate_from_store(store.0, &pem.contents).expect("remove CA"));
+        assert!(!windows_certificate_store_contains(store.0, &pem.contents).expect("CA removed"));
+        assert!(
+            !windows_delete_certificate_from_store(store.0, &pem.contents)
+                .expect("idempotent remove")
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "requires an interactive Windows session and mutates CurrentUser ROOT"]
+    fn real_windows_ca_trust_round_trip() {
+        struct TrustCleanup(PathBuf);
+
+        impl Drop for TrustCleanup {
+            fn drop(&mut self) {
+                let _ = uninstall_certificate_authority(&self.0);
+            }
+        }
+
+        let directory = tempdir().expect("CA directory");
+        fs::write(
+            directory.path().join(CA_CERTIFICATE_FILENAME),
+            TEST_CA_CERTIFICATE,
+        )
+        .unwrap();
+        let _cleanup = TrustCleanup(directory.path().to_path_buf());
+        eprintln!("cleaning any pre-existing test CA trust");
+        let _ = uninstall_certificate_authority(directory.path()).expect("initial cleanup");
+        eprintln!("checking initial trust state");
+        let status = inspect_certificate_authority(directory.path());
+        assert_eq!(status.trust, CertificateTrustState::NotTrusted);
+        assert!(status.can_manage_trust);
+
+        eprintln!("installing test CA trust");
+        assert!(install_certificate_authority(directory.path()).expect("install CA"));
+        eprintln!("checking idempotent test CA installation");
+        assert!(!install_certificate_authority(directory.path()).expect("idempotent install"));
+        eprintln!("checking installed trust state");
+        let status = inspect_certificate_authority(directory.path());
+        assert_eq!(status.trust, CertificateTrustState::Trusted);
+        assert!(status.can_manage_trust);
+
+        eprintln!("removing test CA trust");
+        assert!(uninstall_certificate_authority(directory.path()).expect("remove CA"));
+        eprintln!("checking idempotent test CA removal");
+        assert!(!uninstall_certificate_authority(directory.path()).expect("idempotent removal"));
+        eprintln!("checking final trust state");
+        let status = inspect_certificate_authority(directory.path());
+        assert_eq!(status.trust, CertificateTrustState::NotTrusted);
+        assert!(status.can_manage_trust);
     }
 
     #[cfg(unix)]
@@ -1498,13 +1821,22 @@ MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
         let _ = root;
     }
 
-    fn assert_platform_trust_state(state: CertificateTrustState) {
+    fn assert_platform_trust_status(status: &CertificateAuthorityStatus) {
         #[cfg(windows)]
-        assert_eq!(state, CertificateTrustState::NotTrusted);
+        {
+            assert_eq!(status.trust, CertificateTrustState::NotTrusted);
+            assert!(status.can_manage_trust);
+        }
         #[cfg(target_os = "macos")]
-        assert_eq!(state, CertificateTrustState::NotTrusted);
+        {
+            assert_eq!(status.trust, CertificateTrustState::NotTrusted);
+            assert!(!status.can_manage_trust);
+        }
         #[cfg(not(any(windows, target_os = "macos")))]
-        assert_eq!(state, CertificateTrustState::Unsupported);
+        {
+            assert_eq!(status.trust, CertificateTrustState::Unsupported);
+            assert!(!status.can_manage_trust);
+        }
     }
 
     #[cfg(target_os = "macos")]

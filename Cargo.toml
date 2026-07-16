@@ -31,5 +31,5 @@ url = "2.5"
 uuid = { version = "1.18", features = ["v4"] }
 windows-sys = { version = "0.61", features = ["Win32_Networking_WinInet", "Win32_Storage_FileSystem", "Win32_System_Registry"] }
 winreg = "0.56"
-x509-parser = "0.18.1"
+x509-parser = { version = "0.18.1", features = ["verify"] }
 zeroize = "1.8"

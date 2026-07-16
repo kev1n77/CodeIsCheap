@@ -25,6 +25,8 @@ use codeischeap_sidecar_runtime::{
     CertificateTrustState as SidecarCertificateTrustState, MANIFEST_FILENAME,
     PrivateMaterialState as SidecarPrivateMaterialState, SidecarBundle, SidecarLaunchConfig,
     SidecarProcess, inspect_certificate_authority,
+    install_certificate_authority as install_ca_trust,
+    uninstall_certificate_authority as uninstall_ca_trust,
 };
 use codeischeap_storage::{
     EncryptedStore, OsKeyStore, RetentionPolicy, RetentionReport, StorageError,
@@ -192,6 +194,37 @@ async fn set_capture_mode(
     load_runtime_workspace(&app, &state).await
 }
 
+#[tauri::command]
+async fn install_certificate_authority_trust(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+) -> Result<WorkspaceBootstrap, String> {
+    initialize_store(&app, &state.store)?;
+    let confdir = application_certificate_confdir(&app)?;
+    tokio::task::spawn_blocking(move || install_ca_trust(confdir))
+        .await
+        .map_err(|error| format!("certificate trust task failed: {error}"))?
+        .map_err(|error| error.to_string())?;
+    load_runtime_workspace(&app, &state).await
+}
+
+#[tauri::command]
+async fn uninstall_certificate_authority_trust(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+) -> Result<WorkspaceBootstrap, String> {
+    initialize_store(&app, &state.store)?;
+    if *state.mode.lock().await == CaptureMode::Proxy {
+        switch_capture_mode(&app, &state, CaptureMode::Gateway).await?;
+    }
+    let confdir = application_certificate_confdir(&app)?;
+    tokio::task::spawn_blocking(move || uninstall_ca_trust(confdir))
+        .await
+        .map_err(|error| format!("certificate trust task failed: {error}"))?
+        .map_err(|error| error.to_string())?;
+    load_runtime_workspace(&app, &state).await
+}
+
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
@@ -241,8 +274,10 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             bootstrap_workspace,
+            install_certificate_authority_trust,
             set_capture_active,
-            set_capture_mode
+            set_capture_mode,
+            uninstall_certificate_authority_trust
         ])
         .run(tauri::generate_context!())
         .expect("CodeIsCheap desktop runtime failed");
@@ -375,18 +410,19 @@ fn apply_runtime_state(workspace: &mut WorkspaceBootstrap, snapshot: RuntimeSnap
 }
 
 fn application_certificate_authority(app: &AppHandle) -> CertificateAuthority {
-    let confdir = match app.path().app_data_dir() {
-        Ok(path) => path.join("mitmproxy"),
+    let confdir = match application_certificate_confdir(app) {
+        Ok(path) => path,
         Err(error) => {
             return CertificateAuthority {
                 state: CertificateAuthorityState::Invalid,
+                can_manage_trust: false,
                 fingerprint_sha256: None,
                 subject: None,
                 valid_from_unix_ms: None,
                 valid_until_unix_ms: None,
                 private_material: CertificatePrivateMaterial::Missing,
                 trust: CertificateTrust::Unchecked,
-                detail: Some(format!("certificate directory is unavailable: {error}")),
+                detail: Some(error),
             };
         }
     };
@@ -397,6 +433,7 @@ fn application_certificate_authority(app: &AppHandle) -> CertificateAuthority {
             SidecarCertificateAuthorityState::Ready => CertificateAuthorityState::Ready,
             SidecarCertificateAuthorityState::Invalid => CertificateAuthorityState::Invalid,
         },
+        can_manage_trust: status.can_manage_trust,
         fingerprint_sha256: status.fingerprint_sha256,
         subject: status.subject,
         valid_from_unix_ms: status.valid_from_unix_ms,
@@ -415,6 +452,13 @@ fn application_certificate_authority(app: &AppHandle) -> CertificateAuthority {
         },
         detail: status.detail,
     }
+}
+
+fn application_certificate_confdir(app: &AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_data_dir()
+        .map(|path| path.join("mitmproxy"))
+        .map_err(|error| format!("certificate directory is unavailable: {error}"))
 }
 
 async fn ensure_gateway(app: &AppHandle, state: &DesktopState) -> Result<(), String> {
@@ -983,6 +1027,7 @@ mod tests {
         let mut workspace = load_workspace(&store).expect("workspace must load");
         let certificate_authority = CertificateAuthority {
             state: CertificateAuthorityState::Ready,
+            can_manage_trust: true,
             fingerprint_sha256: Some("AA:BB:CC:DD".to_owned()),
             subject: Some("mitmproxy".to_owned()),
             valid_from_unix_ms: Some(1_577_836_800_000),

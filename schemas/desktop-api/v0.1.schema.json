@@ -223,6 +223,9 @@
     "CertificateAuthority": {
       "type": "object",
       "properties": {
+        "canManageTrust": {
+          "type": "boolean"
+        },
         "detail": {
           "type": [
             "string",
@@ -267,6 +270,7 @@
       },
       "required": [
         "state",
+        "canManageTrust",
         "privateMaterial",
         "trust"
       ]

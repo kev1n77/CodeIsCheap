@@ -56,6 +56,7 @@ pub enum CaptureMode {
 #[serde(rename_all = "camelCase")]
 pub struct CertificateAuthority {
     pub state: CertificateAuthorityState,
+    pub can_manage_trust: bool,
     pub fingerprint_sha256: Option<String>,
     pub subject: Option<String>,
     pub valid_from_unix_ms: Option<i64>,
@@ -70,6 +71,7 @@ impl CertificateAuthority {
     pub fn missing() -> Self {
         Self {
             state: CertificateAuthorityState::Missing,
+            can_manage_trust: false,
             fingerprint_sha256: None,
             subject: None,
             valid_from_unix_ms: None,

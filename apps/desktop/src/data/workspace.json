@@ -12,6 +12,7 @@
     "requestCount": 6,
     "certificateAuthority": {
       "state": "missing",
+      "canManageTrust": false,
       "fingerprintSha256": null,
       "subject": null,
       "validFromUnixMs": null,
