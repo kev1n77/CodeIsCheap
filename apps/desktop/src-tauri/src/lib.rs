@@ -739,7 +739,9 @@ async fn monitor_proxy_process(app: AppHandle, generation: u64) {
         match restore {
             Ok(Ok(())) => {}
             Ok(Err(error)) => {
-                detail.push_str(&format!(" Original system proxy restoration failed: {error}"));
+                detail.push_str(&format!(
+                    " Original system proxy restoration failed: {error}"
+                ));
             }
             Err(error) => {
                 detail.push_str(&format!(" Proxy shutdown task failed: {error}"));
@@ -750,10 +752,7 @@ async fn monitor_proxy_process(app: AppHandle, generation: u64) {
     }
 }
 
-async fn take_failed_proxy_runtime(
-    state: &DesktopState,
-    generation: u64,
-) -> Option<ProxyRuntime> {
+async fn take_failed_proxy_runtime(state: &DesktopState, generation: u64) -> Option<ProxyRuntime> {
     let runtime = {
         let mut proxy = state.proxy.lock().await;
         if proxy.as_ref().map(|runtime| runtime.generation) != Some(generation) {
