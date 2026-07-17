@@ -1,0 +1,17 @@
+{
+  "version": "0.1",
+  "capture_id": "ollama_invalid_fixture",
+  "observed_at_unix_ms": 1784244002000,
+  "source": "mitmproxy",
+  "request": {
+    "method": "POST",
+    "scheme": "http",
+    "host": "127.0.0.1",
+    "port": 11434,
+    "path": "/api/chat",
+    "query": [],
+    "headers": [{ "name": "content-type", "value": "application/json" }],
+    "body": { "state": "invalid_json", "content": null }
+  },
+  "redactions": []
+}

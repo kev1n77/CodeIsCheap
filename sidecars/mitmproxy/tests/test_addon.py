@@ -243,6 +243,8 @@ class AddonTests(unittest.TestCase):
                 "POST",
             )
         )
+        self.assertTrue(should_capture("127.0.0.1", "/api/chat", "POST"))
+        self.assertTrue(should_capture("localhost", "/api/generate", "POST"))
 
     def test_explicit_host_override_still_enforces_paths(self) -> None:
         with patch.dict(os.environ, {"CIC_CAPTURE_HOSTS": "127.0.0.1"}):

@@ -51,6 +51,27 @@ fn anthropic_request_event(capture_id: &str) -> GatewayCaptureEvent {
     })
 }
 
+fn ollama_request_event(capture_id: &str) -> GatewayCaptureEvent {
+    GatewayCaptureEvent::Request(GatewayRequestCapture {
+        capture_id: capture_id.to_owned(),
+        observed_at_unix_ms: 1_784_073_200_000,
+        method: "POST".to_owned(),
+        scheme: "http".to_owned(),
+        host: "127.0.0.1".to_owned(),
+        port: 11434,
+        path: "/api/generate".to_owned(),
+        query: Vec::new(),
+        headers: vec![("content-type".to_owned(), "application/json".to_owned())],
+        body: CapturedPayload {
+            bytes: br#"{"model":"gemma3:4b","prompt":"Name this product","stream":true}"#
+                .to_vec()
+                .into(),
+            truncated: false,
+            complete: true,
+        },
+    })
+}
+
 fn response_event(
     capture_id: &str,
     status: u16,
@@ -140,6 +161,74 @@ fn sse_response_is_persisted_as_text_and_exposed_in_raw_view() {
             .raw
             .to_string()
             .contains("done")
+    );
+}
+
+#[test]
+fn ollama_ndjson_reaches_encrypted_storage_and_exact_desktop_timeline_ranges() {
+    let (_directory, mut store) = store();
+    let capture_id = "ollama_ndjson";
+    process(&mut store, ollama_request_event(capture_id));
+    let first_line = r#"{"model":"gemma3:4b","response":"CodeIs","done":false}"#;
+    let response = format!(
+        "{first_line}\n{{\"model\":\"gemma3:4b\",\"response\":\"Cheap\",\"done\":false}}\n{{\"model\":\"gemma3:4b\",\"response\":\"\",\"done\":true,\"done_reason\":\"stop\",\"prompt_eval_count\":4,\"eval_count\":2}}\n"
+    );
+    process(
+        &mut store,
+        response_event(
+            capture_id,
+            200,
+            "application/x-ndjson",
+            response.as_bytes(),
+            true,
+        ),
+    );
+
+    let stored = store
+        .get_capture(capture_id)
+        .expect("capture query must succeed")
+        .expect("capture must exist");
+    let prompt = stored.prompt_ir.expect("Ollama Prompt IR must persist");
+    assert_eq!(prompt.provider.id, "ollama");
+    assert_eq!(prompt.model.as_deref(), Some("gemma3:4b"));
+    assert!(matches!(
+        &prompt.response.as_ref().expect("response must exist").parts[0],
+        PromptPart::Text { text, .. } if text == "CodeIsCheap"
+    ));
+
+    let workspace = load_workspace(&store).expect("workspace must load");
+    let request = &workspace.requests[0];
+    assert_eq!(request.provider, "Ollama");
+    assert_eq!(request.model, "gemma3:4b");
+    let event = request
+        .detail
+        .timeline
+        .iter()
+        .find(|event| event.id == "response_stream_0")
+        .expect("first Ollama chunk must reach the timeline");
+    let EvidenceLocator::TextRange {
+        pointer,
+        start,
+        end,
+    } = event
+        .locator
+        .as_ref()
+        .expect("chunk must locate raw evidence")
+    else {
+        panic!("Ollama chunk must use a text range");
+    };
+    assert_eq!(pointer, "/outcome/result/body/content");
+    let raw_text = request
+        .detail
+        .raw
+        .pointer(pointer)
+        .and_then(serde_json::Value::as_str)
+        .expect("raw NDJSON must remain text");
+    let fragment = &raw_text.as_bytes()[usize::try_from(*start).expect("start must fit")
+        ..usize::try_from(*end).expect("end must fit")];
+    assert_eq!(
+        std::str::from_utf8(fragment).expect("range must be UTF-8"),
+        first_line
     );
 }
 

@@ -114,6 +114,36 @@
           "issues": ["invalid_body", "all_adapters_failed"]
         }
       ]
+    },
+    {
+      "id": "ollama/v0.1",
+      "operations": ["chat.create", "generate.create"],
+      "cases": [
+        {
+          "id": "ollama-chat",
+          "capture": "ollama-chat-capture.json",
+          "golden": "ollama-chat-prompt-ir.json",
+          "operation": "chat.create",
+          "outcome": "parsed",
+          "capabilities": ["request.instructions", "request.messages", "request.multimodal.image", "request.tool_use", "request.tool_result", "request.tool_definitions", "request.generation", "response.json", "response.text", "response.tool_use", "response.usage", "response.stop_reason"]
+        },
+        {
+          "id": "ollama-generate-ndjson",
+          "capture": "ollama-generate-capture.json",
+          "golden": "ollama-generate-prompt-ir.json",
+          "operation": "generate.create",
+          "outcome": "parsed",
+          "capabilities": ["request.instructions", "request.messages", "request.multimodal.image", "request.generation", "request.streaming_flag", "response.ndjson", "response.text", "response.usage", "response.stop_reason"]
+        },
+        {
+          "id": "ollama-invalid-body",
+          "capture": "ollama-invalid-capture.json",
+          "operation": null,
+          "outcome": "raw_fallback",
+          "capabilities": ["fallback.invalid_body"],
+          "issues": ["invalid_body", "all_adapters_failed"]
+        }
+      ]
     }
   ]
 }

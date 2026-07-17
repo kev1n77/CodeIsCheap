@@ -1,0 +1,206 @@
+{
+  "ir_version": "0.1.0",
+  "request_id": "ollama_generate_fixture",
+  "provider": {
+    "id": "ollama",
+    "host": "localhost",
+    "confidence": 1.0
+  },
+  "operation": "generate.create",
+  "model": "gemma3:4b",
+  "instructions": [
+    {
+      "id": "instruction_0",
+      "role": "system",
+      "parts": [
+        {
+          "kind": "text",
+          "id": "instruction_0_part_0",
+          "text": "Return only the product name.",
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/system"
+            },
+            "confidence": 1.0
+          }
+        }
+      ],
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/system"
+        },
+        "confidence": 1.0
+      }
+    }
+  ],
+  "messages": [
+    {
+      "id": "message_0",
+      "role": "user",
+      "parts": [
+        {
+          "kind": "text",
+          "id": "message_0_part_0",
+          "text": "Complete CodeIs",
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/prompt"
+            },
+            "confidence": 1.0
+          }
+        },
+        {
+          "kind": "image_ref",
+          "id": "message_0_part_1",
+          "location": "inline:base64",
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/images/0"
+            },
+            "confidence": 1.0
+          }
+        }
+      ],
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/prompt"
+        },
+        "confidence": 1.0
+      }
+    }
+  ],
+  "context": [
+    {
+      "id": "context_suffix",
+      "kind": "application_state",
+      "source_label": "suffix",
+      "parts": [
+        {
+          "kind": "text",
+          "id": "context_suffix_part_0",
+          "text": " as one identifier.",
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/suffix"
+            },
+            "confidence": 1.0
+          }
+        }
+      ],
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/suffix"
+        },
+        "confidence": 1.0
+      }
+    }
+  ],
+  "tools": [],
+  "generation": {
+    "temperature": 0.1,
+    "top_p": 0.8,
+    "max_output_tokens": 32,
+    "extra": {
+      "seed": 7
+    }
+  },
+  "vendor": {
+    "raw": false,
+    "stream": true
+  },
+  "response": {
+    "model": "gemma3:4b",
+    "role": "assistant",
+    "parts": [
+      {
+        "kind": "text",
+        "id": "response_part_0",
+        "text": "CodeIsCheap",
+        "evidence": {
+          "level": "observed",
+          "source": {
+            "kind": "stream_event",
+            "index": 0
+          },
+          "confidence": 1.0
+        }
+      }
+    ],
+    "stop_reason": "stop",
+    "usage": {
+      "eval_count": 3,
+      "eval_duration": 660000000,
+      "load_duration": 90000000,
+      "prompt_eval_count": 12,
+      "prompt_eval_duration": 180000000,
+      "total_duration": 930000000
+    },
+    "events": [
+      {
+        "index": 0,
+        "kind": "generate_chunk",
+        "delta_kind": "text",
+        "evidence": {
+          "level": "observed",
+          "source": {
+            "kind": "stream_event",
+            "index": 0
+          },
+          "confidence": 1.0
+        }
+      },
+      {
+        "index": 1,
+        "kind": "generate_chunk",
+        "delta_kind": "text",
+        "evidence": {
+          "level": "observed",
+          "source": {
+            "kind": "stream_event",
+            "index": 1
+          },
+          "confidence": 1.0
+        }
+      },
+      {
+        "index": 2,
+        "kind": "generate_chunk",
+        "delta_kind": "done",
+        "evidence": {
+          "level": "observed",
+          "source": {
+            "kind": "stream_event",
+            "index": 2
+          },
+          "confidence": 1.0
+        }
+      }
+    ],
+    "evidence": {
+      "level": "observed",
+      "source": {
+        "kind": "stream_event",
+        "index": 0
+      },
+      "confidence": 1.0
+    }
+  },
+  "completeness": {
+    "request_body": "complete",
+    "response_body": "complete"
+  }
+}

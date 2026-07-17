@@ -31,6 +31,12 @@
       ]
     },
     {
+      "id": "ollama",
+      "hosts": ["127.0.0.1", "localhost"],
+      "methods": ["POST"],
+      "paths": ["/api/chat", "/api/generate"]
+    },
+    {
       "id": "mistral",
       "hosts": ["api.mistral.ai"],
       "methods": ["POST"],
