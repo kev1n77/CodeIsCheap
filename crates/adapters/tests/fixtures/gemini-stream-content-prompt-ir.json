@@ -1,0 +1,112 @@
+{
+  "ir_version": "0.1.0",
+  "request_id": "gemini_stream_content_fixture",
+  "provider": {
+    "id": "gemini",
+    "host": "generativelanguage.googleapis.com",
+    "confidence": 1.0
+  },
+  "operation": "models.stream_generate_content",
+  "model": "gemini-2.5-flash",
+  "instructions": [],
+  "messages": [
+    {
+      "id": "message_0",
+      "role": "user",
+      "parts": [
+        {
+          "kind": "text",
+          "id": "message_0_part_0",
+          "text": "Name this product.",
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/contents/0/parts/0"
+            },
+            "confidence": 1.0
+          }
+        }
+      ],
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/contents/0"
+        },
+        "confidence": 1.0
+      }
+    }
+  ],
+  "context": [],
+  "tools": [],
+  "generation": {},
+  "vendor": {
+    "api_version": "v1",
+    "stream": true
+  },
+  "response": {
+    "id": "gemini-stream-response",
+    "model": "gemini-2.5-flash",
+    "role": "assistant",
+    "parts": [
+      {
+        "kind": "text",
+        "id": "response_part_0",
+        "text": "CodeIsCheap",
+        "evidence": {
+          "level": "observed",
+          "source": {
+            "kind": "stream_event",
+            "index": 0
+          },
+          "confidence": 1.0
+        }
+      }
+    ],
+    "stop_reason": "STOP",
+    "usage": {
+      "candidatesTokenCount": 3,
+      "promptTokenCount": 6,
+      "totalTokenCount": 9
+    },
+    "events": [
+      {
+        "index": 0,
+        "kind": "generate_content_chunk",
+        "evidence": {
+          "level": "observed",
+          "source": {
+            "kind": "stream_event",
+            "index": 0
+          },
+          "confidence": 1.0
+        }
+      },
+      {
+        "index": 1,
+        "kind": "generate_content_chunk",
+        "evidence": {
+          "level": "observed",
+          "source": {
+            "kind": "stream_event",
+            "index": 1
+          },
+          "confidence": 1.0
+        }
+      }
+    ],
+    "evidence": {
+      "level": "observed",
+      "source": {
+        "kind": "stream_event",
+        "index": 0
+      },
+      "confidence": 1.0
+    }
+  },
+  "completeness": {
+    "request_body": "complete",
+    "response_body": "complete"
+  }
+}

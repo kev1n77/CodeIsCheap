@@ -1,0 +1,110 @@
+{
+  "version": "0.1",
+  "capture_id": "gemini_generate_content_fixture",
+  "observed_at_unix_ms": 1784157000000,
+  "source": "gateway",
+  "request": {
+    "method": "POST",
+    "scheme": "https",
+    "host": "generativelanguage.googleapis.com",
+    "port": 443,
+    "path": "/v1beta/models/gemini-2.5-pro:generateContent",
+    "query": [],
+    "headers": [
+      { "name": "content-type", "value": "application/json" },
+      { "name": "x-goog-api-key", "value": "gemini-fixture-canary" }
+    ],
+    "body": {
+      "state": "json",
+      "content": {
+        "systemInstruction": {
+          "role": "system",
+          "parts": [{ "text": "Act as a precise repository maintainer." }]
+        },
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              { "text": "Inspect the screenshot and audio note." },
+              { "inlineData": { "mimeType": "image/png", "data": "c3ludGhldGlj" } },
+              { "fileData": { "mimeType": "audio/wav", "fileUri": "gs://fixtures/note.wav" } }
+            ]
+          },
+          {
+            "role": "model",
+            "parts": [
+              { "functionCall": { "id": "call_lookup", "name": "lookup_symbol", "args": { "name": "parse_request" } } }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              { "functionResponse": { "id": "call_lookup", "name": "lookup_symbol", "response": { "file": "src/parser.rs", "line": 42 } } }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "functionDeclarations": [
+              {
+                "name": "lookup_symbol",
+                "description": "Locate a symbol in the repository.",
+                "parametersJsonSchema": {
+                  "type": "object",
+                  "properties": { "name": { "type": "string" } },
+                  "required": ["name"]
+                }
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "temperature": 0.2,
+          "topP": 0.9,
+          "topK": 20,
+          "maxOutputTokens": 2048,
+          "stopSequences": ["<END>"],
+          "responseMimeType": "application/json"
+        },
+        "cachedContent": "cachedContents/repository-context",
+        "safetySettings": [{ "category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_ONLY_HIGH" }],
+        "toolConfig": { "functionCallingConfig": { "mode": "AUTO" } }
+      }
+    }
+  },
+  "outcome": {
+    "kind": "response",
+    "result": {
+      "status": 200,
+      "headers": [{ "name": "content-type", "value": "application/json" }],
+      "body": {
+        "state": "json",
+        "content": {
+          "candidates": [
+            {
+              "content": {
+                "role": "model",
+                "parts": [
+                  { "text": "The parser needs a bounded fallback." },
+                  { "functionCall": { "id": "call_read", "name": "read_file", "args": { "path": "src/parser.rs" } } }
+                ]
+              },
+              "finishReason": "STOP"
+            }
+          ],
+          "usageMetadata": {
+            "promptTokenCount": 148,
+            "candidatesTokenCount": 24,
+            "totalTokenCount": 172,
+            "cachedContentTokenCount": 64
+          },
+          "modelVersion": "gemini-2.5-pro",
+          "responseId": "gemini-response-fixture"
+        }
+      },
+      "duration_ms": 86,
+      "completeness": "complete"
+    }
+  },
+  "redactions": []
+}

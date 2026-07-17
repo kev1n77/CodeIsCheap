@@ -1,0 +1,268 @@
+{
+  "ir_version": "0.1.0",
+  "request_id": "gemini_generate_content_fixture",
+  "provider": {
+    "id": "gemini",
+    "host": "generativelanguage.googleapis.com",
+    "confidence": 1.0
+  },
+  "operation": "models.generate_content",
+  "model": "gemini-2.5-pro",
+  "instructions": [
+    {
+      "id": "instruction_0",
+      "role": "system",
+      "parts": [
+        {
+          "kind": "text",
+          "id": "instruction_0_part_0",
+          "text": "Act as a precise repository maintainer.",
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/systemInstruction/parts/0"
+            },
+            "confidence": 1.0
+          }
+        }
+      ],
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/systemInstruction"
+        },
+        "confidence": 1.0
+      }
+    }
+  ],
+  "messages": [
+    {
+      "id": "message_0",
+      "role": "user",
+      "parts": [
+        {
+          "kind": "text",
+          "id": "message_0_part_0",
+          "text": "Inspect the screenshot and audio note.",
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/contents/0/parts/0"
+            },
+            "confidence": 1.0
+          }
+        },
+        {
+          "kind": "image_ref",
+          "id": "message_0_part_1",
+          "location": "inline:base64",
+          "media_type": "image/png",
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/contents/0/parts/1"
+            },
+            "confidence": 1.0
+          }
+        },
+        {
+          "kind": "audio_ref",
+          "id": "message_0_part_2",
+          "location": "gs://fixtures/note.wav",
+          "media_type": "audio/wav",
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/contents/0/parts/2"
+            },
+            "confidence": 1.0
+          }
+        }
+      ],
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/contents/0"
+        },
+        "confidence": 1.0
+      }
+    },
+    {
+      "id": "message_1",
+      "role": "assistant",
+      "parts": [
+        {
+          "kind": "tool_use",
+          "id": "call_lookup",
+          "name": "lookup_symbol",
+          "input": {
+            "name": "parse_request"
+          },
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/contents/1/parts/0"
+            },
+            "confidence": 1.0
+          }
+        }
+      ],
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/contents/1"
+        },
+        "confidence": 1.0
+      }
+    },
+    {
+      "id": "message_2",
+      "role": "tool",
+      "parts": [
+        {
+          "kind": "tool_result",
+          "id": "message_2_part_0",
+          "tool_use_id": "call_lookup",
+          "value": {
+            "file": "src/parser.rs",
+            "line": 42
+          },
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/contents/2/parts/0"
+            },
+            "confidence": 1.0
+          }
+        }
+      ],
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/contents/2"
+        },
+        "confidence": 1.0
+      }
+    }
+  ],
+  "context": [],
+  "tools": [
+    {
+      "id": "tool_0_function_0",
+      "name": "lookup_symbol",
+      "description": "Locate a symbol in the repository.",
+      "input_schema": {
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/tools/0/functionDeclarations/0"
+        },
+        "confidence": 1.0
+      }
+    }
+  ],
+  "generation": {
+    "temperature": 0.2,
+    "top_p": 0.9,
+    "max_output_tokens": 2048,
+    "stop": [
+      "<END>"
+    ],
+    "extra": {
+      "responseMimeType": "application/json",
+      "topK": 20
+    }
+  },
+  "vendor": {
+    "api_version": "v1beta",
+    "cachedContent": "cachedContents/repository-context",
+    "safetySettings": [
+      {
+        "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+        "threshold": "BLOCK_ONLY_HIGH"
+      }
+    ],
+    "toolConfig": {
+      "functionCallingConfig": {
+        "mode": "AUTO"
+      }
+    }
+  },
+  "response": {
+    "id": "gemini-response-fixture",
+    "model": "gemini-2.5-pro",
+    "role": "assistant",
+    "parts": [
+      {
+        "kind": "text",
+        "id": "response_part_0",
+        "text": "The parser needs a bounded fallback.",
+        "evidence": {
+          "level": "observed",
+          "source": {
+            "kind": "json_pointer",
+            "pointer": "/outcome/result/body/content/candidates/0/content/parts/0"
+          },
+          "confidence": 1.0
+        }
+      },
+      {
+        "kind": "tool_use",
+        "id": "call_read",
+        "name": "read_file",
+        "input": {
+          "path": "src/parser.rs"
+        },
+        "evidence": {
+          "level": "observed",
+          "source": {
+            "kind": "json_pointer",
+            "pointer": "/outcome/result/body/content/candidates/0/content/parts/1"
+          },
+          "confidence": 1.0
+        }
+      }
+    ],
+    "stop_reason": "STOP",
+    "usage": {
+      "cachedContentTokenCount": 64,
+      "candidatesTokenCount": 24,
+      "promptTokenCount": 148,
+      "totalTokenCount": 172
+    },
+    "events": [],
+    "evidence": {
+      "level": "observed",
+      "source": {
+        "kind": "json_pointer",
+        "pointer": "/outcome/result/body/content"
+      },
+      "confidence": 1.0
+    }
+  },
+  "completeness": {
+    "request_body": "complete",
+    "response_body": "complete"
+  }
+}

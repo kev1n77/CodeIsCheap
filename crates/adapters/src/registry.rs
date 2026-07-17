@@ -5,6 +5,7 @@ use codeischeap_capture_policy::SanitizedCapture;
 use codeischeap_prompt_ir::Validate;
 
 use crate::anthropic::AnthropicAdapter;
+use crate::gemini::GeminiAdapter;
 use crate::model::{AdapterInput, ParseIssue, ParseIssueCode, ParseResult, PromptAdapter};
 use crate::openai::OpenAiAdapter;
 
@@ -17,6 +18,7 @@ impl Default for AdapterRegistry {
         let mut registry = Self::new();
         registry.register(OpenAiAdapter);
         registry.register(AnthropicAdapter);
+        registry.register(GeminiAdapter);
         registry
     }
 }

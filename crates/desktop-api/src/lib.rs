@@ -888,6 +888,7 @@ fn provider_label(provider: &str) -> String {
     match provider.to_ascii_lowercase().as_str() {
         "openai" => "OpenAI".to_owned(),
         "anthropic" => "Anthropic".to_owned(),
+        "gemini" => "Gemini".to_owned(),
         "google" => "Google".to_owned(),
         "mistral" => "Mistral".to_owned(),
         _ => provider.to_owned(),
@@ -1092,6 +1093,11 @@ mod tests {
             .join("../../apps/desktop/src/generated/desktop-api");
 
         assert_eq!(read_bindings(&checked_in), read_bindings(generated.path()));
+    }
+
+    #[test]
+    fn gemini_provider_uses_a_product_label() {
+        assert_eq!(provider_label("gemini"), "Gemini");
     }
 
     fn read_bindings(directory: &Path) -> Vec<(PathBuf, String)> {

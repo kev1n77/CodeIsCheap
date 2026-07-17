@@ -146,7 +146,7 @@ kbd { min-width: 18px; padding: 1px 5px; border: 1px solid var(--border); border
 .inspector-provider > span:last-child { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px; }
 .inspector-actions { display: flex; align-items: center; gap: 12px; }
 .provider-mark { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 4px; background: var(--text); color: var(--surface); font-weight: 800; }
-.provider-openai { background: #16705a; }.provider-anthropic { background: #9b542e; }.provider-google { background: #2d65a6; }.provider-mistral { background: #b56513; }
+.provider-openai { background: #16705a; }.provider-anthropic { background: #9b542e; }.provider-gemini, .provider-google { background: #2d65a6; }.provider-mistral { background: #b56513; }
 .inspector-metrics { display: flex; align-items: center; gap: 18px; color: var(--text-tertiary); font-size: 10px; white-space: nowrap; }
 .inspector-metrics span { display: grid; gap: 2px; }
 .inspector-metrics b { color: var(--text-secondary); font-size: 11px; }

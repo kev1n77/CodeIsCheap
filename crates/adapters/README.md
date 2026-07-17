@@ -15,6 +15,8 @@ The OpenAI-compatible adapter currently covers:
 
 The Anthropic adapter covers Messages and legacy Complete requests, non-streaming JSON responses, and SSE response traces. SSE text, tool input fragments, cumulative usage, stop reasons, errors, and unknown future events retain source evidence.
 
+The Gemini adapter covers v1/v1beta `generateContent` and `streamGenerateContent`, including system instructions, multimodal parts, function declarations/calls/results, generation options, JSON responses, SSE reconstruction, finish reasons, and usage metadata.
+
 OpenAI-compatible support currently covers request reconstruction only. Response reconstruction is not declared in the capability matrix.
 
 Regenerate every golden declared by the capability matrix after an intentional mapping change:
