@@ -1,0 +1,35 @@
+{
+  "version": "0.1",
+  "capture_id": "gemini_stream_content_fixture",
+  "observed_at_unix_ms": 1784157001000,
+  "source": "mitmproxy",
+  "request": {
+    "method": "POST",
+    "scheme": "https",
+    "host": "generativelanguage.googleapis.com",
+    "port": 443,
+    "path": "/v1/models/gemini-2.5-flash:streamGenerateContent",
+    "query": [{ "name": "alt", "value": "sse" }],
+    "headers": [{ "name": "content-type", "value": "application/json" }],
+    "body": {
+      "state": "json",
+      "content": {
+        "contents": [{ "role": "user", "parts": [{ "text": "Name this product." }] }]
+      }
+    }
+  },
+  "outcome": {
+    "kind": "response",
+    "result": {
+      "status": 200,
+      "headers": [{ "name": "content-type", "value": "text/event-stream" }],
+      "body": {
+        "state": "text",
+        "content": "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"CodeIs\"}]}}],\"modelVersion\":\"gemini-2.5-flash\",\"responseId\":\"gemini-stream-response\"}\n\ndata: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"Cheap\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":6,\"candidatesTokenCount\":3,\"totalTokenCount\":9},\"modelVersion\":\"gemini-2.5-flash\",\"responseId\":\"gemini-stream-response\"}\n\n"
+      },
+      "duration_ms": 43,
+      "completeness": "complete"
+    }
+  },
+  "redactions": []
+}

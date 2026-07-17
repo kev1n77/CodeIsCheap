@@ -1,0 +1,17 @@
+{
+  "version": "0.1",
+  "capture_id": "gemini_invalid_fixture",
+  "observed_at_unix_ms": 1784157002000,
+  "source": "gateway",
+  "request": {
+    "method": "POST",
+    "scheme": "https",
+    "host": "generativelanguage.googleapis.com",
+    "port": 443,
+    "path": "/v1beta/models/gemini-2.5-pro:generateContent",
+    "query": [],
+    "headers": [{ "name": "content-type", "value": "application/json" }],
+    "body": { "state": "invalid_json", "content": null }
+  },
+  "redactions": []
+}

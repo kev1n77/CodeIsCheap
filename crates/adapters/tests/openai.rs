@@ -134,16 +134,16 @@ fn without_panic_output<T>(operation: impl FnOnce() -> T) -> T {
 
 #[test]
 fn unknown_provider_and_invalid_json_degrade_to_raw() {
-    let gemini = sanitized(
-        "gemini_fixture",
-        "generativelanguage.googleapis.com",
-        "/v1beta/models/gemini-2.5-pro:generateContent",
+    let mistral = sanitized(
+        "mistral_fixture",
+        "api.mistral.ai",
+        "/v1/fim/completions",
         CapturedBody {
             state: CapturedBodyState::Json,
-            content: Some(json!({"contents": []})),
+            content: Some(json!({"prompt": "complete this"})),
         },
     );
-    let unknown = AdapterRegistry::default().parse(&gemini);
+    let unknown = AdapterRegistry::default().parse(&mistral);
     assert!(unknown.raw_fallback);
     assert!(unknown.prompt_ir.is_none());
     assert_eq!(unknown.issues[0].code, ParseIssueCode::NoAdapter);

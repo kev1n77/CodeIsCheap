@@ -84,6 +84,36 @@
           "capabilities": ["request.messages", "request.generation"]
         }
       ]
+    },
+    {
+      "id": "gemini/v0.1",
+      "operations": ["models.generate_content", "models.stream_generate_content"],
+      "cases": [
+        {
+          "id": "gemini-generate-content",
+          "capture": "gemini-generate-content-capture.json",
+          "golden": "gemini-generate-content-prompt-ir.json",
+          "operation": "models.generate_content",
+          "outcome": "parsed",
+          "capabilities": ["request.instructions", "request.messages", "request.multimodal.image", "request.tool_use", "request.tool_result", "request.tool_definitions", "request.generation", "response.json", "response.text", "response.tool_use", "response.usage", "response.stop_reason"]
+        },
+        {
+          "id": "gemini-stream-generate-content",
+          "capture": "gemini-stream-content-capture.json",
+          "golden": "gemini-stream-content-prompt-ir.json",
+          "operation": "models.stream_generate_content",
+          "outcome": "parsed",
+          "capabilities": ["request.messages", "request.streaming_flag", "response.sse", "response.text", "response.usage", "response.stop_reason"]
+        },
+        {
+          "id": "gemini-invalid-body",
+          "capture": "gemini-invalid-capture.json",
+          "operation": null,
+          "outcome": "raw_fallback",
+          "capabilities": ["fallback.invalid_body"],
+          "issues": ["invalid_body", "all_adapters_failed"]
+        }
+      ]
     }
   ]
 }
