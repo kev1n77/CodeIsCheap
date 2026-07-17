@@ -281,6 +281,22 @@ pub fn load_workspace(store: &EncryptedStore) -> Result<WorkspaceBootstrap, Desk
     })
 }
 
+pub fn search_requests(
+    store: &EncryptedStore,
+    query: &str,
+) -> Result<Vec<CapturedRequest>, DesktopApiError> {
+    let summaries = store.search_captures(query, 200)?;
+    summaries
+        .into_iter()
+        .map(|summary| {
+            store
+                .get_capture(&summary.capture_id)?
+                .map(map_capture)
+                .ok_or_else(|| DesktopApiError::MissingCapture(summary.capture_id))
+        })
+        .collect()
+}
+
 fn map_capture(capture: codeischeap_storage::StoredCapture) -> CapturedRequest {
     let envelope = capture.envelope;
     let prompt_ir = capture.prompt_ir;
@@ -1126,10 +1142,13 @@ mod tests {
             .expect("capture must persist");
 
         let workspace = load_workspace(&store).expect("workspace must load");
+        let search = search_requests(&store, "parser").expect("FTS search must load requests");
 
         assert_eq!(workspace.api_version, DESKTOP_API_VERSION);
         assert_eq!(workspace.source, WorkspaceSource::EncryptedLocal);
         assert_eq!(workspace.capture.request_count, 1);
+        assert_eq!(search.len(), 1);
+        assert_eq!(search[0].id, "desktop_capture_1");
         assert_eq!(workspace.requests[0].provider, "OpenAI");
         assert_eq!(
             workspace.requests[0].prompt_preview,

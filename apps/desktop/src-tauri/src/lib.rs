@@ -23,7 +23,7 @@ use codeischeap_core::{
 use codeischeap_desktop_api::{
     CaptureMode, CapturedRequest, CertificateAuthority, CertificateAuthorityState,
     CertificatePrivateMaterial, CertificateTrust, ExportPreview, ExportProfile, ExportReceipt,
-    WorkspaceBootstrap, build_export_preview, load_workspace,
+    WorkspaceBootstrap, build_export_preview, load_workspace, search_requests,
 };
 use codeischeap_gateway::{Gateway, GatewayCapture, GatewayCaptureEvent};
 use codeischeap_proxy_recovery::recover_from_journal;
@@ -206,6 +206,26 @@ async fn bootstrap_workspace(
 }
 
 #[tauri::command]
+async fn search_workspace(
+    query: String,
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+) -> Result<Vec<CapturedRequest>, String> {
+    initialize_store(&app, &state.store)?;
+    let store = state
+        .store
+        .lock()
+        .map_err(|_| "encrypted workspace is temporarily unavailable".to_owned())?;
+    search_requests(
+        store
+            .as_ref()
+            .ok_or_else(|| "encrypted workspace has not initialized".to_owned())?,
+        &query,
+    )
+    .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 async fn set_capture_active(active: bool, state: State<'_, DesktopState>) -> Result<bool, String> {
     let mode = *state.mode.lock().await;
     match mode {
@@ -373,6 +393,7 @@ pub fn run() {
             bootstrap_workspace,
             install_certificate_authority_trust,
             preview_capture_export,
+            search_workspace,
             set_capture_active,
             set_capture_mode,
             uninstall_certificate_authority_trust,

@@ -10,6 +10,7 @@ import type {
   ExportReceipt,
   WorkspaceBootstrap,
 } from "./types";
+import { requestSearchText } from "./compare";
 
 export interface CaptureUpdated {
   captureId: string;
@@ -25,6 +26,16 @@ export async function loadWorkspace(): Promise<WorkspaceBootstrap> {
     return invoke<WorkspaceBootstrap>("bootstrap_workspace");
   }
   return fixture as unknown as WorkspaceBootstrap;
+}
+
+export async function searchWorkspace(query: string): Promise<CapturedRequest[]> {
+  if (window.__TAURI_INTERNALS__) {
+    return invoke<CapturedRequest[]>("search_workspace", { query });
+  }
+  const normalized = query.trim().toLocaleLowerCase();
+  if (!normalized) return structuredClone(fixture.requests) as unknown as CapturedRequest[];
+  return (structuredClone(fixture.requests) as unknown as CapturedRequest[])
+    .filter((request) => requestSearchText(request).includes(normalized));
 }
 
 export async function setCaptureActive(active: boolean): Promise<boolean> {
