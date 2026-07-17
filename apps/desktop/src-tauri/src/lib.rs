@@ -615,8 +615,7 @@ fn write_batch_capture_export_file(
     expected_sha256: &str,
     path: &Path,
 ) -> Result<ExportReceipt, String> {
-    let preview =
-        build_batch_capture_export(store, capture_ids, profile, exported_at_unix_ms)?;
+    let preview = build_batch_capture_export(store, capture_ids, profile, exported_at_unix_ms)?;
     if preview.content_sha256 != expected_sha256 {
         return Err("a capture changed after preview; review the refreshed export".to_owned());
     }
@@ -1769,8 +1768,7 @@ mod tests {
         assert!(validate_batch_capture_ids(&[]).is_err());
         assert!(validate_batch_capture_ids(&[String::new()]).is_err());
         assert!(
-            validate_batch_capture_ids(&["capture-1".to_owned(), "capture-1".to_owned()])
-                .is_err()
+            validate_batch_capture_ids(&["capture-1".to_owned(), "capture-1".to_owned()]).is_err()
         );
         assert!(
             validate_batch_capture_ids(
