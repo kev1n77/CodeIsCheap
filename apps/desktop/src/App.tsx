@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   Activity,
@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { CompareView } from "./CompareView";
 import type { CompareMode } from "./CompareView";
+import { SettingsDialog } from "./SettingsDialog";
 import { requestSearchText } from "./compare";
 import type {
   AnatomySection,
@@ -88,11 +89,16 @@ export function App() {
   const [certificateChanging, setCertificateChanging] = useState(false);
   const [certificateError, setCertificateError] = useState("");
   const [exportRequestId, setExportRequestId] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [compareBase, setCompareBase] = useState<CapturedRequest | null>(null);
   const [compareMode, setCompareMode] = useState<CompareMode>("structure");
   const [sidebarWidth, setSidebarWidth] = useState(218);
   const [listWidth, setListWidth] = useState(390);
   const searchRef = useRef<HTMLInputElement>(null);
+  const closeSettings = useCallback(() => {
+    setSettingsOpen(false);
+    localStorage.setItem("codeischeap.first-connection.dismissed", "true");
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -108,6 +114,10 @@ export function App() {
         );
         setCaptureActive(value.capture.active);
         setCaptureMode(value.capture.mode);
+        if (value.capture.requestCount === 0
+          && localStorage.getItem("codeischeap.first-connection.dismissed") !== "true") {
+          setSettingsOpen(true);
+        }
       })
       .catch((error: unknown) => {
         if (cancelled) return;
@@ -306,6 +316,7 @@ export function App() {
         theme={theme}
         onToggleCapture={toggleCapture}
         onToggleTheme={() => setTheme((value) => value === "light" ? "dark" : "light")}
+        onOpenSettings={() => setSettingsOpen(true)}
       />
       <main
         className="workspace"
@@ -370,17 +381,30 @@ export function App() {
         /> : <EmptyInspector />}
       </main>
       {exportRequest && <ExportDialog request={exportRequest} onClose={() => setExportRequestId(null)} />}
+      {settingsOpen && <SettingsDialog
+        workspace={workspace}
+        active={captureActive}
+        runtimeError={captureError}
+        certificateError={certificateError}
+        modeChanging={modeChanging}
+        certificateChanging={certificateChanging}
+        onToggleCapture={toggleCapture}
+        onModeChange={changeCaptureMode}
+        onCertificateTrustChange={changeCertificateTrust}
+        onClose={closeSettings}
+      />}
     </div>
   );
 }
 
-function Titlebar({ active, canControl, source, theme, onToggleCapture, onToggleTheme }: {
+function Titlebar({ active, canControl, source, theme, onToggleCapture, onToggleTheme, onOpenSettings }: {
   active: boolean;
   canControl: boolean;
   source: WorkspaceSource;
   theme: "light" | "dark";
   onToggleCapture: () => void;
   onToggleTheme: () => void;
+  onOpenSettings: () => void;
 }) {
   return (
     <header className="titlebar">
@@ -393,7 +417,7 @@ function Titlebar({ active, canControl, source, theme, onToggleCapture, onToggle
         <button className="icon-button" title={`Use ${theme === "light" ? "dark" : "light"} theme`} aria-label="Toggle theme" onClick={onToggleTheme}>
           {theme === "light" ? <Moon size={16} /> : <Sun size={16} />}
         </button>
-        <button className="icon-button" title="Settings" aria-label="Settings"><Settings size={16} /></button>
+        <button className="icon-button" title="Settings & diagnostics" aria-label="Settings" onClick={onOpenSettings}><Settings size={16} /></button>
       </div>
     </header>
   );

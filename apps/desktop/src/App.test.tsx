@@ -26,6 +26,10 @@ function makeWorkspace(requestCount: number): WorkspaceBootstrap {
   return workspace;
 }
 
+function workspacePrompt(workspace: WorkspaceBootstrap) {
+  return workspace.requests[0].promptPreview;
+}
+
 describe("request workbench", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -66,6 +70,74 @@ describe("request workbench", () => {
     const results = within(listbox).getAllByRole("option");
     expect(results).toHaveLength(1);
     expect(within(results[0]).getByText("Google")).toBeInTheDocument();
+  });
+
+  it("opens settings, exposes diagnostics, and closes with Escape", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByText("Requests");
+
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    const dialog = screen.getByRole("dialog", { name: "Settings & diagnostics" });
+    expect(within(dialog).getByRole("button", { name: "Connection" }))
+      .toHaveAttribute("aria-selected", "true");
+    await user.click(within(dialog).getByRole("button", { name: "Diagnostics" }));
+    const preview = within(dialog).getByLabelText("Diagnostic report preview");
+    expect(preview).toHaveTextContent("requestCount");
+    expect(preview).not.toHaveTextContent(workspacePrompt(fixture as unknown as WorkspaceBootstrap));
+    await user.click(within(dialog).getByRole("button", { name: "Copy report" }));
+    expect(within(dialog).getByRole("button", { name: "Copied" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Settings & diagnostics" })).not.toBeInTheDocument();
+  });
+
+  it("opens the connection flow for an empty first-run workspace", async () => {
+    window.__TAURI_INTERNALS__ = {};
+    const workspace = structuredClone(fixture) as unknown as WorkspaceBootstrap;
+    workspace.requests = [];
+    workspace.capture.requestCount = 0;
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === "bootstrap_workspace") return structuredClone(workspace);
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    render(<App />);
+
+    const dialog = await screen.findByRole("dialog", { name: "Settings & diagnostics" });
+    expect(within(dialog).getByText("Waiting for the first request")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Connection" }))
+      .toHaveAttribute("aria-selected", "true");
+  });
+
+  it("returns an active proxy workspace to the safe Gateway from settings", async () => {
+    const user = userEvent.setup();
+    window.__TAURI_INTERNALS__ = {};
+    const proxy = structuredClone(fixture) as unknown as WorkspaceBootstrap;
+    proxy.capture = {
+      ...proxy.capture,
+      active: true,
+      canControl: true,
+      proxyAvailable: true,
+      mode: "proxy",
+      profile: "System-managed explicit TLS proxy",
+      endpoint: "http://127.0.0.1:43125",
+    };
+    const gateway = structuredClone(proxy);
+    gateway.capture.mode = "gateway";
+    gateway.capture.profile = "OpenAI-compatible local gateway";
+    gateway.capture.endpoint = "http://127.0.0.1:8787";
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === "bootstrap_workspace") return structuredClone(proxy);
+      if (command === "set_capture_mode" && args?.mode === "gateway") return structuredClone(gateway);
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: "Return to Gateway" }));
+
+    expect(invoke).toHaveBeenCalledWith("set_capture_mode", { mode: "gateway" });
+    expect(await screen.findByText("OpenAI-compatible local gateway")).toBeInTheDocument();
   });
 
   it("compares two requests with structure and text views", async () => {
