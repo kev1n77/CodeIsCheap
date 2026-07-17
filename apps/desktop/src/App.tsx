@@ -11,6 +11,7 @@ import {
   Database,
   Download,
   Filter,
+  GitCompareArrows,
   LocateFixed,
   LoaderCircle,
   Moon,
@@ -26,6 +27,9 @@ import {
   Wrench,
   X,
 } from "lucide-react";
+import { CompareView } from "./CompareView";
+import type { CompareMode } from "./CompareView";
+import { requestSearchText } from "./compare";
 import type {
   AnatomySection,
   CaptureMode,
@@ -43,6 +47,7 @@ import {
   loadWorkspace,
   previewCaptureExport,
   saveCaptureExport,
+  searchWorkspace,
   setCaptureActive as persistCaptureActive,
   setCaptureMode as persistCaptureMode,
   subscribeToCaptureEvents,
@@ -66,6 +71,8 @@ export function App() {
   const [reloadToken, setReloadToken] = useState(0);
   const [selectedId, setSelectedId] = useState("");
   const [query, setQuery] = useState("");
+  const [searchResult, setSearchResult] = useState<{ query: string; requests: CapturedRequest[] } | null>(null);
+  const [searchError, setSearchError] = useState("");
   const [provider, setProvider] = useState("All providers");
   const [application, setApplication] = useState("All apps");
   const [toolsOnly, setToolsOnly] = useState(false);
@@ -81,6 +88,8 @@ export function App() {
   const [certificateChanging, setCertificateChanging] = useState(false);
   const [certificateError, setCertificateError] = useState("");
   const [exportRequestId, setExportRequestId] = useState<string | null>(null);
+  const [compareBase, setCompareBase] = useState<CapturedRequest | null>(null);
+  const [compareMode, setCompareMode] = useState<CompareMode>("structure");
   const [sidebarWidth, setSidebarWidth] = useState(218);
   const [listWidth, setListWidth] = useState(390);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -155,15 +164,46 @@ export function App() {
     localStorage.setItem("codeischeap.theme", theme);
   }, [theme]);
 
+  useEffect(() => {
+    const normalized = query.trim();
+    if (!normalized) {
+      setSearchResult(null);
+      setSearchError("");
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      searchWorkspace(normalized)
+        .then((requests) => {
+          if (cancelled) return;
+          setSearchResult({ query: normalized, requests });
+          setSearchError("");
+        })
+        .catch((error: unknown) => {
+          if (cancelled) return;
+          setSearchError(error instanceof Error ? error.message : "Full-text search failed.");
+        });
+    }, 180);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [query, reloadToken]);
+
+  const normalizedQuery = query.trim();
+  const searchedRequests = searchResult?.query === normalizedQuery ? searchResult.requests : null;
   const requests = useMemo(
-    () => workspace ? filteredRequests(workspace.requests, query, provider, application, toolsOnly, errorsOnly) : [],
-    [workspace, query, provider, application, toolsOnly, errorsOnly],
+    () => workspace ? filteredRequests(searchedRequests ?? workspace.requests, searchedRequests ? "" : query, provider, application, toolsOnly, errorsOnly) : [],
+    [workspace, searchedRequests, query, provider, application, toolsOnly, errorsOnly],
   );
   const effectiveSelectedId = requests.some((request) => request.id === selectedId)
     ? selectedId
     : (requests[0]?.id ?? "");
   const selected = workspace?.requests.find((request) => request.id === effectiveSelectedId);
-  const exportRequest = workspace?.requests.find((request) => request.id === exportRequestId) ?? null;
+  const selectedRequest = requests.find((request) => request.id === effectiveSelectedId) ?? selected;
+  const knownRequests = [...(workspace?.requests ?? []), ...(searchedRequests ?? [])];
+  const compareTarget = compareBase && selectedRequest?.id !== compareBase.id ? selectedRequest : null;
+  const exportRequest = knownRequests.find((request) => request.id === exportRequestId) ?? null;
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -171,7 +211,18 @@ export function App() {
         event.preventDefault();
         searchRef.current?.focus();
       }
+      if (event.key === "Escape" && compareBase) {
+        event.preventDefault();
+        setCompareBase(null);
+        return;
+      }
       if (!workspace || event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement) {
+        return;
+      }
+      if (event.key.toLocaleLowerCase() === "c" && selectedRequest) {
+        event.preventDefault();
+        setCompareBase(selectedRequest);
+        setCompareMode("structure");
         return;
       }
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -183,7 +234,7 @@ export function App() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [workspace, requests, effectiveSelectedId]);
+  }, [workspace, requests, effectiveSelectedId, selectedRequest, compareBase]);
 
   const toggleCapture = () => {
     const next = !captureActive;
@@ -280,19 +331,43 @@ export function App() {
         <ResizeHandle label="Resize capture sidebar" onResize={(delta) => setSidebarWidth((width) => clamp(width + delta, 184, 292))} />
         <RequestPane
           requests={requests}
-          allRequests={workspace.requests}
+          allRequests={knownRequests}
           selectedId={effectiveSelectedId}
           query={query}
           provider={provider}
           application={application}
           searchRef={searchRef}
+          searchError={searchError}
+          compareBaseId={compareBase?.id ?? null}
+          comparisonActive={compareTarget != null}
           onQuery={setQuery}
           onProvider={setProvider}
           onApplication={setApplication}
           onSelect={(id) => { setSelectedId(id); setTab("anatomy"); }}
+          onCancelCompare={() => setCompareBase(null)}
         />
         <ResizeHandle label="Resize request list" onResize={(delta) => setListWidth((width) => clamp(width + delta, 320, 560))} />
-        {selected ? <Inspector request={selected} tab={tab} onTab={setTab} onExport={() => setExportRequestId(selected.id)} /> : <EmptyInspector />}
+        {compareBase && compareTarget ? <CompareView
+          left={compareBase}
+          right={compareTarget}
+          mode={compareMode}
+          onMode={setCompareMode}
+          onSwap={() => {
+            setCompareBase(compareTarget);
+            setSelectedId(compareBase.id);
+          }}
+          onClose={() => setCompareBase(null)}
+        /> : selectedRequest ? <Inspector
+          request={selectedRequest}
+          tab={tab}
+          onTab={setTab}
+          onExport={() => setExportRequestId(selectedRequest.id)}
+          onCompare={() => {
+            setCompareBase(selectedRequest);
+            setCompareMode("structure");
+          }}
+          comparing={compareBase?.id === selectedRequest.id}
+        /> : <EmptyInspector />}
       </main>
       {exportRequest && <ExportDialog request={exportRequest} onClose={() => setExportRequestId(null)} />}
     </div>
@@ -389,7 +464,7 @@ function CaptureSidebar({ workspace, active, canControl, proxyAvailable, mode, m
   );
 }
 
-function RequestPane({ requests, allRequests, selectedId, query, provider, application, searchRef, onQuery, onProvider, onApplication, onSelect }: {
+function RequestPane({ requests, allRequests, selectedId, query, provider, application, searchRef, searchError, compareBaseId, comparisonActive, onQuery, onProvider, onApplication, onSelect, onCancelCompare }: {
   requests: CapturedRequest[];
   allRequests: CapturedRequest[];
   selectedId: string;
@@ -397,10 +472,14 @@ function RequestPane({ requests, allRequests, selectedId, query, provider, appli
   provider: string;
   application: string;
   searchRef: React.RefObject<HTMLInputElement | null>;
+  searchError: string;
+  compareBaseId: string | null;
+  comparisonActive: boolean;
   onQuery: (value: string) => void;
   onProvider: (value: string) => void;
   onApplication: (value: string) => void;
   onSelect: (id: string) => void;
+  onCancelCompare: () => void;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
   const providers = ["All providers", ...new Set(allRequests.map((request) => request.provider))];
@@ -421,15 +500,17 @@ function RequestPane({ requests, allRequests, selectedId, query, provider, appli
   }, [rowVirtualizer, selectedIndex]);
 
   return (
-    <section className="request-pane" aria-label="Captured requests">
+    <section className={`request-pane ${compareBaseId ? "has-compare-picker" : ""}`} aria-label="Captured requests">
       <div className="pane-heading"><div><h1>Requests</h1><span>{requests.length} visible</span></div><button className="icon-button" title="Request list options" aria-label="Request list options"><Filter size={15} /></button></div>
       <div className="request-toolbar">
-        <label className="search-field"><Search size={15} /><input ref={searchRef} value={query} onChange={(event) => onQuery(event.target.value)} placeholder="Search prompts, apps, models" aria-label="Search requests" /><kbd>/</kbd></label>
+        <label className={`search-field ${searchError ? "has-error" : ""}`} title={searchError || undefined}><Search size={15} /><input ref={searchRef} value={query} onChange={(event) => onQuery(event.target.value)} placeholder="Search full prompt text" aria-label="Search requests" /><kbd>/</kbd></label>
+        {searchError && <span className="search-error" role="alert">{searchError}</span>}
         <div className="select-row">
           <select aria-label="Provider filter" value={provider} onChange={(event) => onProvider(event.target.value)}>{providers.map((value) => <option key={value}>{value}</option>)}</select>
           <select aria-label="Application filter" value={application} onChange={(event) => onApplication(event.target.value)}>{applications.map((value) => <option key={value}>{value}</option>)}</select>
         </div>
       </div>
+      {compareBaseId && <div className="compare-picker" role="status"><GitCompareArrows size={14} /><span>{comparisonActive ? "Comparing selected request against baseline" : "Select another request to compare"}</span><button className="icon-button" title="Cancel comparison" aria-label="Cancel comparison" onClick={onCancelCompare}><X size={14} /></button></div>}
       <div ref={listRef} className="request-list" role="listbox" aria-label="Request results">
         {requests.length > 0 && <div className="request-virtualizer" style={{ height: rowVirtualizer.getTotalSize() }}>
           {rowVirtualizer.getVirtualItems().map((virtualRow) => {
@@ -441,13 +522,13 @@ function RequestPane({ requests, allRequests, selectedId, query, provider, appli
                 aria-posinset={virtualRow.index + 1}
                 aria-setsize={requests.length}
                 aria-selected={request.id === selectedId}
-                className="request-row"
+                className={`request-row ${request.id === compareBaseId ? "is-compare-base" : ""}`}
                 data-index={virtualRow.index}
                 style={{ transform: `translateY(${virtualRow.start}px)` }}
                 tabIndex={request.id === selectedId ? 0 : -1}
                 onClick={() => onSelect(request.id)}
               >
-                <div className="request-row-top"><span className={`status-mark status-${request.status}`} /><strong>{request.application}</strong><time>{clock.format(new Date(request.observedAtUnixMs))}</time></div>
+                <div className="request-row-top"><span className={`status-mark status-${request.status}`} /><strong>{request.application}</strong>{request.id === compareBaseId && <span className="compare-base-label">Baseline</span>}<time>{clock.format(new Date(request.observedAtUnixMs))}</time></div>
                 <div className="request-operation"><span>{request.provider}</span><b>{request.operation}</b></div>
                 <p>{request.promptPreview}</p>
                 <div className="request-meta"><span>{request.model}</span><span>{formatTokens(request.tokens, request.tokenSource)}</span><span>{request.durationMs == null ? "Duration unknown" : formatDuration(request.durationMs)}</span>{request.hasTools && <Wrench size={12} aria-label="Uses tools" />}</div>
@@ -461,7 +542,7 @@ function RequestPane({ requests, allRequests, selectedId, query, provider, appli
   );
 }
 
-function Inspector({ request, tab, onTab, onExport }: { request: CapturedRequest; tab: InspectorTab; onTab: (tab: InspectorTab) => void; onExport: () => void }) {
+function Inspector({ request, tab, comparing, onTab, onExport, onCompare }: { request: CapturedRequest; tab: InspectorTab; comparing: boolean; onTab: (tab: InspectorTab) => void; onExport: () => void; onCompare: () => void }) {
   const [rawEvidence, setRawEvidence] = useState<ResolvedRawEvidence | null>(null);
   useEffect(() => { setRawEvidence(null); }, [request.id]);
   const locateRawEvidence = (source: string) => {
@@ -480,7 +561,7 @@ function Inspector({ request, tab, onTab, onExport }: { request: CapturedRequest
     <section className="inspector" aria-label="Request inspector">
       <header className="inspector-header">
         <div><div className="inspector-provider"><span className={`provider-mark provider-${request.provider.toLowerCase()}`}>{request.provider[0]}</span><strong>{request.provider}</strong><span>{request.operation}</span></div><h2>{request.model}</h2>{request.semanticFingerprint && <code className="semantic-fingerprint" title={`BLAKE3 semantic fingerprint: ${request.semanticFingerprint}`}>{request.semanticFingerprint.slice(0, 12)}</code>}</div>
-        <div className="inspector-actions"><div className="inspector-metrics"><span><b>{formatTokens(request.tokens, request.tokenSource)}</b> tokens</span><span title={request.pricingVersion ?? undefined}><b>{formatCost(request.costUsd, request.costSource)}</b> cost</span><span><b>{request.durationMs == null ? "Unknown" : formatDuration(request.durationMs)}</b> duration</span><span className={`request-state state-${request.status}`}>{request.status}</span></div><button className="icon-button" title="Export request" aria-label="Export request" onClick={onExport}><Download size={16} /></button></div>
+        <div className="inspector-actions"><div className="inspector-metrics"><span><b>{formatTokens(request.tokens, request.tokenSource)}</b> tokens</span><span title={request.pricingVersion ?? undefined}><b>{formatCost(request.costUsd, request.costSource)}</b> cost</span><span><b>{request.durationMs == null ? "Unknown" : formatDuration(request.durationMs)}</b> duration</span><span className={`request-state state-${request.status}`}>{request.status}</span></div><button className={`icon-button ${comparing ? "is-active" : ""}`} title={comparing ? "Comparison baseline selected" : "Use as comparison baseline (C)"} aria-label="Compare request" aria-pressed={comparing} onClick={onCompare}><GitCompareArrows size={16} /></button><button className="icon-button" title="Export request" aria-label="Export request" onClick={onExport}><Download size={16} /></button></div>
       </header>
       <nav className="inspector-tabs" aria-label="Inspector views">
         <button aria-selected={tab === "anatomy"} onClick={() => onTab("anatomy")}><Braces size={14} />Anatomy</button>
@@ -630,7 +711,7 @@ function LoadFailure({ detail, onRetry }: { detail: string; onRetry: () => void 
 function filteredRequests(requests: CapturedRequest[], query: string, provider: string, application: string, toolsOnly: boolean, errorsOnly: boolean) {
   const normalized = query.trim().toLowerCase();
   return requests.filter((request) => {
-    const matchesText = !normalized || [request.application, request.provider, request.operation, request.model, request.promptPreview].some((value) => value.toLowerCase().includes(normalized));
+    const matchesText = !normalized || requestSearchText(request).includes(normalized);
     return matchesText && (provider === "All providers" || request.provider === provider) && (application === "All apps" || request.application === application) && (!toolsOnly || request.hasTools) && (!errorsOnly || request.status === "error");
   });
 }

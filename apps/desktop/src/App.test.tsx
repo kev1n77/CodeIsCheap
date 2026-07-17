@@ -68,6 +68,74 @@ describe("request workbench", () => {
     expect(within(results[0]).getByText("Google")).toBeInTheDocument();
   });
 
+  it("compares two requests with structure and text views", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: "claude-sonnet" });
+
+    await user.click(screen.getByRole("button", { name: "Compare request" }));
+    expect(screen.getByRole("status")).toHaveTextContent("Select another request to compare");
+    const options = within(screen.getByRole("listbox", { name: "Request results" }))
+      .getAllByRole("option");
+    await user.click(options[1]);
+
+    const comparison = screen.getByRole("region", { name: "Request comparison" });
+    expect(within(comparison).getAllByText("Baseline")).not.toHaveLength(0);
+    expect(within(comparison).getAllByText("Target")).not.toHaveLength(0);
+    expect(within(comparison).getByRole("button", { name: "Structure" }))
+      .toHaveAttribute("aria-selected", "true");
+    await user.click(within(comparison).getByRole("button", { name: "Text" }));
+    expect(within(comparison).getByLabelText("Prompt text difference")).toBeInTheDocument();
+    await user.click(within(comparison).getByRole("button", { name: "Close comparison" }));
+    expect(screen.queryByRole("region", { name: "Request comparison" })).not.toBeInTheDocument();
+  });
+
+  it("supports keyboard comparison selection and cancellation", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: "claude-sonnet" });
+
+    await user.keyboard("c");
+    expect(screen.getByRole("status")).toHaveTextContent("Select another request to compare");
+    await user.keyboard("{Escape}");
+    expect(screen.queryByText("Select another request to compare")).not.toBeInTheDocument();
+  });
+
+  it("uses the encrypted full-text search command for native workspaces", async () => {
+    const user = userEvent.setup();
+    window.__TAURI_INTERNALS__ = {};
+    const workspace = structuredClone(fixture) as unknown as WorkspaceBootstrap;
+    const initial = { ...workspace, requests: [workspace.requests[0]] };
+    const historical = { ...workspace.requests[5], id: "historical-result" };
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === "bootstrap_workspace") return structuredClone(initial);
+      if (command === "search_workspace") return [structuredClone(historical)];
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    render(<App />);
+    await user.type(await screen.findByRole("textbox", { name: "Search requests" }), "historical prompt");
+
+    expect(await screen.findByRole("heading", { name: historical.model })).toBeInTheDocument();
+    expect(invoke).toHaveBeenCalledWith("search_workspace", { query: "historical prompt" });
+  });
+
+  it("keeps full-text search failures visible and retryable", async () => {
+    const user = userEvent.setup();
+    window.__TAURI_INTERNALS__ = {};
+    const workspace = structuredClone(fixture) as unknown as WorkspaceBootstrap;
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === "bootstrap_workspace") return structuredClone(workspace);
+      if (command === "search_workspace") throw new Error("FTS index is unavailable");
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    render(<App />);
+    await user.type(await screen.findByRole("textbox", { name: "Search requests" }), "parser");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("FTS index is unavailable");
+  });
+
   it("switches between anatomy, timeline, and scrubbed raw evidence", async () => {
     const user = userEvent.setup();
     render(<App />);
