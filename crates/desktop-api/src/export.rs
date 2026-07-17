@@ -63,19 +63,69 @@ pub fn build_export_preview(
     profile: ExportProfile,
     exported_at_unix_ms: u64,
 ) -> Result<ExportPreview, serde_json::Error> {
-    let payload = match profile {
-        ExportProfile::Minimal => minimal_payload(request),
-        ExportProfile::Reproducible => reproducible_payload(request)?,
-        ExportProfile::Forensic => forensic_payload(request)?,
-    };
-    let mut document = json!({
+    let document = json!({
         "formatVersion": EXPORT_FORMAT_VERSION,
         "policyVersion": EXPORT_POLICY_VERSION,
         "desktopApiVersion": DESKTOP_API_VERSION,
         "profile": profile,
         "exportedAtUnixMs": exported_at_unix_ms,
-        "request": payload,
+        "request": request_payload(request, profile)?,
     });
+    finish_preview(
+        document,
+        profile,
+        exported_at_unix_ms,
+        suggested_filename(request, profile),
+    )
+}
+
+pub fn build_batch_export_preview(
+    requests: &[CapturedRequest],
+    profile: ExportProfile,
+    exported_at_unix_ms: u64,
+) -> Result<ExportPreview, serde_json::Error> {
+    let payloads = requests
+        .iter()
+        .map(|request| request_payload(request, profile))
+        .collect::<Result<Vec<_>, _>>()?;
+    let document = json!({
+        "formatVersion": EXPORT_FORMAT_VERSION,
+        "policyVersion": EXPORT_POLICY_VERSION,
+        "desktopApiVersion": DESKTOP_API_VERSION,
+        "profile": profile,
+        "exportedAtUnixMs": exported_at_unix_ms,
+        "requestCount": requests.len(),
+        "requests": payloads,
+    });
+    finish_preview(
+        document,
+        profile,
+        exported_at_unix_ms,
+        format!(
+            "codeischeap-batch-{}-{}.json",
+            requests.len(),
+            profile.slug()
+        ),
+    )
+}
+
+fn request_payload(
+    request: &CapturedRequest,
+    profile: ExportProfile,
+) -> Result<Value, serde_json::Error> {
+    match profile {
+        ExportProfile::Minimal => Ok(minimal_payload(request)),
+        ExportProfile::Reproducible => reproducible_payload(request),
+        ExportProfile::Forensic => forensic_payload(request),
+    }
+}
+
+fn finish_preview(
+    mut document: Value,
+    profile: ExportProfile,
+    exported_at_unix_ms: u64,
+    suggested_filename: String,
+) -> Result<ExportPreview, serde_json::Error> {
     let mut redactions = Vec::new();
     scrub_value(&mut document, "", &mut redactions);
     document
@@ -88,7 +138,7 @@ pub fn build_export_preview(
     let content_sha256 = format!("{:x}", Sha256::digest(content.as_bytes()));
     Ok(ExportPreview {
         profile,
-        suggested_filename: suggested_filename(request, profile),
+        suggested_filename,
         content,
         byte_count,
         content_sha256,
@@ -433,5 +483,30 @@ mod tests {
             );
         }
         assert_eq!(redactions.len(), 6);
+    }
+
+    #[test]
+    fn batch_exports_scan_every_request_and_preserve_order() {
+        let first = request();
+        let mut second = request();
+        second.id = "capture-2".to_owned();
+        second.prompt_preview = "Bearer secondbatchsecret".to_owned();
+
+        let preview = build_batch_export_preview(&[first, second], ExportProfile::Reproducible, 20)
+            .expect("batch preview must encode");
+        let document: Value = serde_json::from_str(&preview.content).expect("preview must be JSON");
+
+        assert_eq!(document["requestCount"], 2);
+        assert_eq!(document["requests"][0]["metadata"]["id"], "capture/unsafe");
+        assert_eq!(document["requests"][1]["metadata"]["id"], "capture-2");
+        assert!(!preview.content.contains("secondbatchsecret"));
+        assert!(preview.redactions.iter().any(|redaction| {
+            redaction.pointer == "/requests/1/promptPreview" && redaction.category == "bearer_token"
+        }));
+        assert_eq!(
+            preview.suggested_filename,
+            "codeischeap-batch-2-reproducible.json"
+        );
+        assert_eq!(preview.content_sha256.len(), 64);
     }
 }

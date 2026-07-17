@@ -4,7 +4,7 @@ mod export;
 
 pub use export::{
     EXPORT_FORMAT_VERSION, EXPORT_POLICY_VERSION, ExportPreview, ExportProfile, ExportReceipt,
-    ExportRedaction, build_export_preview,
+    ExportRedaction, build_batch_export_preview, build_export_preview,
 };
 
 use std::{fmt, ops::Range};
@@ -257,10 +257,7 @@ pub fn load_workspace(store: &EncryptedStore) -> Result<WorkspaceBootstrap, Desk
     let summaries = store.list_captures(200, None)?;
     let mut requests = Vec::with_capacity(summaries.len());
     for summary in summaries {
-        let capture = store
-            .get_capture(&summary.capture_id)?
-            .ok_or_else(|| DesktopApiError::MissingCapture(summary.capture_id.clone()))?;
-        requests.push(map_capture(capture));
+        requests.push(load_request(store, &summary.capture_id)?);
     }
     let cipher_version = store.cipher_version()?;
     Ok(WorkspaceBootstrap {
@@ -281,6 +278,16 @@ pub fn load_workspace(store: &EncryptedStore) -> Result<WorkspaceBootstrap, Desk
     })
 }
 
+pub fn load_request(
+    store: &EncryptedStore,
+    capture_id: &str,
+) -> Result<CapturedRequest, DesktopApiError> {
+    store
+        .get_capture(capture_id)?
+        .map(map_capture)
+        .ok_or_else(|| DesktopApiError::MissingCapture(capture_id.to_owned()))
+}
+
 pub fn search_requests(
     store: &EncryptedStore,
     query: &str,
@@ -288,12 +295,7 @@ pub fn search_requests(
     let summaries = store.search_captures(query, 200)?;
     summaries
         .into_iter()
-        .map(|summary| {
-            store
-                .get_capture(&summary.capture_id)?
-                .map(map_capture)
-                .ok_or_else(|| DesktopApiError::MissingCapture(summary.capture_id))
-        })
+        .map(|summary| load_request(store, &summary.capture_id))
         .collect()
 }
 
