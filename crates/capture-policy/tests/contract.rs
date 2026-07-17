@@ -58,6 +58,18 @@ fn default_policy_is_valid_and_matches_supported_endpoints() {
             .map(|target| target.id.as_str()),
         Some("gemini")
     );
+    assert_eq!(
+        policy
+            .matching_target(&request("127.0.0.1", "POST", "/api/chat"))
+            .map(|target| target.id.as_str()),
+        Some("ollama")
+    );
+    assert_eq!(
+        policy
+            .matching_target(&request("localhost", "POST", "/api/generate"))
+            .map(|target| target.id.as_str()),
+        Some("ollama")
+    );
 }
 
 #[test]

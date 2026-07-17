@@ -7,6 +7,7 @@ use codeischeap_prompt_ir::Validate;
 use crate::anthropic::AnthropicAdapter;
 use crate::gemini::GeminiAdapter;
 use crate::model::{AdapterInput, ParseIssue, ParseIssueCode, ParseResult, PromptAdapter};
+use crate::ollama::OllamaAdapter;
 use crate::openai::OpenAiAdapter;
 
 pub struct AdapterRegistry {
@@ -19,6 +20,7 @@ impl Default for AdapterRegistry {
         registry.register(OpenAiAdapter);
         registry.register(AnthropicAdapter);
         registry.register(GeminiAdapter);
+        registry.register(OllamaAdapter);
         registry
     }
 }

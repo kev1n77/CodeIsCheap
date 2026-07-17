@@ -17,6 +17,8 @@ The Anthropic adapter covers Messages and legacy Complete requests, non-streamin
 
 The Gemini adapter covers v1/v1beta `generateContent` and `streamGenerateContent`, including system instructions, multimodal parts, function declarations/calls/results, generation options, JSON responses, SSE reconstruction, finish reasons, and usage metadata.
 
+The Ollama adapter covers local `/api/chat` and `/api/generate` requests, system/user/tool messages, inline images, function calls/results, model options, non-streaming JSON responses, and NDJSON stream reconstruction with usage and exact event evidence.
+
 OpenAI-compatible support currently covers request reconstruction only. Response reconstruction is not declared in the capability matrix.
 
 Regenerate every golden declared by the capability matrix after an intentional mapping change:

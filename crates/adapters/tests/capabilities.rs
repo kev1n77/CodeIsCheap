@@ -189,6 +189,12 @@ fn supports(prompt: &PromptIr, capability: &str) -> bool {
                 )
             })
         }),
+        "response.ndjson" => response.is_some_and(|trace| {
+            trace
+                .events
+                .iter()
+                .any(|event| matches!(event.kind.as_str(), "chat_chunk" | "generate_chunk"))
+        }),
         "response.text" => response.is_some_and(|trace| {
             trace
                 .parts

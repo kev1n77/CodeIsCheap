@@ -439,7 +439,7 @@ fn map_capture(capture: codeischeap_storage::StoredCapture) -> CapturedRequest {
 }
 
 fn response_timeline(trace: &ResponseTrace, response_text: Option<&str>) -> Vec<TimelineEvent> {
-    let frame_ranges = response_text.map_or_else(Vec::new, sse_frame_ranges);
+    let frame_ranges = response_text.map_or_else(Vec::new, stream_frame_ranges);
     trace
         .events
         .iter()
@@ -457,6 +457,21 @@ fn response_timeline(trace: &ResponseTrace, response_text: Option<&str>) -> Vec<
             }
         })
         .collect()
+}
+
+fn stream_frame_ranges(text: &str) -> Vec<Range<usize>> {
+    let is_sse = text.lines().any(|line| {
+        let field = line
+            .trim_end_matches('\r')
+            .split_once(':')
+            .map_or(line, |(field, _)| field);
+        matches!(field, "event" | "data")
+    });
+    if is_sse {
+        sse_frame_ranges(text)
+    } else {
+        ndjson_frame_ranges(text)
+    }
 }
 
 fn stream_event_locator(
@@ -520,6 +535,20 @@ fn flush_sse_range(
     *has_data = false;
 }
 
+fn ndjson_frame_ranges(text: &str) -> Vec<Range<usize>> {
+    let mut ranges = Vec::new();
+    let mut cursor = 0;
+    for raw_line in text.split_inclusive('\n') {
+        let start = cursor;
+        cursor += raw_line.len();
+        let line = raw_line.trim_end_matches('\n').trim_end_matches('\r');
+        if !line.trim().is_empty() {
+            ranges.push(start..start + line.len());
+        }
+    }
+    ranges
+}
+
 fn response_event_description(
     trace: &ResponseTrace,
     event: &ResponseEvent,
@@ -573,10 +602,54 @@ fn response_event_description(
             "Completion chunk".to_owned(),
             "Legacy Anthropic completion".to_owned(),
         ),
+        "chat_chunk" | "generate_chunk" => ollama_chunk_description(trace, event),
         kind => (
             "stream".to_owned(),
             "Response stream event".to_owned(),
             kind.to_owned(),
+        ),
+    }
+}
+
+fn ollama_chunk_description(
+    trace: &ResponseTrace,
+    event: &ResponseEvent,
+) -> (String, String, String) {
+    match event.delta_kind.as_deref() {
+        Some("done") => (
+            "complete".to_owned(),
+            "Response stream complete".to_owned(),
+            trace
+                .stop_reason
+                .clone()
+                .unwrap_or_else(|| "Ollama generation complete".to_owned()),
+        ),
+        Some("tool_calls") => (
+            "tool".to_owned(),
+            "Tool call emitted".to_owned(),
+            "Ollama function call".to_owned(),
+        ),
+        Some("thinking") => (
+            "stream".to_owned(),
+            "Thinking chunk".to_owned(),
+            "Ollama reasoning output".to_owned(),
+        ),
+        Some("error") => (
+            "error".to_owned(),
+            "Response stream error".to_owned(),
+            trace
+                .error
+                .as_ref()
+                .map(compact_json)
+                .unwrap_or_else(|| "Ollama stream error".to_owned()),
+        ),
+        _ => (
+            "stream".to_owned(),
+            "Response chunk".to_owned(),
+            trace
+                .model
+                .clone()
+                .unwrap_or_else(|| "Ollama output".to_owned()),
         ),
     }
 }
@@ -692,7 +765,14 @@ fn anatomy_sections(prompt: &PromptIr, raw_body: &Value) -> Vec<AnatomySection> 
             "temperature",
             "temperature",
             &temperature.to_string(),
-            parameter_source(raw_body, &["/temperature", "/generationConfig/temperature"]),
+            parameter_source(
+                raw_body,
+                &[
+                    "/temperature",
+                    "/generationConfig/temperature",
+                    "/options/temperature",
+                ],
+            ),
         ));
     }
     if let Some(max_output_tokens) = prompt.generation.max_output_tokens {
@@ -706,6 +786,7 @@ fn anatomy_sections(prompt: &PromptIr, raw_body: &Value) -> Vec<AnatomySection> 
                     "/max_output_tokens",
                     "/max_tokens",
                     "/generationConfig/maxOutputTokens",
+                    "/options/num_predict",
                 ],
             ),
         ));
@@ -890,6 +971,7 @@ fn provider_label(provider: &str) -> String {
         "anthropic" => "Anthropic".to_owned(),
         "gemini" => "Gemini".to_owned(),
         "google" => "Google".to_owned(),
+        "ollama" => "Ollama".to_owned(),
         "mistral" => "Mistral".to_owned(),
         _ => provider.to_owned(),
     }
@@ -1067,6 +1149,34 @@ mod tests {
     }
 
     #[test]
+    fn stream_event_locators_preserve_exact_utf8_ndjson_lines() {
+        let text = "{\"response\":\"你好\",\"done\":false}\n\n{\"done\":true}\n";
+        let ranges = stream_frame_ranges(text);
+
+        assert_eq!(ranges.len(), 2);
+        assert_eq!(
+            std::str::from_utf8(&text.as_bytes()[ranges[0].clone()]).expect("line must be UTF-8"),
+            "{\"response\":\"你好\",\"done\":false}"
+        );
+        let event = ResponseEvent {
+            index: 1,
+            kind: "generate_chunk".to_owned(),
+            content_index: None,
+            delta_kind: Some("done".to_owned()),
+            evidence: Evidence::observed(EvidenceSource::StreamEvent { index: 1 }),
+        };
+
+        assert_eq!(
+            stream_event_locator(&event, &ranges),
+            Some(EvidenceLocator::TextRange {
+                pointer: "/outcome/result/body/content".to_owned(),
+                start: u64::try_from(ranges[1].start).expect("range start must fit"),
+                end: u64::try_from(ranges[1].end).expect("range end must fit"),
+            })
+        );
+    }
+
+    #[test]
     fn checked_in_schema_matches_the_rust_contract() {
         let generated = serde_json::to_value(schemars::schema_for!(WorkspaceBootstrap))
             .expect("schema must serialize");
@@ -1098,6 +1208,11 @@ mod tests {
     #[test]
     fn gemini_provider_uses_a_product_label() {
         assert_eq!(provider_label("gemini"), "Gemini");
+    }
+
+    #[test]
+    fn ollama_provider_uses_a_product_label() {
+        assert_eq!(provider_label("ollama"), "Ollama");
     }
 
     fn read_bindings(directory: &Path) -> Vec<(PathBuf, String)> {

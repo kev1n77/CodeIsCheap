@@ -1,0 +1,91 @@
+{
+  "version": "0.1",
+  "capture_id": "ollama_chat_fixture",
+  "observed_at_unix_ms": 1784244000000,
+  "source": "mitmproxy",
+  "request": {
+    "method": "POST",
+    "scheme": "http",
+    "host": "127.0.0.1",
+    "port": 11434,
+    "path": "/api/chat",
+    "query": [],
+    "headers": [{ "name": "content-type", "value": "application/json" }],
+    "body": {
+      "state": "json",
+      "content": {
+        "model": "qwen3:8b",
+        "messages": [
+          { "role": "system", "content": "Answer with repository evidence." },
+          { "role": "user", "content": "Inspect this screenshot.", "images": ["c3ludGhldGljLWltYWdl"] },
+          {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+              { "id": "call_weather", "function": { "name": "get_weather", "arguments": { "city": "Shanghai" } } }
+            ]
+          },
+          { "role": "tool", "tool_name": "call_weather", "content": { "temperature_c": 18 } }
+        ],
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "get_weather",
+              "description": "Read synthetic weather data.",
+              "parameters": {
+                "type": "object",
+                "properties": { "city": { "type": "string" } },
+                "required": ["city"]
+              }
+            }
+          }
+        ],
+        "options": {
+          "temperature": 0.2,
+          "top_p": 0.9,
+          "top_k": 20,
+          "num_predict": 256,
+          "stop": ["<END>"]
+        },
+        "format": "json",
+        "think": true,
+        "keep_alive": "5m",
+        "stream": false
+      }
+    }
+  },
+  "outcome": {
+    "kind": "response",
+    "result": {
+      "status": 200,
+      "headers": [{ "name": "content-type", "value": "application/json" }],
+      "body": {
+        "state": "json",
+        "content": {
+          "model": "qwen3:8b",
+          "created_at": "2026-07-17T09:00:00Z",
+          "message": {
+            "role": "assistant",
+            "thinking": "The tool result is already available.",
+            "content": "The synthetic temperature is 18 C.",
+            "tool_calls": [
+              { "id": "call_report", "function": { "name": "write_report", "arguments": { "temperature_c": 18 } } }
+            ]
+          },
+          "done": true,
+          "done_reason": "stop",
+          "total_duration": 1820000000,
+          "load_duration": 120000000,
+          "prompt_eval_count": 96,
+          "prompt_eval_duration": 310000000,
+          "eval_count": 24,
+          "eval_duration": 1390000000
+        }
+      },
+      "duration_ms": 1820,
+      "completeness": "complete"
+    }
+  },
+  "redactions": []
+}

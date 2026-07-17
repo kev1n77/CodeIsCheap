@@ -1,0 +1,259 @@
+{
+  "ir_version": "0.1.0",
+  "request_id": "ollama_chat_fixture",
+  "provider": {
+    "id": "ollama",
+    "host": "127.0.0.1",
+    "confidence": 1.0
+  },
+  "operation": "chat.create",
+  "model": "qwen3:8b",
+  "instructions": [
+    {
+      "id": "instruction_0",
+      "role": "system",
+      "parts": [
+        {
+          "kind": "text",
+          "id": "instruction_0_part_0",
+          "text": "Answer with repository evidence.",
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/messages/0/content"
+            },
+            "confidence": 1.0
+          }
+        }
+      ],
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/messages/0"
+        },
+        "confidence": 1.0
+      }
+    }
+  ],
+  "messages": [
+    {
+      "id": "message_1",
+      "role": "user",
+      "parts": [
+        {
+          "kind": "text",
+          "id": "message_1_part_0",
+          "text": "Inspect this screenshot.",
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/messages/1/content"
+            },
+            "confidence": 1.0
+          }
+        },
+        {
+          "kind": "image_ref",
+          "id": "message_1_part_1",
+          "location": "inline:base64",
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/messages/1/images/0"
+            },
+            "confidence": 1.0
+          }
+        }
+      ],
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/messages/1"
+        },
+        "confidence": 1.0
+      }
+    },
+    {
+      "id": "message_2",
+      "role": "assistant",
+      "parts": [
+        {
+          "kind": "tool_use",
+          "id": "call_weather",
+          "name": "get_weather",
+          "input": {
+            "city": "Shanghai"
+          },
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/messages/2/tool_calls/0"
+            },
+            "confidence": 1.0
+          }
+        }
+      ],
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/messages/2"
+        },
+        "confidence": 1.0
+      }
+    },
+    {
+      "id": "message_3",
+      "role": "tool",
+      "parts": [
+        {
+          "kind": "tool_result",
+          "id": "message_3_part_0",
+          "tool_use_id": "call_weather",
+          "value": {
+            "temperature_c": 18
+          },
+          "evidence": {
+            "level": "observed",
+            "source": {
+              "kind": "json_pointer",
+              "pointer": "/messages/3/content"
+            },
+            "confidence": 1.0
+          }
+        }
+      ],
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/messages/3"
+        },
+        "confidence": 1.0
+      }
+    }
+  ],
+  "context": [],
+  "tools": [
+    {
+      "id": "tool_0",
+      "name": "get_weather",
+      "description": "Read synthetic weather data.",
+      "input_schema": {
+        "properties": {
+          "city": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "city"
+        ],
+        "type": "object"
+      },
+      "evidence": {
+        "level": "observed",
+        "source": {
+          "kind": "json_pointer",
+          "pointer": "/tools/0"
+        },
+        "confidence": 1.0
+      }
+    }
+  ],
+  "generation": {
+    "temperature": 0.2,
+    "top_p": 0.9,
+    "max_output_tokens": 256,
+    "stop": [
+      "<END>"
+    ],
+    "extra": {
+      "top_k": 20
+    }
+  },
+  "vendor": {
+    "format": "json",
+    "keep_alive": "5m",
+    "stream": false,
+    "think": true
+  },
+  "response": {
+    "model": "qwen3:8b",
+    "role": "assistant",
+    "parts": [
+      {
+        "kind": "text",
+        "id": "response_part_0",
+        "text": "The synthetic temperature is 18 C.",
+        "evidence": {
+          "level": "observed",
+          "source": {
+            "kind": "json_pointer",
+            "pointer": "/outcome/result/body/content/message/content"
+          },
+          "confidence": 1.0
+        }
+      },
+      {
+        "kind": "json",
+        "id": "response_part_1",
+        "value": {
+          "thinking": "The tool result is already available.",
+          "type": "thinking"
+        },
+        "evidence": {
+          "level": "observed",
+          "source": {
+            "kind": "json_pointer",
+            "pointer": "/outcome/result/body/content/message/thinking"
+          },
+          "confidence": 1.0
+        }
+      },
+      {
+        "kind": "tool_use",
+        "id": "call_report",
+        "name": "write_report",
+        "input": {
+          "temperature_c": 18
+        },
+        "evidence": {
+          "level": "observed",
+          "source": {
+            "kind": "json_pointer",
+            "pointer": "/outcome/result/body/content/message/tool_calls/0"
+          },
+          "confidence": 1.0
+        }
+      }
+    ],
+    "stop_reason": "stop",
+    "usage": {
+      "eval_count": 24,
+      "eval_duration": 1390000000,
+      "load_duration": 120000000,
+      "prompt_eval_count": 96,
+      "prompt_eval_duration": 310000000,
+      "total_duration": 1820000000
+    },
+    "events": [],
+    "evidence": {
+      "level": "observed",
+      "source": {
+        "kind": "json_pointer",
+        "pointer": "/outcome/result/body/content"
+      },
+      "confidence": 1.0
+    }
+  },
+  "completeness": {
+    "request_body": "complete",
+    "response_body": "complete"
+  }
+}
