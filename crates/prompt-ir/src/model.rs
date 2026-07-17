@@ -231,6 +231,48 @@ pub struct Completeness {
     pub response_body: BodyState,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MetricSource {
+    Reported,
+    Estimated,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct TokenMeasurement {
+    pub value: u64,
+    pub source: MetricSource,
+    pub method: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct PricingCost {
+    pub usd: f64,
+    pub source: MetricSource,
+    pub catalog_version: String,
+    pub price_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SemanticFingerprint {
+    pub algorithm: String,
+    pub canonicalization_version: String,
+    pub digest: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct PromptMetrics {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_tokens: Option<TokenMeasurement>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_tokens: Option<TokenMeasurement>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_tokens: Option<TokenMeasurement>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost: Option<PricingCost>,
+    pub fingerprint: SemanticFingerprint,
+}
+
 impl Default for Completeness {
     fn default() -> Self {
         Self {
@@ -265,6 +307,8 @@ pub struct PromptIr {
     pub response: Option<ResponseTrace>,
     #[serde(default)]
     pub completeness: Completeness,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metrics: Option<PromptMetrics>,
 }
 
 impl PromptIr {
@@ -288,6 +332,7 @@ impl PromptIr {
             vendor: BTreeMap::new(),
             response: None,
             completeness: Completeness::default(),
+            metrics: None,
         }
     }
 }

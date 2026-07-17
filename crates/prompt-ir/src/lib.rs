@@ -4,13 +4,16 @@
 //! data. Consumers must not present inference as wire-level evidence.
 
 mod evidence;
+mod metrics;
 mod model;
 mod validation;
 
 pub use evidence::{Evidence, EvidenceLevel, EvidenceSource};
+pub use metrics::{PRICING_CATALOG_VERSION, enrich_metrics};
 pub use model::{
     BodyState, Completeness, ContextItem, ContextKind, GenerationOptions, Instruction,
-    InstructionRole, Message, MessageRole, PROMPT_IR_VERSION, PromptIr, PromptPart, ProviderRef,
-    ResponseEvent, ResponseTrace, ToolDefinition,
+    InstructionRole, Message, MessageRole, MetricSource, PROMPT_IR_VERSION, PricingCost, PromptIr,
+    PromptMetrics, PromptPart, ProviderRef, ResponseEvent, ResponseTrace, SemanticFingerprint,
+    TokenMeasurement, ToolDefinition,
 };
 pub use validation::{Validate, ValidationError, ValidationErrors};

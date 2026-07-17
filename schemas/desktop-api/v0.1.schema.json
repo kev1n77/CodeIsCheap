@@ -161,6 +161,23 @@
         "application": {
           "type": "string"
         },
+        "costSource": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MetricSource"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "costUsd": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
         "detail": {
           "$ref": "#/$defs/RequestDetail"
         },
@@ -189,14 +206,36 @@
         "operation": {
           "type": "string"
         },
+        "pricingVersion": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "promptPreview": {
           "type": "string"
         },
         "provider": {
           "type": "string"
         },
+        "semanticFingerprint": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "status": {
           "$ref": "#/$defs/CaptureStatus"
+        },
+        "tokenSource": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MetricSource"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "tokens": {
           "type": [
@@ -356,6 +395,13 @@
             "end"
           ]
         }
+      ]
+    },
+    "MetricSource": {
+      "type": "string",
+      "enum": [
+        "reported",
+        "estimated"
       ]
     },
     "RequestDetail": {

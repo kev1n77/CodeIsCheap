@@ -11,7 +11,11 @@ use serde_json::Value;
 fn generate_content_fixture_matches_golden_and_maps_gemini_semantics() {
     let result = AdapterRegistry::default().parse(&fixture("gemini-generate-content-capture.json"));
     let prompt = result.prompt_ir.expect("fixture must produce Prompt IR");
-    let actual = serde_json::to_value(&prompt).expect("Prompt IR must serialize");
+    let mut actual = serde_json::to_value(&prompt).expect("Prompt IR must serialize");
+    actual
+        .as_object_mut()
+        .expect("Prompt IR must be an object")
+        .remove("metrics");
     let expected: Value = read_json("gemini-generate-content-prompt-ir.json");
 
     assert_eq!(result.adapter_id.as_deref(), Some(GEMINI_ADAPTER_ID));
@@ -48,7 +52,11 @@ fn generate_content_fixture_matches_golden_and_maps_gemini_semantics() {
 fn streaming_fixture_reassembles_text_and_usage() {
     let result = AdapterRegistry::default().parse(&fixture("gemini-stream-content-capture.json"));
     let prompt = result.prompt_ir.expect("fixture must produce Prompt IR");
-    let actual = serde_json::to_value(&prompt).expect("Prompt IR must serialize");
+    let mut actual = serde_json::to_value(&prompt).expect("Prompt IR must serialize");
+    actual
+        .as_object_mut()
+        .expect("Prompt IR must be an object")
+        .remove("metrics");
     let expected: Value = read_json("gemini-stream-content-prompt-ir.json");
 
     assert!(result.issues.is_empty());

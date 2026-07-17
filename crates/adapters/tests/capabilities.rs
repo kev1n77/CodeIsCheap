@@ -141,7 +141,11 @@ fn assert_golden(fixtures: &Path, case: &CapabilityCase, prompt: &PromptIr) {
         .unwrap_or_else(|| panic!("{} parsed cases require a golden", case.id));
     assert_fixture_name(golden);
     let expected: Value = read_json(&fixtures.join(golden));
-    let actual = serde_json::to_value(prompt).expect("Prompt IR must serialize");
+    let mut actual = serde_json::to_value(prompt).expect("Prompt IR must serialize");
+    actual
+        .as_object_mut()
+        .expect("Prompt IR must be an object")
+        .remove("metrics");
     assert_eq!(actual, expected, "{} golden mismatch", case.id);
 }
 

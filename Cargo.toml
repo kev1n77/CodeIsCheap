@@ -10,6 +10,7 @@ rust-version = "1.85"
 [workspace.dependencies]
 axum = "0.8"
 async-stream = "0.3"
+blake3 = "1.8"
 bytes = "1.10"
 futures-util = "0.3"
 fs2 = "0.4"

@@ -12,7 +12,7 @@ use std::{fmt, ops::Range};
 use codeischeap_capture_ipc::{CaptureOutcome, CapturedBodyState, ResponseCompleteness};
 use codeischeap_prompt_ir::{
     Evidence, EvidenceLevel as PromptEvidenceLevel, EvidenceSource, InstructionRole, MessageRole,
-    PromptIr, PromptPart, ResponseEvent, ResponseTrace,
+    MetricSource as PromptMetricSource, PromptIr, PromptPart, ResponseEvent, ResponseTrace,
 };
 use codeischeap_storage::{EncryptedStore, StorageError};
 use schemars::JsonSchema;
@@ -126,11 +126,23 @@ pub struct CapturedRequest {
     pub operation: String,
     pub model: String,
     pub tokens: Option<u64>,
+    pub token_source: Option<MetricSource>,
+    pub cost_usd: Option<f64>,
+    pub cost_source: Option<MetricSource>,
+    pub pricing_version: Option<String>,
+    pub semantic_fingerprint: Option<String>,
     pub duration_ms: Option<u64>,
     pub status: CaptureStatus,
     pub has_tools: bool,
     pub prompt_preview: String,
     pub detail: RequestDetail,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum MetricSource {
+    Reported,
+    Estimated,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
@@ -301,6 +313,15 @@ fn map_capture(capture: codeischeap_storage::StoredCapture) -> CapturedRequest {
         .as_ref()
         .is_some_and(|prompt| !prompt.tools.is_empty());
     let application = "Unknown app".to_owned();
+    let metrics = prompt_ir
+        .as_ref()
+        .and_then(|prompt| prompt.metrics.as_ref());
+    let token_measurement = metrics.and_then(|metrics| {
+        metrics
+            .total_tokens
+            .as_ref()
+            .or(metrics.input_tokens.as_ref())
+    });
     let redaction_count = envelope.redactions.len();
     let raw_body = match envelope.request.body.state {
         CapturedBodyState::Json | CapturedBodyState::Text => {
@@ -414,7 +435,22 @@ fn map_capture(capture: codeischeap_storage::StoredCapture) -> CapturedRequest {
         provider: provider_label(provider_id),
         operation,
         model,
-        tokens: None,
+        tokens: token_measurement.map(|measurement| measurement.value),
+        token_source: token_measurement.map(|measurement| map_metric_source(measurement.source)),
+        cost_usd: metrics.and_then(|metrics| metrics.cost.as_ref().map(|cost| cost.usd)),
+        cost_source: metrics.and_then(|metrics| {
+            metrics
+                .cost
+                .as_ref()
+                .map(|cost| map_metric_source(cost.source))
+        }),
+        pricing_version: metrics.and_then(|metrics| {
+            metrics
+                .cost
+                .as_ref()
+                .map(|cost| cost.catalog_version.clone())
+        }),
+        semantic_fingerprint: metrics.map(|metrics| metrics.fingerprint.digest.clone()),
         duration_ms,
         status,
         has_tools,
@@ -435,6 +471,13 @@ fn map_capture(capture: codeischeap_storage::StoredCapture) -> CapturedRequest {
                 "promptIr": prompt_ir,
             }),
         },
+    }
+}
+
+const fn map_metric_source(source: PromptMetricSource) -> MetricSource {
+    match source {
+        PromptMetricSource::Reported => MetricSource::Reported,
+        PromptMetricSource::Estimated => MetricSource::Estimated,
     }
 }
 

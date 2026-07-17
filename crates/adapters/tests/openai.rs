@@ -231,8 +231,13 @@ impl PromptAdapter for InvalidOutputAdapter {
 fn assert_fixture_matches_golden(capture_name: &str, golden_name: &str) {
     let capture = sanitized_fixture(capture_name);
     let result = AdapterRegistry::default().parse(&capture);
-    let actual = serde_json::to_value(result.prompt_ir.expect("fixture must produce Prompt IR"))
-        .expect("Prompt IR must serialize");
+    let mut actual =
+        serde_json::to_value(result.prompt_ir.expect("fixture must produce Prompt IR"))
+            .expect("Prompt IR must serialize");
+    actual
+        .as_object_mut()
+        .expect("Prompt IR must be an object")
+        .remove("metrics");
     let expected: Value = serde_json::from_str(
         &fs::read_to_string(fixtures().join(golden_name)).expect("golden must be readable"),
     )

@@ -14,8 +14,13 @@ use serde_json::{Value, json};
 fn messages_fixture_matches_the_golden_prompt_ir() {
     let capture = sanitized_fixture("anthropic-messages-capture.json");
     let result = AdapterRegistry::default().parse(&capture);
-    let actual = serde_json::to_value(result.prompt_ir.expect("fixture must produce Prompt IR"))
-        .expect("Prompt IR must serialize");
+    let mut actual =
+        serde_json::to_value(result.prompt_ir.expect("fixture must produce Prompt IR"))
+            .expect("Prompt IR must serialize");
+    actual
+        .as_object_mut()
+        .expect("Prompt IR must be an object")
+        .remove("metrics");
     let expected: Value = serde_json::from_str(
         &fs::read_to_string(fixtures().join("anthropic-messages-prompt-ir.json"))
             .expect("golden must be readable"),
@@ -33,8 +38,13 @@ fn messages_fixture_matches_the_golden_prompt_ir() {
 fn messages_sse_fixture_matches_the_golden_response_trace() {
     let capture = sanitized_fixture("anthropic-messages-sse-capture.json");
     let result = AdapterRegistry::default().parse(&capture);
-    let actual = serde_json::to_value(result.prompt_ir.expect("fixture must produce Prompt IR"))
-        .expect("Prompt IR must serialize");
+    let mut actual =
+        serde_json::to_value(result.prompt_ir.expect("fixture must produce Prompt IR"))
+            .expect("Prompt IR must serialize");
+    actual
+        .as_object_mut()
+        .expect("Prompt IR must be an object")
+        .remove("metrics");
     let expected: Value = serde_json::from_str(
         &fs::read_to_string(fixtures().join("anthropic-messages-sse-prompt-ir.json"))
             .expect("golden must be readable"),
