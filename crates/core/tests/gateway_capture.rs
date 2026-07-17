@@ -12,7 +12,7 @@ use codeischeap_capture_ipc::{
 };
 use codeischeap_capture_policy::CapturePolicy;
 use codeischeap_core::{GatewayCaptureOutcome, process_gateway_event};
-use codeischeap_desktop_api::{CaptureStatus, load_workspace};
+use codeischeap_desktop_api::{CaptureStatus, MetricSource, load_workspace};
 use codeischeap_gateway::{Gateway, GatewayCapture};
 use codeischeap_storage::{DatabaseKey, EncryptedStore};
 use serde_json::json;
@@ -231,6 +231,35 @@ async fn gateway_request_reaches_openai_adapter_sqlcipher_and_desktop_api() {
     assert_eq!(workspace.requests[0].provider, "OpenAI");
     assert_eq!(workspace.requests[0].prompt_preview, PROMPT);
     assert_eq!(workspace.requests[0].status, CaptureStatus::Complete);
+    assert!(
+        workspace.requests[0]
+            .tokens
+            .is_some_and(|tokens| tokens > 0)
+    );
+    assert_eq!(
+        workspace.requests[0].token_source,
+        Some(MetricSource::Estimated)
+    );
+    assert!(
+        workspace.requests[0]
+            .cost_usd
+            .is_some_and(|cost| cost > 0.0)
+    );
+    assert_eq!(
+        workspace.requests[0].cost_source,
+        Some(MetricSource::Estimated)
+    );
+    assert_eq!(
+        workspace.requests[0].pricing_version.as_deref(),
+        Some("2026-07-17.v1")
+    );
+    assert_eq!(
+        workspace.requests[0]
+            .semantic_fingerprint
+            .as_deref()
+            .map(str::len),
+        Some(64)
+    );
     assert!(workspace.requests[0].duration_ms.is_some());
     assert!(
         workspace.requests[0]

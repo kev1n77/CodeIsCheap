@@ -17,6 +17,7 @@ pub enum ValidationError {
     InvalidConfidence { path: String, value: f32 },
     ObservedEvidenceMissingSource { path: String },
     InferredEvidenceMissingRule { path: String },
+    InvalidMetric { path: String },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -88,6 +89,52 @@ impl Validate for PromptIr {
                 let path = format!("response.events[{index}]");
                 check_non_empty(&event.kind, &format!("{path}.kind"), &mut errors);
                 check_evidence(&event.evidence, &format!("{path}.evidence"), &mut errors);
+            }
+        }
+
+        if let Some(metrics) = &self.metrics {
+            for (name, measurement) in [
+                ("input_tokens", metrics.input_tokens.as_ref()),
+                ("output_tokens", metrics.output_tokens.as_ref()),
+                ("total_tokens", metrics.total_tokens.as_ref()),
+            ] {
+                if measurement.is_some_and(|measurement| measurement.method.trim().is_empty()) {
+                    errors.push(ValidationError::InvalidMetric {
+                        path: format!("metrics.{name}.method"),
+                    });
+                }
+            }
+            if metrics.fingerprint.algorithm != "blake3-256"
+                || metrics.fingerprint.digest.len() != 64
+                || !metrics
+                    .fingerprint
+                    .digest
+                    .bytes()
+                    .all(|byte| byte.is_ascii_hexdigit())
+            {
+                errors.push(ValidationError::InvalidMetric {
+                    path: "metrics.fingerprint".to_owned(),
+                });
+            }
+            if metrics
+                .fingerprint
+                .canonicalization_version
+                .trim()
+                .is_empty()
+            {
+                errors.push(ValidationError::InvalidMetric {
+                    path: "metrics.fingerprint.canonicalization_version".to_owned(),
+                });
+            }
+            if let Some(cost) = &metrics.cost
+                && (!cost.usd.is_finite()
+                    || cost.usd < 0.0
+                    || cost.catalog_version.trim().is_empty()
+                    || cost.price_id.trim().is_empty())
+            {
+                errors.push(ValidationError::InvalidMetric {
+                    path: "metrics.cost".to_owned(),
+                });
             }
         }
 

@@ -38,6 +38,16 @@
         "$ref": "#/$defs/Message"
       }
     },
+    "metrics": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PromptMetrics"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "model": {
       "type": [
         "string",
@@ -399,6 +409,88 @@
         "unknown"
       ]
     },
+    "MetricSource": {
+      "type": "string",
+      "enum": [
+        "reported",
+        "estimated"
+      ]
+    },
+    "PricingCost": {
+      "type": "object",
+      "properties": {
+        "catalog_version": {
+          "type": "string"
+        },
+        "price_id": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/MetricSource"
+        },
+        "usd": {
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "required": [
+        "usd",
+        "source",
+        "catalog_version",
+        "price_id"
+      ]
+    },
+    "PromptMetrics": {
+      "type": "object",
+      "properties": {
+        "cost": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PricingCost"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fingerprint": {
+          "$ref": "#/$defs/SemanticFingerprint"
+        },
+        "input_tokens": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TokenMeasurement"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "output_tokens": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TokenMeasurement"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "total_tokens": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TokenMeasurement"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "fingerprint"
+      ]
+    },
     "PromptPart": {
       "oneOf": [
         {
@@ -728,6 +820,46 @@
       "required": [
         "role",
         "evidence"
+      ]
+    },
+    "SemanticFingerprint": {
+      "type": "object",
+      "properties": {
+        "algorithm": {
+          "type": "string"
+        },
+        "canonicalization_version": {
+          "type": "string"
+        },
+        "digest": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "algorithm",
+        "canonicalization_version",
+        "digest"
+      ]
+    },
+    "TokenMeasurement": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/MetricSource"
+        },
+        "value": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "value",
+        "source",
+        "method"
       ]
     },
     "ToolDefinition": {

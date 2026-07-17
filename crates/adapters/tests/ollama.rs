@@ -11,7 +11,11 @@ use serde_json::Value;
 fn chat_fixture_matches_golden_and_maps_local_tools() {
     let result = AdapterRegistry::default().parse(&fixture("ollama-chat-capture.json"));
     let prompt = result.prompt_ir.expect("fixture must produce Prompt IR");
-    let actual = serde_json::to_value(&prompt).expect("Prompt IR must serialize");
+    let mut actual = serde_json::to_value(&prompt).expect("Prompt IR must serialize");
+    actual
+        .as_object_mut()
+        .expect("Prompt IR must be an object")
+        .remove("metrics");
     let expected: Value = read_json("ollama-chat-prompt-ir.json");
 
     assert_eq!(result.adapter_id.as_deref(), Some(OLLAMA_ADAPTER_ID));
@@ -48,7 +52,11 @@ fn chat_fixture_matches_golden_and_maps_local_tools() {
 fn generate_fixture_reassembles_ndjson_and_suffix_context() {
     let result = AdapterRegistry::default().parse(&fixture("ollama-generate-capture.json"));
     let prompt = result.prompt_ir.expect("fixture must produce Prompt IR");
-    let actual = serde_json::to_value(&prompt).expect("Prompt IR must serialize");
+    let mut actual = serde_json::to_value(&prompt).expect("Prompt IR must serialize");
+    actual
+        .as_object_mut()
+        .expect("Prompt IR must be an object")
+        .remove("metrics");
     let expected: Value = read_json("ollama-generate-prompt-ir.json");
 
     assert!(result.issues.is_empty());

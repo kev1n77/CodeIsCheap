@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use codeischeap_capture_policy::SanitizedCapture;
-use codeischeap_prompt_ir::Validate;
+use codeischeap_prompt_ir::{Validate, enrich_metrics};
 
 use crate::anthropic::AnthropicAdapter;
 use crate::gemini::GeminiAdapter;
@@ -71,6 +71,7 @@ impl AdapterRegistry {
             let adapter_id = adapter.id();
             match catch_unwind(AssertUnwindSafe(|| adapter.parse(input))) {
                 Ok(Ok(mut output)) => {
+                    enrich_metrics(&mut output.prompt_ir);
                     if output.prompt_ir.validate().is_err() {
                         issues.push(ParseIssue::adapter(
                             adapter_id,

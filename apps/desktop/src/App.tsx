@@ -450,7 +450,7 @@ function RequestPane({ requests, allRequests, selectedId, query, provider, appli
                 <div className="request-row-top"><span className={`status-mark status-${request.status}`} /><strong>{request.application}</strong><time>{clock.format(new Date(request.observedAtUnixMs))}</time></div>
                 <div className="request-operation"><span>{request.provider}</span><b>{request.operation}</b></div>
                 <p>{request.promptPreview}</p>
-                <div className="request-meta"><span>{request.model}</span><span>{formatTokens(request.tokens)}</span><span>{request.durationMs == null ? "Duration unknown" : formatDuration(request.durationMs)}</span>{request.hasTools && <Wrench size={12} aria-label="Uses tools" />}</div>
+                <div className="request-meta"><span>{request.model}</span><span>{formatTokens(request.tokens, request.tokenSource)}</span><span>{request.durationMs == null ? "Duration unknown" : formatDuration(request.durationMs)}</span>{request.hasTools && <Wrench size={12} aria-label="Uses tools" />}</div>
               </button>
             );
           })}
@@ -479,8 +479,8 @@ function Inspector({ request, tab, onTab, onExport }: { request: CapturedRequest
   return (
     <section className="inspector" aria-label="Request inspector">
       <header className="inspector-header">
-        <div><div className="inspector-provider"><span className={`provider-mark provider-${request.provider.toLowerCase()}`}>{request.provider[0]}</span><strong>{request.provider}</strong><span>{request.operation}</span></div><h2>{request.model}</h2></div>
-        <div className="inspector-actions"><div className="inspector-metrics"><span><b>{request.tokens == null ? "Unknown" : number.format(request.tokens)}</b> tokens</span><span><b>{request.durationMs == null ? "Unknown" : formatDuration(request.durationMs)}</b> duration</span><span className={`request-state state-${request.status}`}>{request.status}</span></div><button className="icon-button" title="Export request" aria-label="Export request" onClick={onExport}><Download size={16} /></button></div>
+        <div><div className="inspector-provider"><span className={`provider-mark provider-${request.provider.toLowerCase()}`}>{request.provider[0]}</span><strong>{request.provider}</strong><span>{request.operation}</span></div><h2>{request.model}</h2>{request.semanticFingerprint && <code className="semantic-fingerprint" title={`BLAKE3 semantic fingerprint: ${request.semanticFingerprint}`}>{request.semanticFingerprint.slice(0, 12)}</code>}</div>
+        <div className="inspector-actions"><div className="inspector-metrics"><span><b>{formatTokens(request.tokens, request.tokenSource)}</b> tokens</span><span title={request.pricingVersion ?? undefined}><b>{formatCost(request.costUsd, request.costSource)}</b> cost</span><span><b>{request.durationMs == null ? "Unknown" : formatDuration(request.durationMs)}</b> duration</span><span className={`request-state state-${request.status}`}>{request.status}</span></div><button className="icon-button" title="Export request" aria-label="Export request" onClick={onExport}><Download size={16} /></button></div>
       </header>
       <nav className="inspector-tabs" aria-label="Inspector views">
         <button aria-selected={tab === "anatomy"} onClick={() => onTab("anatomy")}><Braces size={14} />Anatomy</button>
@@ -635,8 +635,15 @@ function filteredRequests(requests: CapturedRequest[], query: string, provider: 
   });
 }
 
-function formatTokens(tokens: number | null) {
-  return tokens == null ? "Tokens unknown" : `${number.format(tokens)} tok`;
+function formatTokens(tokens: number | null, source?: "reported" | "estimated" | null) {
+  if (tokens == null) return "Tokens unknown";
+  return `${source === "estimated" ? "~" : ""}${number.format(tokens)} tok`;
+}
+
+function formatCost(cost: number | null, source?: "reported" | "estimated" | null) {
+  if (cost == null) return "Unknown";
+  const formatted = cost < 0.01 ? cost.toFixed(6) : cost.toFixed(4);
+  return `${source === "estimated" ? "~" : ""}$${formatted}`;
 }
 
 function formatDuration(milliseconds: number) {
