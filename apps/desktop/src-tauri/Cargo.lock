@@ -524,6 +524,7 @@ dependencies = [
  "codeischeap-core",
  "codeischeap-desktop-api",
  "codeischeap-gateway",
+ "codeischeap-process-attribution",
  "codeischeap-proxy-recovery",
  "codeischeap-sidecar-runtime",
  "codeischeap-storage",
@@ -568,6 +569,13 @@ dependencies = [
  "tokio-stream",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "codeischeap-process-attribution"
+version = "0.1.0"
+dependencies = [
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

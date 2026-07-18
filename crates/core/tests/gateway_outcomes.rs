@@ -20,6 +20,8 @@ fn request_event(capture_id: &str) -> GatewayCaptureEvent {
         host: "api.openai.com".to_owned(),
         port: 443,
         path: "/v1/responses".to_owned(),
+        client_addr: None,
+        process_id: None,
         query: Vec::new(),
         headers: vec![("content-type".to_owned(), "application/json".to_owned())],
         body: CapturedPayload {
@@ -39,6 +41,8 @@ fn anthropic_request_event(capture_id: &str) -> GatewayCaptureEvent {
         host: "api.anthropic.com".to_owned(),
         port: 443,
         path: "/v1/messages".to_owned(),
+        client_addr: None,
+        process_id: None,
         query: Vec::new(),
         headers: vec![("content-type".to_owned(), "application/json".to_owned())],
         body: CapturedPayload {
@@ -60,6 +64,8 @@ fn ollama_request_event(capture_id: &str) -> GatewayCaptureEvent {
         host: "127.0.0.1".to_owned(),
         port: 11434,
         path: "/api/generate".to_owned(),
+        client_addr: None,
+        process_id: None,
         query: Vec::new(),
         headers: vec![("content-type".to_owned(), "application/json".to_owned())],
         body: CapturedPayload {
@@ -110,6 +116,24 @@ fn process(store: &mut EncryptedStore, event: GatewayCaptureEvent) -> GatewayCap
         event,
     )
     .expect("event must process")
+}
+
+#[test]
+fn gateway_process_id_reaches_the_attribution_contract() {
+    let (_directory, mut store) = store();
+    let mut event = request_event("gateway_process_attribution");
+    let GatewayCaptureEvent::Request(request) = &mut event else {
+        unreachable!();
+    };
+    request.client_addr = Some("127.0.0.1:53110".parse().unwrap());
+    request.process_id = Some(4242);
+
+    process(&mut store, event);
+
+    let workspace = load_workspace(&store).expect("workspace must load");
+    assert_eq!(workspace.requests[0].application_process_id, Some(4242));
+    let raw = serde_json::to_string(&workspace.requests[0].detail.raw).expect("raw must encode");
+    assert!(!raw.contains("53110"));
 }
 
 #[test]

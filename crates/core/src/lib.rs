@@ -164,7 +164,7 @@ pub fn process_gateway_event(
 ) -> Result<GatewayCaptureOutcome, GatewayCaptureError> {
     match event {
         GatewayCaptureEvent::Request(request) => {
-            let sanitized = policy.sanitize_envelope(request_envelope(request))?;
+            let sanitized = policy.sanitize_envelope(request_envelope(request, policy))?;
             let parsed = adapters.parse(&sanitized);
             persist_capture(store, &sanitized, parsed.prompt_ir.as_ref())?;
             Ok(GatewayCaptureOutcome::Persisted(PersistedGatewayCapture {
@@ -185,7 +185,7 @@ pub fn process_gateway_event(
     }
 }
 
-fn request_envelope(request: GatewayRequestCapture) -> CaptureEnvelope {
+fn request_envelope(request: GatewayRequestCapture, policy: &CapturePolicy) -> CaptureEnvelope {
     let GatewayRequestCapture {
         capture_id,
         observed_at_unix_ms,
@@ -194,17 +194,27 @@ fn request_envelope(request: GatewayRequestCapture) -> CaptureEnvelope {
         host,
         port,
         path,
+        client_addr: _,
+        process_id,
         query,
         headers,
         body,
     } = request;
     let content_type = content_type(&headers).map(str::to_owned);
+    let captured_headers = captured_fields(headers);
+    let attribution = process_id
+        .filter(|process_id| *process_id != 0)
+        .map(|process_id| {
+            let mut attribution = policy.attribution_for(CaptureSource::Gateway, &captured_headers);
+            attribution.process_id = Some(process_id);
+            attribution
+        });
     CaptureEnvelope {
         version: CAPTURE_ENVELOPE_VERSION.to_owned(),
         capture_id,
         observed_at_unix_ms,
         source: CaptureSource::Gateway,
-        attribution: None,
+        attribution,
         request: CapturedRequest {
             method,
             scheme,
@@ -212,7 +222,7 @@ fn request_envelope(request: GatewayRequestCapture) -> CaptureEnvelope {
             port,
             path,
             query: captured_fields(query),
-            headers: captured_fields(headers),
+            headers: captured_headers,
             body: captured_body(&body, content_type.as_deref(), false),
         },
         outcome: None,

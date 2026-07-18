@@ -65,6 +65,13 @@ describe("request workbench", () => {
 
   it("shows application attribution confidence and evidence source", async () => {
     const user = userEvent.setup();
+    window.__TAURI_INTERNALS__ = {};
+    const workspace = structuredClone(fixture) as unknown as WorkspaceBootstrap;
+    workspace.requests[1].applicationProcessId = 4242;
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === "bootstrap_workspace") return structuredClone(workspace);
+      throw new Error(`Unexpected command: ${command}`);
+    });
     render(<App />);
 
     const listbox = await screen.findByRole("listbox", { name: "Request results" });
@@ -78,6 +85,7 @@ describe("request workbench", () => {
     expect(within(inspector).getByText("Chrome")).toBeInTheDocument();
     expect(within(inspector).getByText("medium")).toBeInTheDocument();
     expect(within(inspector).getByText("user agent")).toBeInTheDocument();
+    expect(within(inspector).getByText("PID 4242")).toBeInTheDocument();
   });
 
   it("combines tool and error filters", async () => {

@@ -162,6 +162,7 @@ kbd { min-width: 18px; padding: 1px 5px; border: 1px solid var(--border); border
 .inspector-provider > span:last-child { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px; }
 .inspector-attribution { display: flex; align-items: center; gap: 7px; margin-top: 6px; color: var(--text-secondary); font-size: 10px; }
 .inspector-attribution code { color: var(--text-tertiary); font-size: 9px; }
+.inspector-attribution .attribution-process { color: var(--text-secondary); }
 .inspector-actions { display: flex; align-items: center; gap: 12px; }
 .provider-mark { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 4px; background: var(--text); color: var(--surface); font-weight: 800; }
 .provider-openai { background: #16705a; }.provider-anthropic { background: #9b542e; }.provider-gemini, .provider-google { background: #2d65a6; }.provider-ollama { background: #6b4f9e; }.provider-mistral { background: #b56513; }
