@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
   Copy,
+  Download,
   LoaderCircle,
   Network,
   Pause,
@@ -12,7 +13,13 @@ import {
   Stethoscope,
   X,
 } from "lucide-react";
-import type { CaptureMode, CertificateAuthority, WorkspaceBootstrap } from "./types";
+import type {
+  CaptureMode,
+  CertificateAuthority,
+  SupportBundlePreview,
+  WorkspaceBootstrap,
+} from "./types";
+import { previewSupportBundle, saveSupportBundle } from "./workspace";
 
 type SettingsTab = "connection" | "diagnostics";
 
@@ -31,13 +38,16 @@ export function SettingsDialog({ workspace, active, runtimeError, certificateErr
   const [tab, setTab] = useState<SettingsTab>("connection");
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState("");
+  const [supportPreview, setSupportPreview] = useState<SupportBundlePreview | null>(null);
+  const [supportError, setSupportError] = useState("");
+  const [supportSaving, setSupportSaving] = useState(false);
+  const [supportSavedPath, setSupportSavedPath] = useState("");
   const closeRef = useRef<HTMLButtonElement>(null);
   const certificate = workspace.capture.certificateAuthority;
   const canTrust = certificate.canManageTrust
     && certificate.state === "ready"
     && certificate.trust === "not_trusted";
   const canRemoveTrust = certificate.canManageTrust && certificate.trust === "trusted";
-  const report = useMemo(() => diagnosticReport(workspace, active, runtimeError), [workspace, active, runtimeError]);
 
   useEffect(() => {
     const background = document.querySelectorAll(".app-shell > .titlebar, .app-shell > .workspace");
@@ -53,14 +63,49 @@ export function SettingsDialog({ workspace, active, runtimeError, certificateErr
     };
   }, [onClose]);
 
+  useEffect(() => {
+    if (tab !== "diagnostics") return;
+    let cancelled = false;
+    setSupportPreview(null);
+    setSupportError("");
+    setSupportSavedPath("");
+    setCopied(false);
+    setCopyError("");
+    previewSupportBundle(workspace, runtimeError || null)
+      .then((preview) => { if (!cancelled) setSupportPreview(preview); })
+      .catch((reason: unknown) => {
+        if (!cancelled) {
+          setSupportError(
+            reason instanceof Error ? reason.message : "Support bundle could not be generated.",
+          );
+        }
+      });
+    return () => { cancelled = true; };
+  }, [runtimeError, tab, workspace]);
+
   const copyReport = async () => {
+    if (!supportPreview) return;
     try {
-      await navigator.clipboard.writeText(`${JSON.stringify(report, null, 2)}\n`);
+      await navigator.clipboard.writeText(supportPreview.content);
       setCopied(true);
       setCopyError("");
     } catch {
       setCopyError("Diagnostic report could not be copied.");
     }
+  };
+
+  const saveBundle = () => {
+    if (!supportPreview || supportSaving || supportSavedPath) return;
+    setSupportSaving(true);
+    setSupportError("");
+    saveSupportBundle(runtimeError || null, supportPreview)
+      .then((receipt) => { if (receipt) setSupportSavedPath(receipt.path); })
+      .catch((reason: unknown) => {
+        setSupportError(
+          reason instanceof Error ? reason.message : "Support bundle could not be written.",
+        );
+      })
+      .finally(() => setSupportSaving(false));
   };
 
   return (
@@ -96,8 +141,8 @@ export function SettingsDialog({ workspace, active, runtimeError, certificateErr
           </section>
         </div>}
         {tab === "diagnostics" && <div className="settings-content diagnostics-content">
-          <div className="diagnostics-toolbar"><span>Request content is excluded from this report.</span><button className="settings-command" onClick={copyReport}><Copy size={14} />{copied ? "Copied" : "Copy report"}</button></div>
-          {copyError && <span className="settings-error diagnostics-error" role="alert">{copyError}</span>}
+          <div className="diagnostics-toolbar"><span>Request content, identifiers, Raw capture, and logs are excluded.</span><div className="diagnostics-actions"><button className="settings-command" disabled={!supportPreview} onClick={copyReport}><Copy size={14} />{copied ? "Copied" : "Copy report"}</button><button className="settings-command" disabled={!supportPreview || supportSaving || Boolean(supportSavedPath)} onClick={saveBundle}>{supportSaving ? <LoaderCircle className="is-spinning" size={14} /> : <Download size={14} />}{supportSavedPath ? "Saved" : "Save support bundle"}</button></div></div>
+          {(copyError || supportError) && <span className="settings-error diagnostics-error" role="alert">{copyError || supportError}</span>}
           <table className="diagnostics-table">
             <tbody>
               <DiagnosticRow label="Encrypted store" healthy={workspace.capture.storage.toLocaleLowerCase().includes("sqlcipher") || workspace.source === "synthetic_fixture"} detail={workspace.capture.storage} />
@@ -109,7 +154,8 @@ export function SettingsDialog({ workspace, active, runtimeError, certificateErr
               <DiagnosticRow label="Stored requests" healthy={true} detail={String(workspace.capture.requestCount)} />
             </tbody>
           </table>
-          <pre className="diagnostics-preview" aria-label="Diagnostic report preview">{JSON.stringify(report, null, 2)}</pre>
+          {supportSavedPath && <div className="diagnostics-saved" role="status"><CheckCircle2 size={14} /><span>Support bundle saved</span><code title={supportSavedPath}>{supportSavedPath}</code></div>}
+          <pre className="diagnostics-preview" aria-label="Diagnostic report preview">{supportPreview?.content ?? "Generating support bundle preview"}</pre>
         </div>}
       </section>
     </div>
@@ -123,30 +169,4 @@ function DiagnosticRow({ label, healthy, detail }: { label: string; healthy: boo
 function certificateLabel(certificate: CertificateAuthority) {
   const state = certificate.state === "missing" ? "Not generated" : certificate.state === "invalid" ? "Invalid" : "Ready";
   return `${state} · ${certificate.trust.replaceAll("_", " ")}`;
-}
-
-function diagnosticReport(workspace: WorkspaceBootstrap, active: boolean, runtimeError: string) {
-  return {
-    generatedAt: new Date().toISOString(),
-    apiVersion: workspace.apiVersion,
-    source: workspace.source,
-    capture: {
-      active,
-      canControl: workspace.capture.canControl,
-      mode: workspace.capture.mode,
-      endpoint: workspace.capture.endpoint,
-      profile: workspace.capture.profile,
-      proxyAvailable: workspace.capture.proxyAvailable,
-      requestCount: workspace.capture.requestCount,
-      storage: workspace.capture.storage,
-    },
-    certificateAuthority: {
-      state: workspace.capture.certificateAuthority.state,
-      trust: workspace.capture.certificateAuthority.trust,
-      privateMaterial: workspace.capture.certificateAuthority.privateMaterial,
-      fingerprintSha256: workspace.capture.certificateAuthority.fingerprintSha256,
-      detail: workspace.capture.certificateAuthority.detail,
-    },
-    runtimeIssue: runtimeError || null,
-  };
 }

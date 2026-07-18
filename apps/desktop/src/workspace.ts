@@ -8,6 +8,7 @@ import type {
   ExportPreview,
   ExportProfile,
   ExportReceipt,
+  SupportBundlePreview,
   WorkspaceBootstrap,
 } from "./types";
 import { requestSearchText } from "./compare";
@@ -153,6 +154,36 @@ export async function saveBatchCaptureExport(
   return downloadExportPreview(preview);
 }
 
+export async function previewSupportBundle(
+  workspace: WorkspaceBootstrap,
+  runtimeIssue: string | null,
+): Promise<SupportBundlePreview> {
+  if (window.__TAURI_INTERNALS__) {
+    return invoke<SupportBundlePreview>("preview_support_bundle", { runtimeIssue });
+  }
+  return fixtureSupportBundlePreview(workspace, runtimeIssue);
+}
+
+export async function saveSupportBundle(
+  runtimeIssue: string | null,
+  preview: SupportBundlePreview,
+): Promise<ExportReceipt | null> {
+  if (window.__TAURI_INTERNALS__) {
+    const path = await save({
+      defaultPath: preview.suggestedFilename,
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+    if (!path) return null;
+    return invoke<ExportReceipt>("write_support_bundle", {
+      runtimeIssue,
+      generatedAtUnixMs: preview.generatedAtUnixMs,
+      expectedSha256: preview.contentSha256,
+      path,
+    });
+  }
+  return downloadJsonDocument(preview);
+}
+
 export async function subscribeToCaptureEvents(handlers: {
   onUpdated: (event: CaptureUpdated) => void;
   onError: (event: CaptureRuntimeError) => void;
@@ -220,6 +251,73 @@ async function fixtureBatchExportPreview(
   );
 }
 
+async function fixtureSupportBundlePreview(
+  workspace: WorkspaceBootstrap,
+  runtimeIssue: string | null,
+): Promise<SupportBundlePreview> {
+  const generatedAtUnixMs = Date.now();
+  const scannedIssue = fixtureCredentialScan(runtimeIssue);
+  const certificate = workspace.capture.certificateAuthority;
+  const content = `${JSON.stringify({
+    formatVersion: "0.1",
+    policyVersion: "0.1",
+    generatedAtUnixMs,
+    product: {
+      name: "CodeIsCheap",
+      version: "0.1.0",
+      desktopApiVersion: workspace.apiVersion,
+      platform: navigator.platform || "web",
+      architecture: "web",
+    },
+    privacy: {
+      requestContentIncluded: false,
+      requestIdentifiersIncluded: false,
+      rawCaptureIncluded: false,
+      logsIncluded: false,
+    },
+    diagnostics: {
+      source: workspace.source,
+      capture: {
+        active: workspace.capture.active,
+        canControl: workspace.capture.canControl,
+        mode: workspace.capture.mode,
+        endpoint: workspace.capture.endpoint,
+        profile: workspace.capture.profile,
+        proxyAvailable: workspace.capture.proxyAvailable,
+        requestCount: workspace.capture.requestCount,
+        storage: workspace.capture.storage,
+      },
+      certificateAuthority: {
+        state: certificate.state,
+        trust: certificate.trust,
+        privateMaterial: certificate.privateMaterial,
+        canManageTrust: certificate.canManageTrust,
+        fingerprintSha256: certificate.fingerprintSha256,
+      },
+      health: {
+        encryptedStore: workspace.capture.storage.toLocaleLowerCase().includes("sqlcipher")
+          || workspace.source === "synthetic_fixture",
+        captureRuntime: runtimeIssue == null,
+        endpointConnected: workspace.capture.endpoint !== "Not connected",
+        proxyBundle: workspace.capture.proxyAvailable,
+      },
+      runtimeIssue: scannedIssue.value,
+    },
+    redactionCount: scannedIssue.redactions.length,
+  }, null, 2)}\n`;
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(content));
+  return {
+    suggestedFilename: `codeischeap-support-${generatedAtUnixMs}.json`,
+    content,
+    byteCount: new TextEncoder().encode(content).length,
+    contentSha256: hexDigest(digest),
+    generatedAtUnixMs,
+    redactions: scannedIssue.redactions,
+    policyVersion: "0.1",
+    formatVersion: "0.1",
+  };
+}
+
 function fixtureExportPayload(request: CapturedRequest, profile: ExportProfile): unknown {
   const metadata = {
     id: request.id,
@@ -273,9 +371,7 @@ async function finishFixtureExport(
 ): Promise<ExportPreview> {
   const content = `${JSON.stringify({ ...document, redactionCount: 0 }, null, 2)}\n`;
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(content));
-  const contentSha256 = Array.from(new Uint8Array(digest))
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
+  const contentSha256 = hexDigest(digest);
   return {
     profile,
     suggestedFilename,
@@ -303,6 +399,15 @@ function validateBatchCaptureIds(captureIds: string[]): void {
 }
 
 function downloadExportPreview(preview: ExportPreview): ExportReceipt {
+  return downloadJsonDocument(preview);
+}
+
+function downloadJsonDocument(preview: {
+  suggestedFilename: string;
+  content: string;
+  byteCount: number;
+  redactions: Array<unknown>;
+}): ExportReceipt {
   const url = URL.createObjectURL(new Blob([preview.content], { type: "application/json" }));
   const anchor = document.createElement("a");
   anchor.href = url;
@@ -314,6 +419,36 @@ function downloadExportPreview(preview: ExportPreview): ExportReceipt {
     byteCount: preview.byteCount,
     redactionCount: preview.redactions.length,
   };
+}
+
+function hexDigest(digest: ArrayBuffer): string {
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function fixtureCredentialScan(value: string | null): {
+  value: string | null;
+  redactions: Array<{ category: string; pointer: string }>;
+} {
+  if (value == null) return { value, redactions: [] };
+  const patterns = [
+    ["private_key", /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----/g],
+    ["anthropic_api_key", /\bsk-ant-[A-Za-z0-9_-]{16,}\b/g],
+    ["openai_api_key", /\bsk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{16,}\b/g],
+    ["google_api_key", /\bAIza[0-9A-Za-z_-]{20,}\b/g],
+    ["bearer_token", /\bBearer\s+[A-Za-z0-9._~+/=-]{12,}/gi],
+    ["jwt", /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g],
+  ] as const;
+  const redactions: Array<{ category: string; pointer: string }> = [];
+  const scanned = patterns.reduce((current, [category, pattern]) => current.replace(
+    pattern,
+    () => {
+      redactions.push({ category, pointer: "/diagnostics/runtimeIssue" });
+      return `[REDACTED:${category}]`;
+    },
+  ), value);
+  return { value: scanned, redactions };
 }
 
 function fixtureReproductionParameters(request: CapturedRequest): Record<string, unknown> {
