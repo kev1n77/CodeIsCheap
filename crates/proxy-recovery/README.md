@@ -10,4 +10,6 @@ This crate owns the transaction state machine used before CodeIsCheap changes sy
 6. On owner-process death, pipe EOF makes the watchdog restore its in-memory snapshot.
 7. On the next startup, an armed journal provides a second recovery path.
 
-The included file backend exists only for deterministic crash injection. Windows WinINet and macOS networksetup backends have both passed real force-kill recovery experiments on temporary GitHub runners. Production still requires private journal-directory permissions and a controlled macOS privileged helper.
+The included file backend exists only for deterministic crash injection. Windows WinINet and macOS networksetup backends have both passed real force-kill recovery experiments on temporary GitHub runners.
+
+The macOS privileged helper protocol is versioned and deliberately narrow: it accepts only an explicit loopback proxy endpoint, requires a private user-owned recovery directory, exposes a mode-0600 Unix socket, binds the single control connection to the requesting UID and PID, and delegates crash recovery to a second root watchdog. Authorization launch and desktop lifecycle wiring remain separate integration work.

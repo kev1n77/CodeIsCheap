@@ -21,14 +21,22 @@ mod windows;
 
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(target_os = "macos")]
+mod macos_privileged;
 
 #[cfg(windows)]
 pub use windows::WindowsProxyBackend;
 
 #[cfg(target_os = "macos")]
 pub use macos::MacOsProxyBackend;
+#[cfg(target_os = "macos")]
+pub use macos_privileged::{
+    MacOsPrivilegedProxySession, run_macos_privileged_proxy_helper, run_macos_proxy_helper_session,
+};
 
 pub const RECOVERY_JOURNAL_VERSION: &str = "0.1";
+pub const MACOS_PRIVILEGED_HELPER_PROTOCOL_VERSION: &str = "0.1";
+pub const MACOS_PROXY_RECOVERY_JOURNAL_FILENAME: &str = "proxy-recovery.v0.1.json";
 
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
@@ -179,6 +187,7 @@ pub enum RecoveryError {
     PlatformCommandFailed(String),
     PlatformOutputInvalid(String),
     AuthenticatedProxyUnsupported(String),
+    PrivilegedHelper(String),
     RollbackRecoveryFailed {
         apply: Box<RecoveryError>,
         rollback: Box<RecoveryError>,
@@ -228,6 +237,9 @@ impl fmt::Display for RecoveryError {
                     formatter,
                     "authenticated proxy on service {service} cannot be restored safely"
                 )
+            }
+            Self::PrivilegedHelper(detail) => {
+                write!(formatter, "privileged proxy helper failed: {detail}")
             }
             Self::RollbackRecoveryFailed {
                 apply,
