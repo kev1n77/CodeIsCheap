@@ -179,6 +179,11 @@ pub enum RecoveryError {
     PlatformCommandFailed(String),
     PlatformOutputInvalid(String),
     AuthenticatedProxyUnsupported(String),
+    RollbackRecoveryFailed {
+        apply: Box<RecoveryError>,
+        rollback: Box<RecoveryError>,
+        recovery: Box<RecoveryError>,
+    },
 }
 
 impl fmt::Display for RecoveryError {
@@ -224,6 +229,16 @@ impl fmt::Display for RecoveryError {
                     "authenticated proxy on service {service} cannot be restored safely"
                 )
             }
+            Self::RollbackRecoveryFailed {
+                apply,
+                rollback,
+                recovery,
+            } => {
+                write!(
+                    formatter,
+                    "proxy apply failed ({apply}); synchronous rollback failed ({rollback}); watchdog recovery failed ({recovery})"
+                )
+            }
         }
     }
 }
@@ -233,6 +248,7 @@ impl std::error::Error for RecoveryError {
         match self {
             Self::Io(error) => Some(error),
             Self::Json(error) => Some(error),
+            Self::RollbackRecoveryFailed { apply, .. } => Some(apply.as_ref()),
             _ => None,
         }
     }
@@ -280,13 +296,23 @@ impl<B: ProxyBackend> ProxySession<B> {
             }
         };
 
-        if let Err(error) = backend.apply(&desired) {
-            let _ = backend.restore(&original);
+        if let Err(apply_error) = backend.apply(&desired) {
+            if let Err(rollback_error) = backend.restore(&original) {
+                let mut watchdog = watchdog;
+                return match watchdog.recover_now() {
+                    Ok(()) => Err(apply_error),
+                    Err(recovery_error) => Err(RecoveryError::RollbackRecoveryFailed {
+                        apply: Box::new(apply_error),
+                        rollback: Box::new(rollback_error),
+                        recovery: Box::new(recovery_error),
+                    }),
+                };
+            }
             let _ = mark_restored(&journal_path);
             let mut watchdog = watchdog;
             let _ = watchdog.disarm();
             let _ = fs::remove_file(&journal_path);
-            return Err(error);
+            return Err(apply_error);
         }
 
         Ok(Self {
@@ -363,6 +389,15 @@ impl WatchdogHandle {
             stdin.write_all(b"disarm\n")?;
             stdin.flush()?;
         }
+        let status = self.child.wait()?;
+        if !status.success() {
+            return Err(RecoveryError::WatchdogExitedEarly);
+        }
+        Ok(())
+    }
+
+    fn recover_now(&mut self) -> Result<(), RecoveryError> {
+        drop(self.stdin.take());
         let status = self.child.wait()?;
         if !status.success() {
             return Err(RecoveryError::WatchdogExitedEarly);
