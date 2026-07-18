@@ -1160,13 +1160,20 @@ async fn ensure_proxy(app: &AppHandle, state: &DesktopState) -> Result<(), Strin
         .map_err(|error| format!("capture IPC address is unavailable: {error}"))?;
     let listen_addr = reserve_loopback_address()?;
     let token = generate_ipc_token()?;
+    let startup_token = generate_ipc_token()?;
     let confdir = app
         .path()
         .app_data_dir()
         .map_err(|error| error.to_string())?
         .join("mitmproxy");
-    let config =
-        SidecarLaunchConfig::new(ipc_addr, token.clone(), target_hosts, listen_addr, confdir);
+    let config = SidecarLaunchConfig::new(
+        ipc_addr,
+        token.clone(),
+        startup_token,
+        target_hosts,
+        listen_addr,
+        confdir,
+    );
     let process = tauri::async_runtime::spawn_blocking(move || {
         bundle.launch(&config, SIDECAR_STARTUP_TIMEOUT)
     })

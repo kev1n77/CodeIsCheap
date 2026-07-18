@@ -613,6 +613,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "subtle",
  "windows-sys 0.61.2",
  "x509-parser",
 ]

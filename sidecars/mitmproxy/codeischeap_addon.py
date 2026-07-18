@@ -18,6 +18,10 @@ from urllib.parse import parse_qsl, urlsplit
 IPC_PROTOCOL = "codeischeap.capture-ipc"
 IPC_PROTOCOL_VERSION = "0.4"
 IPC_ORIGIN = "mitmproxy"
+STARTUP_PROBE_HOST = "codeischeap.invalid"
+STARTUP_PROBE_PATH = "/.well-known/codeischeap/ready"
+STARTUP_PROBE_VERSION = "0.1"
+STARTUP_PROBE_HEADER = "x-codeischeap-startup-probe"
 CAPTURE_ENVELOPE_VERSION = "0.1"
 CAPTURE_POLICY_VERSION = "0.1"
 CAPTURE_POLICY_FILENAME = "capture-policy.v0.1.json"
@@ -529,6 +533,21 @@ def build_transport_context(flow: Any) -> dict[str, str] | None:
     return {"client_addr": client[0], "server_addr": server[0]}
 
 
+def build_startup_probe_response(request: Any) -> tuple[int, bytes] | None:
+    host = _text(getattr(request, "host", "")).lower()
+    if host != STARTUP_PROBE_HOST:
+        return None
+    split = urlsplit(_text(getattr(request, "pretty_url", getattr(request, "url", ""))))
+    if _text(getattr(request, "method", "")).upper() != "GET" or split.path != STARTUP_PROBE_PATH:
+        return 404, b""
+    if _header_value(request.headers, STARTUP_PROBE_HEADER) != STARTUP_PROBE_VERSION:
+        return 403, b""
+    token = os.getenv("CIC_CAPTURE_STARTUP_TOKEN", "")
+    if len(token) != 64 or any(character not in "0123456789abcdef" for character in token):
+        return 503, b""
+    return 200, token.encode("ascii")
+
+
 def send_envelope(
     config: IpcConfig,
     envelope: dict[str, Any],
@@ -680,6 +699,17 @@ class CaptureAddon:
         self._emitter.submit(envelope, build_transport_context(flow))
 
     def request(self, flow: Any) -> None:
+        startup = build_startup_probe_response(flow.request)
+        if startup is not None:
+            from mitmproxy import http
+
+            status, body = startup
+            flow.response = http.Response.make(
+                status,
+                body,
+                {"content-type": "text/plain", "cache-control": "no-store"},
+            )
+            return
         self._submit(
             flow,
             build_envelope,

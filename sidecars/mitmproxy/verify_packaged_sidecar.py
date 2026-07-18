@@ -75,6 +75,9 @@ CANCEL_CASE = "cancel"
 PRESSURE_CASE = "pressure"
 BACKPRESSURE_REQUEST_COUNT = 36
 BACKPRESSURE_MAX_SECONDS = 15
+STARTUP_PROBE_HOST = "codeischeap.invalid"
+STARTUP_PROBE_PATH = "/.well-known/codeischeap/ready"
+STARTUP_PROBE_VERSION = "0.1"
 
 
 class UpstreamHandler(BaseHTTPRequestHandler):
@@ -438,6 +441,20 @@ def request_target_case(proxy_port: int, upstream_port: int, case: str) -> dict[
     return result
 
 
+def verify_startup_identity(proxy_port: int, token: str) -> None:
+    client = HTTPConnection("127.0.0.1", proxy_port, timeout=10)
+    client.request(
+        "GET",
+        f"http://{STARTUP_PROBE_HOST}{STARTUP_PROBE_PATH}",
+        headers={"x-codeischeap-startup-probe": STARTUP_PROBE_VERSION},
+    )
+    response = client.getresponse()
+    body = response.read()
+    client.close()
+    if response.status != 200 or body != token.encode("ascii"):
+        raise RuntimeError("sidecar startup identity response is invalid")
+
+
 def cancel_target_request(proxy_port: int, upstream_port: int) -> None:
     body = json.dumps(
         {"messages": [{"role": "user", "content": "cancelled prompt"}]}
@@ -623,12 +640,14 @@ def main() -> None:
 
         proxy_port = free_port()
         token = "synthetic-ipc-token"
+        startup_token = "ab" * 32
         environment = os.environ.copy()
         environment.update(
             {
                 "CIC_CAPTURE_HOSTS": "localhost",
                 "CIC_CAPTURE_IPC_ADDR": f"127.0.0.1:{ipc_listener.getsockname()[1]}",
                 "CIC_CAPTURE_IPC_TOKEN": token,
+                "CIC_CAPTURE_STARTUP_TOKEN": startup_token,
             }
         )
         confdir = root / "conf"
@@ -649,6 +668,8 @@ def main() -> None:
                 "ssl_insecure=true",
                 "--allow-hosts",
                 r"^localhost:\d+$",
+                "--allow-hosts",
+                r"^codeischeap\.invalid:\d+$",
             ],
             env=environment,
             stdout=subprocess.DEVNULL,
@@ -656,6 +677,7 @@ def main() -> None:
         )
         try:
             startup_ms = wait_for_port(proxy_port, process)
+            verify_startup_identity(proxy_port, startup_token)
             forwarded_responses = {
                 case: request_target_case(proxy_port, upstream.server_port, case)
                 for case in HTTP1_CASES
@@ -843,6 +865,7 @@ def main() -> None:
                         "http2_preserved": True,
                         "client_cancellation_survived": True,
                         "capture_backpressure_nonblocking": True,
+                        "startup_identity_verified": True,
                     }
                 )
             )
