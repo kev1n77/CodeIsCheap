@@ -13,6 +13,11 @@ from package_sidecar import signature_info
 
 MANIFEST_FILENAME = "sidecar-manifest.json"
 EXPECTED_SCHEMA_VERSION = "0.1"
+EXPECTED_CAPTURE_CONTRACT = {
+    "ipc_protocol": "0.2",
+    "envelope": "0.1",
+    "policy": "0.1",
+}
 EXPECTED_ENVIRONMENT = {
     "CIC_CAPTURE_HOSTS",
     "CIC_CAPTURE_IPC_ADDR",
@@ -55,9 +60,10 @@ def validate_bundle(bundle: Path, require_signature: bool = False) -> dict[str, 
     contract = manifest.get("capture_contract")
     if not isinstance(contract, dict):
         raise ValueError("sidecar capture contract is missing")
-    if {contract.get("ipc_protocol"), contract.get("envelope"), contract.get("policy")} != {
-        "0.1"
-    }:
+    if any(
+        contract.get(field) != version
+        for field, version in EXPECTED_CAPTURE_CONTRACT.items()
+    ):
         raise ValueError("sidecar capture contract version is unsupported")
     if set(contract.get("allowed_environment", [])) != EXPECTED_ENVIRONMENT:
         raise ValueError("sidecar environment contract is broader than expected")

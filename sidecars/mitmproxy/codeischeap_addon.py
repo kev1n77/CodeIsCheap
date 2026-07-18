@@ -16,7 +16,8 @@ from urllib.parse import parse_qsl, urlsplit
 
 
 IPC_PROTOCOL = "codeischeap.capture-ipc"
-IPC_PROTOCOL_VERSION = "0.1"
+IPC_PROTOCOL_VERSION = "0.2"
+IPC_ORIGIN = "mitmproxy"
 CAPTURE_ENVELOPE_VERSION = "0.1"
 CAPTURE_POLICY_VERSION = "0.1"
 CAPTURE_POLICY_FILENAME = "capture-policy.v0.1.json"
@@ -388,6 +389,7 @@ def send_envelope(config: IpcConfig, envelope: dict[str, Any]) -> None:
     auth = {
         "protocol": IPC_PROTOCOL,
         "version": IPC_PROTOCOL_VERSION,
+        "origin": IPC_ORIGIN,
         "token": config.token,
     }
     frames = (

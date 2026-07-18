@@ -1871,7 +1871,8 @@ mod tests {
             .expect("IPC client must connect");
         let auth = serde_json::json!({
             "protocol": "codeischeap.capture-ipc",
-            "version": "0.1",
+            "version": "0.2",
+            "origin": "mitmproxy",
             "token": token,
         });
         stream

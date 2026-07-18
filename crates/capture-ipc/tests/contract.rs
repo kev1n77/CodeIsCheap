@@ -1,10 +1,14 @@
 use codeischeap_capture_ipc::{
     CAPTURE_ENVELOPE_VERSION, CaptureEnvelope, CaptureOutcome, CaptureSource, CapturedBody,
-    CapturedBodyState, CapturedField, CapturedRequest, CapturedResponse, IpcError,
-    ResponseCompleteness, receive_from_reader,
+    CapturedBodyState, CapturedField, CapturedRequest, CapturedResponse, IPC_ORIGIN_MITMPROXY,
+    IPC_PROTOCOL, IPC_PROTOCOL_VERSION, IpcError, MAX_AUTH_FRAME_BYTES, ResponseCompleteness,
+    receive_from_reader, receive_one_with_deadline,
 };
 use schemars::schema_for;
 use tokio::io::{AsyncWriteExt, BufReader};
+use tokio::net::{TcpListener, TcpStream};
+
+use std::time::Duration;
 
 const CHECKED_IN_SCHEMA: &str = include_str!("../../../schemas/capture-envelope/v0.1.schema.json");
 const MITMPROXY_FIXTURE: &str = include_str!("fixtures/mitmproxy-request.json");
@@ -39,10 +43,19 @@ async fn framed_reader(
     token: &str,
     envelope: &CaptureEnvelope,
 ) -> BufReader<tokio::io::DuplexStream> {
+    framed_reader_with_origin(token, IPC_ORIGIN_MITMPROXY, envelope).await
+}
+
+async fn framed_reader_with_origin(
+    token: &str,
+    origin: &str,
+    envelope: &CaptureEnvelope,
+) -> BufReader<tokio::io::DuplexStream> {
     let (mut writer, reader) = tokio::io::duplex(16 * 1024);
     let auth = serde_json::json!({
-        "protocol": "codeischeap.capture-ipc",
-        "version": "0.1",
+        "protocol": IPC_PROTOCOL,
+        "version": IPC_PROTOCOL_VERSION,
+        "origin": origin,
         "token": token,
     });
     let mut frames = serde_json::to_vec(&auth).expect("auth frame must serialize");
@@ -107,6 +120,85 @@ async fn rejects_an_invalid_token_without_echoing_it() {
 
     assert!(matches!(error, IpcError::Unauthorized));
     assert!(!error.to_string().contains("wrong-token"));
+}
+
+#[tokio::test]
+async fn rejects_an_unexpected_origin() {
+    let mut reader =
+        framed_reader_with_origin("synthetic-token", "unknown-plugin", &sample_envelope()).await;
+
+    let error = receive_from_reader(&mut reader, "synthetic-token")
+        .await
+        .expect_err("unexpected origins must be rejected");
+
+    assert!(matches!(error, IpcError::UnsupportedOrigin));
+}
+
+#[tokio::test]
+async fn rejects_oversized_auth_before_reading_an_envelope() {
+    let (mut writer, reader) = tokio::io::duplex(MAX_AUTH_FRAME_BYTES * 2);
+    let mut oversized = vec![b'a'; MAX_AUTH_FRAME_BYTES + 1];
+    oversized.push(b'\n');
+    tokio::spawn(async move {
+        writer
+            .write_all(&oversized)
+            .await
+            .expect("oversized frame must be writable");
+    });
+    let mut reader = BufReader::new(reader);
+
+    let error = receive_from_reader(&mut reader, "synthetic-token")
+        .await
+        .expect_err("oversized auth must be rejected");
+
+    assert!(matches!(error, IpcError::AuthFrameTooLarge));
+}
+
+#[tokio::test]
+async fn stalled_connection_expires_and_the_next_sidecar_can_deliver() {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("listener must bind");
+    let address = listener.local_addr().expect("listener address");
+    let stalled = TcpStream::connect(address)
+        .await
+        .expect("stalled client must connect");
+
+    let error = receive_one_with_deadline(&listener, "synthetic-token", Duration::from_millis(20))
+        .await
+        .expect_err("stalled client must expire");
+    assert!(matches!(error, IpcError::ConnectionDeadlineExceeded));
+    drop(stalled);
+
+    let expected = sample_envelope();
+    let expected_for_sender = expected.clone();
+    let sender = tokio::spawn(async move {
+        let mut stream = TcpStream::connect(address)
+            .await
+            .expect("sidecar must connect after timeout");
+        let auth = serde_json::json!({
+            "protocol": IPC_PROTOCOL,
+            "version": IPC_PROTOCOL_VERSION,
+            "origin": IPC_ORIGIN_MITMPROXY,
+            "token": "synthetic-token",
+        });
+        stream
+            .write_all(
+                format!(
+                    "{auth}\n{}\n",
+                    serde_json::to_string(&expected_for_sender).expect("envelope must encode")
+                )
+                .as_bytes(),
+            )
+            .await
+            .expect("sidecar frames must write");
+    });
+
+    let received = receive_one_with_deadline(&listener, "synthetic-token", Duration::from_secs(1))
+        .await
+        .expect("next sidecar delivery must be accepted");
+    sender.await.expect("sidecar sender must complete");
+    assert_eq!(received, expected);
 }
 
 #[test]

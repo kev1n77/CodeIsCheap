@@ -6,16 +6,22 @@
 
 use std::fmt;
 use std::io;
+use std::time::Duration;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use subtle::ConstantTimeEq as _;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, BufReader};
 use tokio::net::TcpListener;
+use tokio::time::timeout;
 
 pub const CAPTURE_ENVELOPE_VERSION: &str = "0.1";
 pub const IPC_PROTOCOL: &str = "codeischeap.capture-ipc";
-pub const IPC_PROTOCOL_VERSION: &str = "0.1";
+pub const IPC_PROTOCOL_VERSION: &str = "0.2";
+pub const IPC_ORIGIN_MITMPROXY: &str = "mitmproxy";
+pub const MAX_AUTH_FRAME_BYTES: usize = 1024;
 pub const MAX_FRAME_BYTES: usize = 4 * 1024 * 1024;
+pub const DEFAULT_CONNECTION_DEADLINE: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -133,6 +139,7 @@ pub enum RedactionLocation {
 struct AuthFrame {
     protocol: String,
     version: String,
+    origin: String,
     token: String,
 }
 
@@ -142,10 +149,13 @@ pub enum IpcError {
     NonLoopbackListener,
     NonLoopbackPeer,
     EmptyFrame,
+    AuthFrameTooLarge,
     FrameTooLarge,
+    ConnectionDeadlineExceeded,
     InvalidAuthFrame(serde_json::Error),
     InvalidEnvelope(serde_json::Error),
     UnsupportedProtocol,
+    UnsupportedOrigin,
     Unauthorized,
     UnsupportedEnvelopeVersion(String),
 }
@@ -157,10 +167,17 @@ impl fmt::Display for IpcError {
             Self::NonLoopbackListener => write!(formatter, "capture IPC must listen on loopback"),
             Self::NonLoopbackPeer => write!(formatter, "capture IPC rejected a non-loopback peer"),
             Self::EmptyFrame => write!(formatter, "capture IPC received an empty frame"),
+            Self::AuthFrameTooLarge => {
+                write!(formatter, "capture IPC auth frame exceeded the size limit")
+            }
             Self::FrameTooLarge => write!(formatter, "capture IPC frame exceeded the size limit"),
+            Self::ConnectionDeadlineExceeded => {
+                write!(formatter, "capture IPC connection deadline was exceeded")
+            }
             Self::InvalidAuthFrame(_) => write!(formatter, "capture IPC auth frame is invalid"),
             Self::InvalidEnvelope(_) => write!(formatter, "capture envelope is invalid"),
             Self::UnsupportedProtocol => write!(formatter, "capture IPC protocol is unsupported"),
+            Self::UnsupportedOrigin => write!(formatter, "capture IPC origin is unsupported"),
             Self::Unauthorized => write!(formatter, "capture IPC authentication failed"),
             Self::UnsupportedEnvelopeVersion(version) => {
                 write!(
@@ -192,6 +209,14 @@ pub async fn receive_one(
     listener: &TcpListener,
     expected_token: &str,
 ) -> Result<CaptureEnvelope, IpcError> {
+    receive_one_with_deadline(listener, expected_token, DEFAULT_CONNECTION_DEADLINE).await
+}
+
+pub async fn receive_one_with_deadline(
+    listener: &TcpListener,
+    expected_token: &str,
+    connection_deadline: Duration,
+) -> Result<CaptureEnvelope, IpcError> {
     if !listener.local_addr()?.ip().is_loopback() {
         return Err(IpcError::NonLoopbackListener);
     }
@@ -201,7 +226,12 @@ pub async fn receive_one(
         return Err(IpcError::NonLoopbackPeer);
     }
 
-    receive_from_reader(&mut BufReader::new(stream), expected_token).await
+    timeout(
+        connection_deadline,
+        receive_from_reader(&mut BufReader::new(stream), expected_token),
+    )
+    .await
+    .map_err(|_| IpcError::ConnectionDeadlineExceeded)?
 }
 
 pub async fn receive_from_reader<R>(
@@ -211,17 +241,28 @@ pub async fn receive_from_reader<R>(
 where
     R: AsyncBufRead + Unpin,
 {
-    let auth_bytes = read_frame(reader).await?;
+    let auth_bytes =
+        read_frame(reader, MAX_AUTH_FRAME_BYTES)
+            .await
+            .map_err(|error| match error {
+                IpcError::FrameTooLarge => IpcError::AuthFrameTooLarge,
+                error => error,
+            })?;
     let auth: AuthFrame =
         serde_json::from_slice(&auth_bytes).map_err(IpcError::InvalidAuthFrame)?;
     if auth.protocol != IPC_PROTOCOL || auth.version != IPC_PROTOCOL_VERSION {
         return Err(IpcError::UnsupportedProtocol);
     }
-    if expected_token.is_empty() || auth.token != expected_token {
+    if auth.origin != IPC_ORIGIN_MITMPROXY {
+        return Err(IpcError::UnsupportedOrigin);
+    }
+    if expected_token.is_empty()
+        || !bool::from(auth.token.as_bytes().ct_eq(expected_token.as_bytes()))
+    {
         return Err(IpcError::Unauthorized);
     }
 
-    let envelope_bytes = read_frame(reader).await?;
+    let envelope_bytes = read_frame(reader, MAX_FRAME_BYTES).await?;
     let envelope: CaptureEnvelope =
         serde_json::from_slice(&envelope_bytes).map_err(IpcError::InvalidEnvelope)?;
     if envelope.version != CAPTURE_ENVELOPE_VERSION {
@@ -230,7 +271,7 @@ where
     Ok(envelope)
 }
 
-async fn read_frame<R>(reader: &mut R) -> Result<Vec<u8>, IpcError>
+async fn read_frame<R>(reader: &mut R, max_bytes: usize) -> Result<Vec<u8>, IpcError>
 where
     R: AsyncBufRead + Unpin,
 {
@@ -244,7 +285,7 @@ where
         let newline = available.iter().position(|byte| *byte == b'\n');
         let consumed = newline.map_or(available.len(), |position| position + 1);
         let content = newline.map_or(available, |position| &available[..position]);
-        if frame.len() + content.len() > MAX_FRAME_BYTES {
+        if frame.len().saturating_add(content.len()) > max_bytes {
             return Err(IpcError::FrameTooLarge);
         }
         frame.extend_from_slice(content);

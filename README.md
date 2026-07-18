@@ -51,6 +51,8 @@ cargo run -p codeischeap-desktop-api --bin export-desktop-contract
 
 捕获范围与敏感字段由 `policies/capture-policy.v0.1.json` 定义，公开 schema 位于 `schemas/capture-policy/v0.1.schema.json`。Python sidecar 在 IPC 前执行策略，`crates/core` 在进入持久化前再次拒绝越界请求并删除遗漏凭据。
 
+sidecar IPC 协议为 `0.2`：仅监听 loopback，使用每次 Proxy 会话重新生成的 256-bit token，认证帧限制为 1 KiB，并要求 `mitmproxy` 来源声明；已接受连接必须在 2 秒内完成认证与数据帧，否则释放连接。sidecar manifest 分别声明 IPC、Envelope 和 Policy 版本，不兼容 bundle 会在启动前被拒绝。
+
 系统代理事务与独立恢复 watchdog 位于 `crates/proxy-recovery`；Windows WinINet 与 macOS networksetup backend 均已通过临时 CI runner 的真实强杀恢复实验。
 
 启动 Gateway Spike：
