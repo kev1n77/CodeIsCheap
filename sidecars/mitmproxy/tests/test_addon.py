@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 SIDECAR_DIR = Path(__file__).resolve().parents[1]
 FIXTURE = SIDECAR_DIR.parents[1] / "crates" / "capture-ipc" / "tests" / "fixtures" / "mitmproxy-request.json"
+CREDENTIAL_CORPUS = SIDECAR_DIR.parents[1] / "policies" / "credential-corpus.v0.1.json"
 sys.path.insert(0, str(SIDECAR_DIR))
 
 from codeischeap_addon import (
@@ -255,7 +256,9 @@ class AddonTests(unittest.TestCase):
 
     def test_shared_policy_is_versioned_and_covers_extended_credentials(self) -> None:
         policy = load_policy()
+        corpus = json.loads(CREDENTIAL_CORPUS.read_text(encoding="utf-8"))
         self.assertEqual(policy["version"], "0.1")
+        self.assertEqual(policy["sensitive_names"], corpus["sensitive_names"])
 
         flow = FakeFlow()
         flow.request = FakeRequest()
@@ -265,17 +268,27 @@ class AddonTests(unittest.TestCase):
                 ("x-goog-api-key", "google-canary"),
             ]
         )
-        flow.request.raw_content = json.dumps(
-            {
-                "messages": [{"role": "user", "content": "keep"}],
-                "session_token": "session-canary",
-            }
-        ).encode()
+        payload: dict[str, object] = {
+            "messages": [{"role": "user", "content": "keep"}],
+            "safe_trace": "preserved",
+        }
+        canaries = []
+        for index, name in enumerate(corpus["sensitive_names"]):
+            canary = f"sensitive-canary-{index}"
+            payload[name.replace("-", "_").upper()] = canary
+            canaries.append(canary)
+        flow.request.raw_content = json.dumps(payload).encode()
 
-        encoded = json.dumps(build_envelope(flow))
+        envelope = build_envelope(flow)
+        encoded = json.dumps(envelope)
         self.assertNotIn("google-canary", encoded)
-        self.assertNotIn("session-canary", encoded)
+        for canary in canaries:
+            self.assertNotIn(canary, encoded)
         self.assertIn("keep", encoded)
+        self.assertIn("safe_trace", encoded)
+        self.assertGreaterEqual(
+            len(envelope["redactions"]), len(corpus["sensitive_names"])
+        )
 
     def test_invalid_policy_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
