@@ -141,7 +141,7 @@ export function SettingsDialog({ workspace, active, runtimeError, certificateErr
           </section>
         </div>}
         {tab === "diagnostics" && <div className="settings-content diagnostics-content">
-          <div className="diagnostics-toolbar"><span>Request content, identifiers, Raw capture, and logs are excluded.</span><div className="diagnostics-actions"><button className="settings-command" disabled={!supportPreview} onClick={copyReport}><Copy size={14} />{copied ? "Copied" : "Copy report"}</button><button className="settings-command" disabled={!supportPreview || supportSaving || Boolean(supportSavedPath)} onClick={saveBundle}>{supportSaving ? <LoaderCircle className="is-spinning" size={14} /> : <Download size={14} />}{supportSavedPath ? "Saved" : "Save support bundle"}</button></div></div>
+          <div className="diagnostics-toolbar"><span>Request content, identifiers, Raw capture, and log details are excluded.</span><div className="diagnostics-actions"><button className="settings-command" disabled={!supportPreview} onClick={copyReport}><Copy size={14} />{copied ? "Copied" : "Copy report"}</button><button className="settings-command" disabled={!supportPreview || supportSaving || Boolean(supportSavedPath)} onClick={saveBundle}>{supportSaving ? <LoaderCircle className="is-spinning" size={14} /> : <Download size={14} />}{supportSavedPath ? "Saved" : "Save support bundle"}</button></div></div>
           {(copyError || supportError) && <span className="settings-error diagnostics-error" role="alert">{copyError || supportError}</span>}
           <table className="diagnostics-table">
             <tbody>

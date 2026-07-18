@@ -3,8 +3,8 @@
 mod export;
 
 pub use export::{
-    EXPORT_FORMAT_VERSION, EXPORT_POLICY_VERSION, ExportPreview, ExportProfile, ExportReceipt,
-    ExportRedaction, SUPPORT_BUNDLE_FORMAT_VERSION, SupportBundlePreview,
+    DiagnosticEvent, EXPORT_FORMAT_VERSION, EXPORT_POLICY_VERSION, ExportPreview, ExportProfile,
+    ExportReceipt, ExportRedaction, SUPPORT_BUNDLE_FORMAT_VERSION, SupportBundlePreview,
     build_batch_export_preview, build_export_preview, build_support_bundle_preview,
 };
 

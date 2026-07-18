@@ -1,7 +1,7 @@
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::error::Error;
 use std::fmt;
-use std::fs::OpenOptions;
+use std::fs::{self, OpenOptions};
 use std::io::Write as _;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener as StdTcpListener};
 use std::path::{Path, PathBuf};
@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[cfg(unix)]
-use std::os::unix::fs::OpenOptionsExt as _;
+use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
 
 use codeischeap_adapters::AdapterRegistry;
 #[cfg(test)]
@@ -22,10 +22,10 @@ use codeischeap_core::{
 };
 use codeischeap_desktop_api::{
     CaptureMode, CapturedRequest, CertificateAuthority, CertificateAuthorityState,
-    CertificatePrivateMaterial, CertificateTrust, DesktopApiError, ExportPreview, ExportProfile,
-    ExportReceipt, SupportBundlePreview, WorkspaceBootstrap, build_batch_export_preview,
-    build_export_preview, build_support_bundle_preview, load_request, load_workspace,
-    search_requests,
+    CertificatePrivateMaterial, CertificateTrust, DesktopApiError, DiagnosticEvent, ExportPreview,
+    ExportProfile, ExportReceipt, SupportBundlePreview, WorkspaceBootstrap,
+    build_batch_export_preview, build_export_preview, build_support_bundle_preview, load_request,
+    load_workspace, search_requests,
 };
 use codeischeap_gateway::{Gateway, GatewayCapture, GatewayCaptureEvent};
 use codeischeap_proxy_recovery::recover_from_journal;
@@ -65,6 +65,9 @@ const MAX_BATCH_EXPORT_REQUESTS: usize = 200;
 const SIDECAR_STARTUP_TIMEOUT: Duration = Duration::from_secs(10);
 const SIDECAR_MONITOR_INTERVAL: Duration = Duration::from_millis(250);
 const PROXY_RECOVERY_JOURNAL_FILENAME: &str = "proxy-recovery.v0.1.json";
+const DIAGNOSTIC_JOURNAL_FILENAME: &str = "diagnostics.v0.1.jsonl";
+const MAX_DIAGNOSTIC_JOURNAL_BYTES: u64 = 256 * 1024;
+const MAX_SUPPORT_DIAGNOSTIC_EVENTS: usize = 100;
 
 type SharedStore = Arc<Mutex<Option<EncryptedStore>>>;
 
@@ -392,8 +395,14 @@ async fn preview_support_bundle(
 ) -> Result<SupportBundlePreview, String> {
     initialize_store(&app, &state.store)?;
     let workspace = load_runtime_workspace(&app, &state).await?;
-    build_support_bundle_preview(&workspace, runtime_issue.as_deref(), current_unix_ms()?)
-        .map_err(|error| format!("support bundle could not be encoded: {error}"))
+    let diagnostic_events = load_application_diagnostic_events(&app);
+    build_support_bundle_preview(
+        &workspace,
+        runtime_issue.as_deref(),
+        &diagnostic_events,
+        current_unix_ms()?,
+    )
+    .map_err(|error| format!("support bundle could not be encoded: {error}"))
 }
 
 #[tauri::command]
@@ -407,10 +416,12 @@ async fn write_support_bundle(
 ) -> Result<ExportReceipt, String> {
     initialize_store(&app, &state.store)?;
     let workspace = load_runtime_workspace(&app, &state).await?;
+    let diagnostic_events = load_application_diagnostic_events(&app);
     tauri::async_runtime::spawn_blocking(move || {
         write_support_bundle_file(
             &workspace,
             runtime_issue.as_deref(),
+            &diagnostic_events,
             generated_at_unix_ms,
             &expected_sha256,
             &path,
@@ -669,12 +680,18 @@ fn write_batch_capture_export_file(
 fn write_support_bundle_file(
     workspace: &WorkspaceBootstrap,
     runtime_issue: Option<&str>,
+    diagnostic_events: &[DiagnosticEvent],
     generated_at_unix_ms: u64,
     expected_sha256: &str,
     path: &Path,
 ) -> Result<ExportReceipt, String> {
-    let preview = build_support_bundle_preview(workspace, runtime_issue, generated_at_unix_ms)
-        .map_err(|error| format!("support bundle could not be encoded: {error}"))?;
+    let preview = build_support_bundle_preview(
+        workspace,
+        runtime_issue,
+        diagnostic_events,
+        generated_at_unix_ms,
+    )
+    .map_err(|error| format!("support bundle could not be encoded: {error}"))?;
     if preview.content_sha256 != expected_sha256 {
         return Err(
             "diagnostic state changed after preview; review the refreshed support bundle"
@@ -694,6 +711,117 @@ fn current_unix_ms() -> Result<u64, String> {
         .duration_since(UNIX_EPOCH)
         .map_err(|_| "system clock is before the Unix epoch".to_owned())?;
     u64::try_from(elapsed.as_millis()).map_err(|_| "system time is out of range".to_owned())
+}
+
+fn record_runtime_diagnostic(app: &AppHandle, code: &str, detail: &str) {
+    let Ok(path) = app
+        .path()
+        .app_log_dir()
+        .map(|directory| directory.join(DIAGNOSTIC_JOURNAL_FILENAME))
+    else {
+        return;
+    };
+    let Ok(occurred_at_unix_ms) = current_unix_ms() else {
+        return;
+    };
+    let _ = append_diagnostic_event(
+        &path,
+        code,
+        detail,
+        occurred_at_unix_ms,
+        MAX_DIAGNOSTIC_JOURNAL_BYTES,
+    );
+}
+
+fn load_application_diagnostic_events(app: &AppHandle) -> Vec<DiagnosticEvent> {
+    let Ok(path) = app
+        .path()
+        .app_log_dir()
+        .map(|directory| directory.join(DIAGNOSTIC_JOURNAL_FILENAME))
+    else {
+        return Vec::new();
+    };
+    load_diagnostic_events(&path, MAX_SUPPORT_DIAGNOSTIC_EVENTS).unwrap_or_default()
+}
+
+fn append_diagnostic_event(
+    path: &Path,
+    code: &str,
+    _detail: &str,
+    occurred_at_unix_ms: u64,
+    max_bytes: u64,
+) -> Result<(), String> {
+    if code.is_empty()
+        || code.len() > 64
+        || !code
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+    {
+        return Err("diagnostic event code is invalid".to_owned());
+    }
+    // Persistent diagnostics keep bounded event codes only; details stay in the live UI event.
+    let event = DiagnosticEvent {
+        occurred_at_unix_ms,
+        code: code.to_owned(),
+    };
+    let mut encoded = serde_json::to_vec(&event)
+        .map_err(|error| format!("diagnostic event could not be encoded: {error}"))?;
+    encoded.push(b'\n');
+    let encoded_bytes = u64::try_from(encoded.len())
+        .map_err(|_| "diagnostic event is too large to persist".to_owned())?;
+    if encoded_bytes > max_bytes {
+        return Err("diagnostic event exceeds the journal size limit".to_owned());
+    }
+
+    let parent = path
+        .parent()
+        .ok_or_else(|| "diagnostic journal path has no parent".to_owned())?;
+    fs::create_dir_all(parent)
+        .map_err(|error| format!("diagnostic journal directory could not be created: {error}"))?;
+    #[cfg(unix)]
+    fs::set_permissions(parent, fs::Permissions::from_mode(0o700)).map_err(|error| {
+        format!("diagnostic journal directory permissions could not be set: {error}")
+    })?;
+
+    let truncate = fs::metadata(path)
+        .map(|metadata| metadata.len().saturating_add(encoded_bytes) > max_bytes)
+        .unwrap_or(false);
+    let mut options = OpenOptions::new();
+    options.create(true).write(true);
+    if truncate {
+        options.truncate(true);
+    } else {
+        options.append(true);
+    }
+    #[cfg(unix)]
+    options.mode(0o600);
+    let mut file = options
+        .open(path)
+        .map_err(|error| format!("diagnostic journal could not be opened: {error}"))?;
+    #[cfg(unix)]
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+        .map_err(|error| format!("diagnostic journal permissions could not be set: {error}"))?;
+
+    file.write_all(&encoded)
+        .map_err(|error| format!("diagnostic event could not be written: {error}"))?;
+    file.sync_data()
+        .map_err(|error| format!("diagnostic event could not be synced: {error}"))
+}
+
+fn load_diagnostic_events(path: &Path, limit: usize) -> Result<Vec<DiagnosticEvent>, String> {
+    let content = match fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(format!("diagnostic journal could not be read: {error}")),
+    };
+    let mut events = content
+        .lines()
+        .rev()
+        .filter_map(|line| serde_json::from_str::<DiagnosticEvent>(line).ok())
+        .take(limit)
+        .collect::<Vec<_>>();
+    events.reverse();
+    Ok(events)
 }
 
 fn write_new_json_file(path: &Path, content: &[u8]) -> Result<(), String> {
@@ -1406,6 +1534,7 @@ fn emit_capture_updated(app: &AppHandle, capture_id: String) {
 }
 
 fn emit_runtime_error(app: &AppHandle, code: &'static str, detail: String) {
+    record_runtime_diagnostic(app, code, &detail);
     let _ = app.emit(
         CAPTURE_RUNTIME_ERROR_EVENT,
         CaptureRuntimeError { code, detail },
@@ -1456,6 +1585,27 @@ mod tests {
     use tokio::net::TcpStream;
 
     use super::*;
+
+    fn files_contain(root: &Path, needle: &[u8]) -> bool {
+        let Ok(entries) = fs::read_dir(root) else {
+            return false;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if files_contain(&path, needle) {
+                    return true;
+                }
+            } else if path.is_file()
+                && fs::read(&path)
+                    .map(|content| content.windows(needle.len()).any(|window| window == needle))
+                    .unwrap_or(false)
+            {
+                return true;
+            }
+        }
+        false
+    }
 
     #[test]
     fn demo_capture_is_seeded_once_and_loaded_from_sqlcipher() {
@@ -1901,13 +2051,24 @@ mod tests {
         seed_demo_capture(&mut store).expect("demo capture must seed");
         let workspace = load_workspace(&store).expect("workspace must load");
         let runtime_issue = Some("Proxy rejected Bearer supportbundlecanary");
-        let preview = build_support_bundle_preview(&workspace, runtime_issue, 40)
+        let journal = directory.path().join(DIAGNOSTIC_JOURNAL_FILENAME);
+        append_diagnostic_event(
+            &journal,
+            "sidecar_process_exited",
+            "Proxy rejected Bearer supportbundlecanary",
+            35,
+            1024,
+        )
+        .expect("diagnostic event must append");
+        let events = load_diagnostic_events(&journal, 100).expect("journal must load");
+        let preview = build_support_bundle_preview(&workspace, runtime_issue, &events, 40)
             .expect("support bundle must preview");
         let path = directory.path().join("support.json");
 
         let receipt = write_support_bundle_file(
             &workspace,
             runtime_issue,
+            &events,
             40,
             &preview.content_sha256,
             &path,
@@ -1919,12 +2080,93 @@ mod tests {
             std::fs::read_to_string(&path).expect("support bundle must be readable"),
             preview.content
         );
+        assert_eq!(events[0].code, "sidecar_process_exited");
         let stale_path = directory.path().join("stale-support.json");
         assert!(
-            write_support_bundle_file(&workspace, runtime_issue, 40, &"0".repeat(64), &stale_path,)
-                .is_err()
+            write_support_bundle_file(
+                &workspace,
+                runtime_issue,
+                &events,
+                40,
+                &"0".repeat(64),
+                &stale_path,
+            )
+            .is_err()
         );
         assert!(!stale_path.exists());
+        drop(store);
+        assert!(
+            !files_contain(directory.path(), b"supportbundlecanary"),
+            "runtime detail canary must not enter DB, WAL, journal, temp files, or support output"
+        );
+    }
+
+    #[test]
+    fn diagnostic_journal_persists_codes_without_runtime_details() {
+        let directory = tempdir().expect("temp directory must be created");
+        let path = directory.path().join(DIAGNOSTIC_JOURNAL_FILENAME);
+
+        append_diagnostic_event(
+            &path,
+            "gateway_serve_failed",
+            "Bearer diagnosticdetailcanary",
+            10,
+            1024,
+        )
+        .expect("diagnostic event must append");
+
+        let content = fs::read_to_string(&path).expect("journal must be readable");
+        assert!(!content.contains("diagnosticdetailcanary"));
+        let event: DiagnosticEvent =
+            serde_json::from_str(content.trim()).expect("journal line must be valid JSON");
+        assert_eq!(event.occurred_at_unix_ms, 10);
+        assert_eq!(event.code, "gateway_serve_failed");
+    }
+
+    #[test]
+    fn diagnostic_journal_rejects_invalid_codes() {
+        let directory = tempdir().expect("temp directory must be created");
+        let path = directory.path().join(DIAGNOSTIC_JOURNAL_FILENAME);
+
+        for code in ["", "GatewayFailed", "gateway-failed", "gateway failed"] {
+            assert!(append_diagnostic_event(&path, code, "ignored", 10, 1024).is_err());
+        }
+        assert!(append_diagnostic_event(&path, &"a".repeat(65), "ignored", 10, 1024).is_err());
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn diagnostic_journal_loads_latest_events_in_stable_order() {
+        let directory = tempdir().expect("temp directory must be created");
+        let path = directory.path().join(DIAGNOSTIC_JOURNAL_FILENAME);
+        for (timestamp, code) in [(10, "first"), (20, "second"), (30, "third")] {
+            append_diagnostic_event(&path, code, "ignored", timestamp, 1024)
+                .expect("diagnostic event must append");
+        }
+
+        let events = load_diagnostic_events(&path, 2).expect("journal must load");
+        assert_eq!(
+            events
+                .iter()
+                .map(|event| event.code.as_str())
+                .collect::<Vec<_>>(),
+            vec!["second", "third"]
+        );
+    }
+
+    #[test]
+    fn diagnostic_journal_truncates_before_appending_when_full() {
+        let directory = tempdir().expect("temp directory must be created");
+        let path = directory.path().join(DIAGNOSTIC_JOURNAL_FILENAME);
+        append_diagnostic_event(&path, "first", "ignored", 10, 64)
+            .expect("first event must append");
+        append_diagnostic_event(&path, "second", "ignored", 20, 64)
+            .expect("second event must replace the full journal");
+
+        let events = load_diagnostic_events(&path, 10).expect("journal must load");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].code, "second");
+        assert!(fs::metadata(path).expect("journal metadata").len() <= 64);
     }
 
     #[test]

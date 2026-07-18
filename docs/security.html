@@ -22,6 +22,7 @@
       <tr><td>本机进程读取</td><td>本地 IPC 权限、随机 token、数据库加密、OS 凭据库</td></tr>
       <tr><td>CA 私钥泄露</td><td>每设备独立生成、不可同步、最小文件权限、一键卸载</td></tr>
       <tr><td>导出泄密</td><td>强制预览、秘密扫描、稳定占位符、策略版本记录</td></tr>
+      <tr><td>诊断泄密</td><td>持久化日志仅含时间戳和受限事件代码；不记录错误详情、Prompt、Raw 或请求标识</td></tr>
       <tr><td>代理残留</td><td>设置快照、独立 watchdog、启动修复和卸载恢复</td></tr>
     </tbody></table></div>
 
@@ -34,7 +35,7 @@
       <tr><td>Reproducible</td><td>脱敏 IR、工具 schema、关键参数</td><td>团队复现</td></tr>
       <tr><td>Forensic</td><td>脱敏 Raw、流事件、解析问题</td><td>受控支持与安全分析</td></tr>
     </tbody></table></div>
-    <p class="note">当前单请求、筛选批量及支持包均由后端生成，并使用 <code>credential-corpus.v0.1.json</code> 扫描 17 类文本 secret；Capture Policy 与 sidecar 同步覆盖 36 个敏感字段名。支持包默认排除 Prompt、Raw、请求标识与日志；命中内容替换为稳定占位符，保存时校验预览 SHA-256，且不会覆盖已有文件。</p>
+    <p class="note">当前单请求、筛选批量及支持包均由后端生成，并使用 <code>credential-corpus.v0.1.json</code> 扫描 17 类文本 secret；Capture Policy 与 sidecar 同步覆盖 36 个敏感字段名。支持包默认排除 Prompt、Raw、请求标识和日志详情，仅可包含最近 100 条事件代码与时间戳；命中内容替换为稳定占位符，保存时校验预览 SHA-256，且不会覆盖已有文件。</p>
     <footer class="doc-footer"><a href="architecture.html">← 系统架构</a><a href="experience.html">下一篇：UI/UX →</a></footer>
   </main><aside class="toc"><strong>本页</strong><a href="#lifecycle">数据生命周期</a><a href="#controls">关键控制</a><a href="#certificate">证书与代理</a><a href="#export">导出等级</a></aside></div>
 </body></html>

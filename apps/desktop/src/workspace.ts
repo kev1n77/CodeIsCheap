@@ -275,6 +275,7 @@ async function fixtureSupportBundlePreview(
       requestIdentifiersIncluded: false,
       rawCaptureIncluded: false,
       logsIncluded: false,
+      logDetailsIncluded: false,
     },
     diagnostics: {
       source: workspace.source,
@@ -303,6 +304,7 @@ async function fixtureSupportBundlePreview(
         proxyBundle: workspace.capture.proxyAvailable,
       },
       runtimeIssue: scannedIssue.value,
+      diagnosticEvents: [],
     },
     redactionCount: scannedIssue.redactions.length,
   }, null, 2)}\n`;
