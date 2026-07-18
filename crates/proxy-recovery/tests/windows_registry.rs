@@ -5,6 +5,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -12,6 +13,8 @@ use codeischeap_proxy_recovery::{ProxyBackend, ProxySettings, ProxySnapshot, Win
 use winreg::RegKey;
 use winreg::enums::{HKEY_CURRENT_USER, REG_BINARY};
 use winreg::reg_value::RegValue;
+
+static TEST_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[test]
 fn isolated_registry_values_round_trip_exactly() {
@@ -176,7 +179,7 @@ fn test_registry_path() -> String {
     format!(
         r"Software\CodeIsCheap\Tests\proxy-{}-{}",
         std::process::id(),
-        unique_nanos()
+        unique_suffix()
     )
 }
 
@@ -184,15 +187,17 @@ fn test_directory(label: &str) -> PathBuf {
     let path = env::temp_dir().join(format!(
         "codeischeap-{label}-{}-{}",
         std::process::id(),
-        unique_nanos()
+        unique_suffix()
     ));
     fs::create_dir_all(&path).expect("test directory must exist");
     path
 }
 
-fn unique_nanos() -> u128 {
-    SystemTime::now()
+fn unique_suffix() -> String {
+    let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
-        .as_nanos()
+        .as_nanos();
+    let sequence = TEST_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    format!("{nanos}-{sequence}")
 }
