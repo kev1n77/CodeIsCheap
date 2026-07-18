@@ -12,6 +12,8 @@ use crate::{CapturedRequest, DESKTOP_API_VERSION, WorkspaceBootstrap, WorkspaceS
 pub const EXPORT_FORMAT_VERSION: &str = "0.1";
 pub const EXPORT_POLICY_VERSION: &str = "0.1";
 pub const SUPPORT_BUNDLE_FORMAT_VERSION: &str = "0.1";
+const CREDENTIAL_CORPUS_VERSION: &str = "0.1";
+const CREDENTIAL_CORPUS: &str = include_str!("../../../policies/credential-corpus.v0.1.json");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "snake_case")]
@@ -392,37 +394,51 @@ fn escape_pointer_segment(segment: &str) -> String {
 }
 
 struct CredentialPattern {
-    category: &'static str,
+    category: String,
     regex: Regex,
 }
 
 fn credential_patterns() -> &'static [CredentialPattern] {
     static PATTERNS: OnceLock<Vec<CredentialPattern>> = OnceLock::new();
     PATTERNS.get_or_init(|| {
-        [
-            (
-                "private_key",
-                r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----",
-            ),
-            ("anthropic_api_key", r"\bsk-ant-[A-Za-z0-9_-]{16,}\b"),
-            (
-                "openai_api_key",
-                r"\bsk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{16,}\b",
-            ),
-            ("google_api_key", r"\bAIza[0-9A-Za-z_-]{20,}\b"),
-            ("bearer_token", r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{12,}"),
-            (
-                "jwt",
-                r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b",
-            ),
-        ]
-        .into_iter()
-        .map(|(category, expression)| CredentialPattern {
-            category,
-            regex: Regex::new(expression).expect("credential scanner pattern must compile"),
-        })
-        .collect()
+        let corpus = credential_corpus();
+        corpus
+            .text_patterns
+            .iter()
+            .map(|pattern| CredentialPattern {
+                category: pattern.category.clone(),
+                regex: Regex::new(&pattern.expression)
+                    .expect("credential scanner pattern must compile"),
+            })
+            .collect()
     })
+}
+
+fn credential_corpus() -> &'static CredentialCorpus {
+    static CORPUS: OnceLock<CredentialCorpus> = OnceLock::new();
+    CORPUS.get_or_init(|| {
+        let corpus: CredentialCorpus =
+            serde_json::from_str(CREDENTIAL_CORPUS).expect("credential corpus must be valid JSON");
+        assert_eq!(corpus.version, CREDENTIAL_CORPUS_VERSION);
+        assert!(!corpus.text_patterns.is_empty());
+        corpus
+    })
+}
+
+#[derive(Deserialize)]
+struct CredentialCorpus {
+    version: String,
+    text_patterns: Vec<CredentialPatternDefinition>,
+}
+
+#[derive(Deserialize)]
+struct CredentialPatternDefinition {
+    category: String,
+    expression: String,
+    #[cfg_attr(not(test), allow(dead_code))]
+    matches: Vec<String>,
+    #[cfg_attr(not(test), allow(dead_code))]
+    non_matches: Vec<String>,
 }
 
 #[cfg(test)]
@@ -542,36 +558,46 @@ mod tests {
     }
 
     #[test]
-    fn every_declared_credential_pattern_has_a_stable_placeholder() {
-        let mut text = [
-            "sk-ant-abcdefghijklmnop1234",
-            "sk-proj-abcdefghijklmnop1234",
-            "AIzaabcdefghijklmnopqrstuvwxyz123456",
-            "Bearer abcdefghijklmnop",
-            "eyJabcdefghijk.abcdefghijk.abcdefghijk",
-            "-----BEGIN PRIVATE KEY-----\nsecret-material\n-----END PRIVATE KEY-----",
-        ]
-        .join("\n");
-        let mut redactions = Vec::new();
-
-        scrub_text(&mut text, "/request/test", &mut redactions);
-
-        for category in [
-            "anthropic_api_key",
-            "openai_api_key",
-            "google_api_key",
-            "bearer_token",
-            "jwt",
-            "private_key",
-        ] {
-            assert!(text.contains(&format!("[REDACTED:{category}]")));
+    fn versioned_credential_corpus_matches_and_rejects_near_misses() {
+        for pattern in &credential_corpus().text_patterns {
             assert!(
-                redactions
-                    .iter()
-                    .any(|redaction| redaction.category == category)
+                !pattern.matches.is_empty(),
+                "{} needs matches",
+                pattern.category
             );
+            assert!(
+                !pattern.non_matches.is_empty(),
+                "{} needs near misses",
+                pattern.category
+            );
+            for secret in &pattern.matches {
+                let mut text = format!("before {secret} after");
+                let mut redactions = Vec::new();
+                scrub_text(&mut text, "/request/test", &mut redactions);
+                assert!(
+                    text.contains(&format!("[REDACTED:{}]", pattern.category)),
+                    "{} did not redact its canary",
+                    pattern.category
+                );
+                assert!(!text.contains(secret));
+                assert!(
+                    redactions
+                        .iter()
+                        .any(|redaction| redaction.category == pattern.category)
+                );
+            }
+            for near_miss in &pattern.non_matches {
+                let mut text = near_miss.clone();
+                let mut redactions = Vec::new();
+                scrub_text(&mut text, "/request/test", &mut redactions);
+                assert_eq!(&text, near_miss, "{} over-redacted", pattern.category);
+                assert!(
+                    redactions.is_empty(),
+                    "{} recorded a false hit",
+                    pattern.category
+                );
+            }
         }
-        assert_eq!(redactions.len(), 6);
     }
 
     #[test]

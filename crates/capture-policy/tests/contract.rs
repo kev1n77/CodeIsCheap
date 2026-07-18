@@ -7,6 +7,7 @@ use codeischeap_capture_policy::{CapturePolicy, PolicyError};
 use schemars::schema_for;
 
 const CHECKED_IN_SCHEMA: &str = include_str!("../../../schemas/capture-policy/v0.1.schema.json");
+const CREDENTIAL_CORPUS: &str = include_str!("../../../policies/credential-corpus.v0.1.json");
 const SIDECAR_FIXTURE: &str =
     include_str!("../../capture-ipc/tests/fixtures/mitmproxy-request.json");
 
@@ -133,6 +134,52 @@ fn core_scrubber_removes_canaries_before_persistence() {
     assert!(encoded.contains("preserved prompt"));
     assert!(encoded.contains("request_1"));
     assert!(encoded.contains("trace"));
+}
+
+#[test]
+fn versioned_credential_corpus_matches_policy_and_scrubs_every_field_name() {
+    let policy = CapturePolicy::load_default().expect("default policy must be valid");
+    let corpus: serde_json::Value =
+        serde_json::from_str(CREDENTIAL_CORPUS).expect("credential corpus must parse");
+    let names = corpus["sensitive_names"]
+        .as_array()
+        .expect("credential corpus names must be an array")
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .expect("credential name must be text")
+                .to_owned()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(corpus["version"], "0.1");
+    assert_eq!(policy.sensitive_names, names);
+
+    let mut fields = serde_json::Map::new();
+    let mut canaries = Vec::new();
+    for (index, name) in names.iter().enumerate() {
+        let canary = format!("sensitive-canary-{index}");
+        fields.insert(
+            name.replace('-', "_").to_ascii_uppercase(),
+            serde_json::Value::String(canary.clone()),
+        );
+        canaries.push(canary);
+    }
+    fields.insert("safe_trace".to_owned(), serde_json::json!("keep"));
+    let mut request = request("api.openai.com", "POST", "/v1/responses");
+    request.body.content = Some(serde_json::Value::Object(fields));
+
+    let sanitized = policy
+        .sanitize_envelope(envelope(request))
+        .expect("credential corpus fields must sanitize");
+    let encoded = serde_json::to_string(sanitized.envelope()).expect("capture must encode");
+
+    assert_eq!(sanitized.newly_redacted(), names.len());
+    for canary in canaries {
+        assert!(!encoded.contains(&canary));
+    }
+    assert!(encoded.contains("safe_trace"));
+    assert!(encoded.contains("keep"));
 }
 
 #[test]

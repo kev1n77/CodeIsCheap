@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { save } from "@tauri-apps/plugin-dialog";
 import fixture from "./data/workspace.json";
+import credentialCorpus from "../../../policies/credential-corpus.v0.1.json";
 import type {
   CaptureMode,
   CapturedRequest,
@@ -432,22 +433,18 @@ function fixtureCredentialScan(value: string | null): {
   redactions: Array<{ category: string; pointer: string }>;
 } {
   if (value == null) return { value, redactions: [] };
-  const patterns = [
-    ["private_key", /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----/g],
-    ["anthropic_api_key", /\bsk-ant-[A-Za-z0-9_-]{16,}\b/g],
-    ["openai_api_key", /\bsk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{16,}\b/g],
-    ["google_api_key", /\bAIza[0-9A-Za-z_-]{20,}\b/g],
-    ["bearer_token", /\bBearer\s+[A-Za-z0-9._~+/=-]{12,}/gi],
-    ["jwt", /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g],
-  ] as const;
   const redactions: Array<{ category: string; pointer: string }> = [];
-  const scanned = patterns.reduce((current, [category, pattern]) => current.replace(
-    pattern,
-    () => {
-      redactions.push({ category, pointer: "/diagnostics/runtimeIssue" });
-      return `[REDACTED:${category}]`;
-    },
-  ), value);
+  const scanned = credentialCorpus.text_patterns.reduce((current, pattern) => {
+    const caseInsensitive = pattern.expression.startsWith("(?i)");
+    const expression = caseInsensitive ? pattern.expression.slice(4) : pattern.expression;
+    return current.replace(
+      new RegExp(expression, caseInsensitive ? "gi" : "g"),
+      () => {
+        redactions.push({ category: pattern.category, pointer: "/diagnostics/runtimeIssue" });
+        return `[REDACTED:${pattern.category}]`;
+      },
+    );
+  }, value);
   return { value: scanned, redactions };
 }
 
