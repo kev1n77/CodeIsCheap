@@ -47,7 +47,7 @@ Rust crate 位于 `crates/prompt-ir`，公开 JSON Schema 位于 `schemas/prompt
 cargo run -p codeischeap-desktop-api --bin export-desktop-contract
 ```
 
-捕获 sidecar 位于 `sidecars/mitmproxy`，跨进程契约位于 `crates/capture-ipc`，公开 CaptureEnvelope Schema 位于 `schemas/capture-envelope/v0.1.schema.json`。sidecar 的安装、测试与打包命令见 [`sidecars/mitmproxy/README.md`](./sidecars/mitmproxy/README.md)。
+捕获 sidecar 位于 `sidecars/mitmproxy`，跨进程契约位于 `crates/capture-ipc`，公开 CaptureEnvelope Schema 位于 `schemas/capture-envelope/v0.1.schema.json`。打包探针会验证 HTTP/1.1、HTTP/2、压缩、流式脱敏、客户端取消与捕获 IPC 背压；捕获队列满时只丢弃记录，不阻塞代理转发。sidecar 的安装、测试与打包命令见 [`sidecars/mitmproxy/README.md`](./sidecars/mitmproxy/README.md)。
 
 捕获范围与敏感字段由 `policies/capture-policy.v0.1.json` 定义，公开 schema 位于 `schemas/capture-policy/v0.1.schema.json`。Python sidecar 在 IPC 前执行策略，`crates/core` 在进入持久化前再次拒绝越界请求并删除遗漏凭据。
 

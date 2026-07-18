@@ -7,6 +7,7 @@ import socket
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -17,6 +18,7 @@ CREDENTIAL_CORPUS = SIDECAR_DIR.parents[1] / "policies" / "credential-corpus.v0.
 sys.path.insert(0, str(SIDECAR_DIR))
 
 from codeischeap_addon import (
+    IpcEmitter,
     IpcConfig,
     build_envelope,
     build_failure_envelope,
@@ -398,7 +400,9 @@ class AddonTests(unittest.TestCase):
             with connection:
                 stream = connection.makefile("rb")
                 received.extend([stream.readline(), stream.readline()])
-                connection.sendall(b'{"status":"accepted"}\n')
+                connection.sendall(b'{"status":')
+                time.sleep(0.01)
+                connection.sendall(b'"accepted"}\n')
 
         worker = threading.Thread(target=accept)
         worker.start()
@@ -419,6 +423,90 @@ class AddonTests(unittest.TestCase):
         self.assertNotIn("token", captured)
         self.assertNotIn("transport", captured)
         self.assertEqual(captured, envelope)
+
+    def test_ipc_queue_backpressure_never_blocks_flow_submission(self) -> None:
+        first_delivery_started = threading.Event()
+        release_first_delivery = threading.Event()
+        second_delivery_finished = threading.Event()
+        deliveries: list[dict[str, object]] = []
+
+        def blocked_send(
+            config: IpcConfig,
+            envelope: dict[str, object],
+            transport: dict[str, str] | None = None,
+        ) -> None:
+            del config, transport
+            deliveries.append(envelope)
+            if len(deliveries) == 1:
+                first_delivery_started.set()
+                release_first_delivery.wait(2)
+            elif len(deliveries) == 2:
+                second_delivery_finished.set()
+
+        config = IpcConfig("127.0.0.1", 1, "synthetic-token")
+        with patch("codeischeap_addon.send_envelope", side_effect=blocked_send):
+            emitter = IpcEmitter(config, capacity=1)
+            try:
+                self.assertTrue(emitter.submit({"capture_id": "first"}, None))
+                self.assertTrue(first_delivery_started.wait(1))
+                self.assertTrue(emitter.submit({"capture_id": "queued"}, None))
+
+                started = time.monotonic()
+                self.assertFalse(emitter.submit({"capture_id": "dropped"}, None))
+                self.assertLess(time.monotonic() - started, 0.25)
+            finally:
+                release_first_delivery.set()
+
+            self.assertTrue(second_delivery_finished.wait(1))
+            emitter.close()
+            self.assertEqual(
+                [delivery["capture_id"] for delivery in deliveries],
+                ["first", "queued"],
+            )
+
+    def test_ipc_failure_discards_backlog_and_opens_a_retry_circuit(self) -> None:
+        delivery_attempted = threading.Event()
+        release_failure = threading.Event()
+        recovery_delivered = threading.Event()
+        attempts: list[str] = []
+
+        def failed_send(
+            config: IpcConfig,
+            envelope: dict[str, object],
+            transport: dict[str, str] | None = None,
+        ) -> None:
+            del config, transport
+            attempts.append(str(envelope["capture_id"]))
+            delivery_attempted.set()
+            if envelope["capture_id"] == "failed":
+                release_failure.wait(1)
+                raise OSError("synthetic IPC failure")
+            recovery_delivered.set()
+
+        config = IpcConfig("127.0.0.1", 1, "synthetic-token")
+        with patch("codeischeap_addon.send_envelope", side_effect=failed_send):
+            emitter = IpcEmitter(config, capacity=4, retry_delay_seconds=0.05)
+            try:
+                self.assertTrue(emitter.submit({"capture_id": "failed"}, None))
+                self.assertTrue(delivery_attempted.wait(1))
+                self.assertTrue(emitter.submit({"capture_id": "queued"}, None))
+                release_failure.set()
+                self.assertTrue(emitter._delivery_unavailable.wait(1))
+
+                started = time.monotonic()
+                self.assertFalse(emitter.submit({"capture_id": "circuit-open"}, None))
+                self.assertLess(time.monotonic() - started, 0.25)
+
+                retry_deadline = time.monotonic() + 1
+                while not emitter.submit({"capture_id": "recovered"}, None):
+                    self.assertLess(time.monotonic(), retry_deadline)
+                    time.sleep(0.01)
+                self.assertTrue(recovery_delivered.wait(1))
+            finally:
+                release_failure.set()
+                emitter.close()
+
+        self.assertEqual(attempts, ["failed", "recovered"])
 
 
 if __name__ == "__main__":

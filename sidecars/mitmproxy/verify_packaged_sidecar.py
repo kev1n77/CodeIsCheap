@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 import gzip
 from http.client import HTTPConnection
@@ -70,17 +71,22 @@ def valid_loopback_transport(auth: dict[str, Any]) -> bool:
 
 HTTP1_CASES = ("gzip", "brotli", "sse")
 TARGET_CASES = (*HTTP1_CASES, "http2")
+CANCEL_CASE = "cancel"
+PRESSURE_CASE = "pressure"
+BACKPRESSURE_REQUEST_COUNT = 36
+BACKPRESSURE_MAX_SECONDS = 15
 
 
 class UpstreamHandler(BaseHTTPRequestHandler):
     received: dict[str, dict[str, Any]] = {}
     received_event = threading.Event()
     received_lock = threading.Lock()
+    cancellation_received = threading.Event()
 
     def do_POST(self) -> None:
         length = int(self.headers.get("content-length", "0"))
         case = parse_qs(urlsplit(self.path).query).get("case", [""])[0]
-        if case not in HTTP1_CASES:
+        if case not in (*HTTP1_CASES, CANCEL_CASE, PRESSURE_CASE):
             self.send_error(400)
             return
         received = {
@@ -89,10 +95,24 @@ class UpstreamHandler(BaseHTTPRequestHandler):
             "x_api_key": self.headers.get("x-api-key"),
             "body": self.rfile.read(length).decode("utf-8"),
         }
-        with type(self).received_lock:
-            type(self).received[case] = received
-            if len(type(self).received) == len(HTTP1_CASES):
-                type(self).received_event.set()
+        if case in HTTP1_CASES:
+            with type(self).received_lock:
+                type(self).received[case] = received
+                if len(type(self).received) == len(HTTP1_CASES):
+                    type(self).received_event.set()
+        elif case == CANCEL_CASE:
+            type(self).cancellation_received.set()
+            time.sleep(0.5)
+            try:
+                payload = b'{"ok":true,"case":"cancel"}'
+                self.send_response(200)
+                self.send_header("content-type", "application/json")
+                self.send_header("content-length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+            except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+                pass
+            return
         self.send_response(200)
         if case == "sse":
             payload = (
@@ -114,9 +134,11 @@ class UpstreamHandler(BaseHTTPRequestHandler):
             if case == "gzip":
                 payload = gzip.compress(payload)
                 content_encoding = "gzip"
-            else:
+            elif case == "brotli":
                 payload = brotli.compress(payload)
                 content_encoding = "br"
+            else:
+                content_encoding = None
         self.send_header("content-type", content_type)
         if content_encoding:
             self.send_header("content-encoding", content_encoding)
@@ -416,6 +438,32 @@ def request_target_case(proxy_port: int, upstream_port: int, case: str) -> dict[
     return result
 
 
+def cancel_target_request(proxy_port: int, upstream_port: int) -> None:
+    body = json.dumps(
+        {"messages": [{"role": "user", "content": "cancelled prompt"}]}
+    ).encode()
+    target = (
+        f"http://localhost:{upstream_port}/v1/chat/completions?case={CANCEL_CASE}"
+    )
+    connection = socket.create_connection(("127.0.0.1", proxy_port), timeout=10)
+    try:
+        connection.sendall(
+            (
+                f"POST {target} HTTP/1.1\r\n"
+                f"Host: localhost:{upstream_port}\r\n"
+                "Content-Type: application/json\r\n"
+                f"Content-Length: {len(body)}\r\n"
+                "Connection: close\r\n\r\n"
+            ).encode()
+            + body
+        )
+        if not UpstreamHandler.cancellation_received.wait(5):
+            raise TimeoutError("cancelled client request did not reach the fake provider")
+        connection.shutdown(socket.SHUT_RDWR)
+    finally:
+        connection.close()
+
+
 def open_proxy_tunnel(proxy_port: int, authority: str) -> socket.socket:
     connection = socket.create_connection(("127.0.0.1", proxy_port), timeout=10)
     connection.sendall(
@@ -558,6 +606,9 @@ def main() -> None:
         ipc_listener.bind(("127.0.0.1", 0))
         ipc_listener.listen(len(TARGET_CASES) * 2)
         ipc_frames: list[tuple[bytes, bytes]] = []
+        stalled_ipc_connections: list[socket.socket] = []
+        stop_stalled_ipc = threading.Event()
+        stalled_ipc_thread: threading.Thread | None = None
 
         def receive_ipc() -> None:
             for _ in range(len(TARGET_CASES) * 2):
@@ -623,6 +674,21 @@ def main() -> None:
             ipc_thread.join(timeout=5)
             if ipc_thread.is_alive() or len(ipc_frames) != len(TARGET_CASES) * 2:
                 raise TimeoutError("addon did not deliver every request and response envelope")
+
+            ipc_listener.settimeout(0.1)
+
+            def stall_ipc() -> None:
+                while not stop_stalled_ipc.is_set():
+                    try:
+                        connection, _ = ipc_listener.accept()
+                    except TimeoutError:
+                        continue
+                    except OSError:
+                        return
+                    stalled_ipc_connections.append(connection)
+
+            stalled_ipc_thread = threading.Thread(target=stall_ipc, daemon=True)
+            stalled_ipc_thread.start()
 
             frames = [(json.loads(auth), json.loads(envelope)) for auth, envelope in ipc_frames]
             if any(auth.get("token") != token for auth, _ in frames):
@@ -704,6 +770,43 @@ def main() -> None:
                 if CANARIES["response_body"] not in forwarded_body:
                     raise RuntimeError(f"{case} response body changed during forwarding")
 
+            pressure_started = time.monotonic()
+            with ThreadPoolExecutor(max_workers=12) as executor:
+                pressure_responses = list(
+                    executor.map(
+                        lambda _: request_target_case(
+                            proxy_port, upstream.server_port, PRESSURE_CASE
+                        ),
+                        range(BACKPRESSURE_REQUEST_COUNT),
+                    )
+                )
+            pressure_elapsed = time.monotonic() - pressure_started
+            if pressure_elapsed > BACKPRESSURE_MAX_SECONDS:
+                raise TimeoutError(
+                    "proxy forwarding blocked behind capture IPC backpressure: "
+                    f"{pressure_elapsed:.2f}s across "
+                    f"{len(stalled_ipc_connections)} IPC connections"
+                )
+            if any(response["status"] != 200 for response in pressure_responses):
+                raise RuntimeError("proxy failed a request while capture IPC was backpressured")
+            if any(
+                json.loads(response["body"]).get("case") != PRESSURE_CASE
+                for response in pressure_responses
+            ):
+                raise RuntimeError("proxy changed a response while capture IPC was backpressured")
+            if process.poll() is not None:
+                raise RuntimeError("sidecar exited after capture backpressure")
+            if not stalled_ipc_connections:
+                raise RuntimeError("capture IPC backpressure connection was not established")
+            stop_stalled_ipc.set()
+            stalled_ipc_thread.join(timeout=1)
+            if stalled_ipc_thread.is_alive():
+                raise TimeoutError("capture IPC backpressure listener did not stop")
+            for connection in stalled_ipc_connections:
+                connection.close()
+
+            cancel_target_request(proxy_port, upstream.server_port)
+
             peer_certificate, tunnel_response = request_non_target_tunnel(
                 proxy_port, tunnel.server_port
             )
@@ -713,6 +816,8 @@ def main() -> None:
                 raise RuntimeError("non-target TLS response changed during tunneling")
             if not TunnelHandler.received_event.wait(5):
                 raise TimeoutError("non-target TLS server did not receive the tunneled request")
+            if process.poll() is not None:
+                raise RuntimeError("sidecar exited after client cancellation")
             ipc_listener.settimeout(0.5)
             try:
                 unexpected, _ = ipc_listener.accept()
@@ -736,10 +841,17 @@ def main() -> None:
                         "stream_credentials_removed": True,
                         "non_target_tunnel": True,
                         "http2_preserved": True,
+                        "client_cancellation_survived": True,
+                        "capture_backpressure_nonblocking": True,
                     }
                 )
             )
         finally:
+            stop_stalled_ipc.set()
+            if stalled_ipc_thread is not None:
+                stalled_ipc_thread.join(timeout=1)
+            for connection in stalled_ipc_connections:
+                connection.close()
             stop_process_tree(process)
             upstream.shutdown()
             upstream.server_close()

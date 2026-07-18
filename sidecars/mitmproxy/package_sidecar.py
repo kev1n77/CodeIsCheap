@@ -299,6 +299,8 @@ def main() -> None:
             "non_target_tunnel",
             "http2_preserved",
             "transport_context_preserved",
+            "client_cancellation_survived",
+            "capture_backpressure_nonblocking",
         )
     ) and probe_result.get("credential_canaries_in_envelope") == 0
     manifest = {

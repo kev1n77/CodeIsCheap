@@ -12,6 +12,8 @@ CIC_CAPTURE_HOSTS=api.openai.com,api.anthropic.com
 
 The addon loads `policies/capture-policy.v0.1.json` and only records exact target hosts, approved POST paths, and methods. `CIC_CAPTURE_HOSTS` can opt an OpenAI-compatible host into the same approved path set; it does not disable path checks. The addon removes credential headers, sensitive query fields, and recursively named JSON secret fields before sending an authenticated NDJSON envelope. Unsupported request body formats are omitted. The original network request is not modified.
 
+Capture delivery uses a bounded non-blocking queue. A full queue drops only the capture event. The first IPC delivery failure discards the pending backlog and opens a 10-second retry circuit; proxy forwarding continues, and the next event after the cooldown probes IPC recovery.
+
 ```powershell
 python -m pip install -r sidecars/mitmproxy/requirements-build.txt
 python -m unittest discover -s sidecars/mitmproxy/tests -v
