@@ -83,7 +83,7 @@ use windows_sys::Win32::System::SystemServices::{
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
 pub const SIDECAR_MANIFEST_VERSION: &str = "0.1";
-pub const CAPTURE_IPC_PROTOCOL_VERSION: &str = "0.3";
+pub const CAPTURE_IPC_PROTOCOL_VERSION: &str = "0.4";
 pub const CAPTURE_ENVELOPE_VERSION: &str = "0.1";
 pub const CAPTURE_POLICY_VERSION: &str = "0.1";
 pub const MITMPROXY_VERSION: &str = "12.2.3";
@@ -1325,6 +1325,11 @@ impl SidecarProcess {
         self.endpoint
     }
 
+    #[must_use]
+    pub fn process_id(&self) -> Option<u32> {
+        self.child.as_ref().map(Child::id)
+    }
+
     pub fn try_wait(&mut self) -> Result<Option<ExitStatus>, SidecarError> {
         let Some(child) = self.child.as_mut() else {
             return Ok(None);
@@ -2172,7 +2177,7 @@ MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
                 "max_bytes": 1024
             },
             "capture_contract": {
-                "ipc_protocol": "0.3",
+                "ipc_protocol": "0.4",
                 "envelope": "0.1",
                 "policy": "0.1",
                 "policy_file": "capture-policy.v0.1.json",
@@ -2467,6 +2472,11 @@ fn main() {
             .launch(&config, Duration::from_secs(5))
             .expect("verified fixture must start");
         assert_eq!(process.endpoint(), config.listen_addr);
+        assert!(
+            process
+                .process_id()
+                .is_some_and(|process_id| process_id != 0)
+        );
         let environment = fs::read_to_string(confdir.join("observed-environment.txt")).unwrap();
         assert!(environment.contains(&format!("CIC_CAPTURE_IPC_TOKEN={token}")));
         assert!(environment.contains("CIC_CAPTURE_HOSTS=api.openai.com"));

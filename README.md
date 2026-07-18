@@ -51,7 +51,7 @@ cargo run -p codeischeap-desktop-api --bin export-desktop-contract
 
 捕获范围与敏感字段由 `policies/capture-policy.v0.1.json` 定义，公开 schema 位于 `schemas/capture-policy/v0.1.schema.json`。Python sidecar 在 IPC 前执行策略，`crates/core` 在进入持久化前再次拒绝越界请求并删除遗漏凭据。
 
-sidecar IPC 协议为 `0.3`：仅监听 loopback，使用每次 Proxy 会话重新生成的 256-bit token，认证帧限制为 1 KiB，并要求 `mitmproxy` 来源声明；已接受连接必须在 2 秒内完成认证与数据帧，否则释放连接。认证帧可携带严格校验的临时 loopback 端点用于进程归因，端点不会进入 CaptureEnvelope、持久化或导出。sidecar manifest 分别声明 IPC、Envelope 和 Policy 版本，不兼容 bundle 会在启动前被拒绝。
+sidecar IPC 协议为 `0.4`：仅监听 loopback，使用每次 Proxy 会话重新生成的 256-bit token，认证帧限制为 1 KiB，并要求 `mitmproxy` 来源声明；认证、数据帧、Windows/macOS 首连接 sidecar PID 校验与服务端 ACK 共用 2 秒截止时间，sidecar 在收到 ACK 前保持连接。认证帧可携带严格校验的临时 loopback 端点用于进程归因，端点不会进入 CaptureEnvelope、持久化或导出。sidecar manifest 分别声明 IPC、Envelope 和 Policy 版本，不兼容 bundle 会在启动前被拒绝。
 
 Gateway 和 Proxy 捕获会按显式客户端标签、User-Agent 规则或捕获模式回退生成带置信度的应用归因。Gateway 客户端可设置 `x-codeischeap-client: <application>` 提供高置信度标签；该内部请求头会在持久化和转发上游前删除。Windows 与 macOS 上的 Gateway 和 Proxy 会用操作系统 TCP 连接表精确匹配客户端 PID，查询失败时保持未知，不做启发式推断；sidecar 自报 PID 会被忽略，用于匹配的临时 socket 端点不会进入持久化或导出。未知客户端会明确显示为低置信度的 `Gateway client` 或 `Proxy client`。
 

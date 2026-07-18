@@ -398,6 +398,7 @@ class AddonTests(unittest.TestCase):
             with connection:
                 stream = connection.makefile("rb")
                 received.extend([stream.readline(), stream.readline()])
+                connection.sendall(b'{"status":"accepted"}\n')
 
         worker = threading.Thread(target=accept)
         worker.start()
@@ -411,7 +412,7 @@ class AddonTests(unittest.TestCase):
         self.assertFalse(worker.is_alive())
         auth = json.loads(received[0])
         captured = json.loads(received[1])
-        self.assertEqual(auth["version"], "0.3")
+        self.assertEqual(auth["version"], "0.4")
         self.assertEqual(auth["origin"], "mitmproxy")
         self.assertEqual(auth["token"], "synthetic-token")
         self.assertEqual(auth["transport"], transport)

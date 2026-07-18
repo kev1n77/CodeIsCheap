@@ -16,7 +16,7 @@ from urllib.parse import parse_qsl, urlsplit
 
 
 IPC_PROTOCOL = "codeischeap.capture-ipc"
-IPC_PROTOCOL_VERSION = "0.3"
+IPC_PROTOCOL_VERSION = "0.4"
 IPC_ORIGIN = "mitmproxy"
 CAPTURE_ENVELOPE_VERSION = "0.1"
 CAPTURE_POLICY_VERSION = "0.1"
@@ -479,7 +479,7 @@ def build_failure_envelope(flow: Any) -> dict[str, Any]:
 
 
 class IpcConfig:
-    def __init__(self, host: str, port: int, token: str, timeout_seconds: float = 0.5) -> None:
+    def __init__(self, host: str, port: int, token: str, timeout_seconds: float = 2.0) -> None:
         self.host = host
         self.port = port
         self.token = token
@@ -550,6 +550,9 @@ def send_envelope(
     ).encode("utf-8")
     with socket.create_connection((config.host, config.port), timeout=config.timeout_seconds) as connection:
         connection.sendall(frames)
+        acknowledgement = connection.makefile("rb").readline(256)
+        if json.loads(acknowledgement) != {"status": "accepted"}:
+            raise ValueError("capture IPC acknowledgement is invalid")
 
 
 class IpcEmitter:

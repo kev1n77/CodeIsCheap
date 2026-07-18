@@ -5,6 +5,7 @@
 //! confused with data that may later be persisted.
 
 use std::fmt;
+use std::future::{Future, ready};
 use std::io;
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -12,18 +13,19 @@ use std::time::Duration;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq as _;
-use tokio::io::{AsyncBufRead, AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::time::timeout;
 
 pub const CAPTURE_ENVELOPE_VERSION: &str = "0.1";
 pub const IPC_PROTOCOL: &str = "codeischeap.capture-ipc";
-pub const IPC_PROTOCOL_VERSION: &str = "0.3";
+pub const IPC_PROTOCOL_VERSION: &str = "0.4";
 pub const IPC_ORIGIN_MITMPROXY: &str = "mitmproxy";
 pub const CLIENT_LABEL_HEADER: &str = "x-codeischeap-client";
 pub const MAX_AUTH_FRAME_BYTES: usize = 1024;
 pub const MAX_FRAME_BYTES: usize = 4 * 1024 * 1024;
 pub const DEFAULT_CONNECTION_DEADLINE: Duration = Duration::from_secs(2);
+const ACCEPTED_FRAME: &[u8] = b"{\"status\":\"accepted\"}\n";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -202,6 +204,7 @@ pub enum IpcError {
     UnsupportedProtocol,
     UnsupportedOrigin,
     Unauthorized,
+    UnauthorizedPeer,
     InvalidTransport,
     UnsupportedEnvelopeVersion(String),
 }
@@ -225,6 +228,9 @@ impl fmt::Display for IpcError {
             Self::UnsupportedProtocol => write!(formatter, "capture IPC protocol is unsupported"),
             Self::UnsupportedOrigin => write!(formatter, "capture IPC origin is unsupported"),
             Self::Unauthorized => write!(formatter, "capture IPC authentication failed"),
+            Self::UnauthorizedPeer => {
+                write!(formatter, "capture IPC peer process is unauthorized")
+            }
             Self::InvalidTransport => {
                 write!(formatter, "capture IPC transport context is invalid")
             }
@@ -270,6 +276,24 @@ pub async fn receive_one_with_transport(
     receive_one_with_transport_deadline(listener, expected_token, DEFAULT_CONNECTION_DEADLINE).await
 }
 
+pub async fn receive_one_with_transport_verified<F, Fut>(
+    listener: &TcpListener,
+    expected_token: &str,
+    verify_peer: F,
+) -> Result<ReceivedCapture, IpcError>
+where
+    F: FnOnce(SocketAddr, SocketAddr) -> Fut,
+    Fut: Future<Output = bool>,
+{
+    receive_one_with_transport_verifier_deadline(
+        listener,
+        expected_token,
+        DEFAULT_CONNECTION_DEADLINE,
+        verify_peer,
+    )
+    .await
+}
+
 pub async fn receive_one_with_deadline(
     listener: &TcpListener,
     expected_token: &str,
@@ -287,6 +311,25 @@ pub async fn receive_one_with_transport_deadline(
     expected_token: &str,
     connection_deadline: Duration,
 ) -> Result<ReceivedCapture, IpcError> {
+    receive_one_with_transport_verifier_deadline(
+        listener,
+        expected_token,
+        connection_deadline,
+        |_, _| ready(true),
+    )
+    .await
+}
+
+async fn receive_one_with_transport_verifier_deadline<F, Fut>(
+    listener: &TcpListener,
+    expected_token: &str,
+    connection_deadline: Duration,
+    verify_peer: F,
+) -> Result<ReceivedCapture, IpcError>
+where
+    F: FnOnce(SocketAddr, SocketAddr) -> Fut,
+    Fut: Future<Output = bool>,
+{
     if !listener.local_addr()?.ip().is_loopback() {
         return Err(IpcError::NonLoopbackListener);
     }
@@ -295,11 +338,17 @@ pub async fn receive_one_with_transport_deadline(
     if !peer.ip().is_loopback() {
         return Err(IpcError::NonLoopbackPeer);
     }
+    let server = stream.local_addr()?;
 
-    timeout(
-        connection_deadline,
-        receive_from_reader_with_transport(&mut BufReader::new(stream), expected_token),
-    )
+    timeout(connection_deadline, async move {
+        if !verify_peer(peer, server).await {
+            return Err(IpcError::UnauthorizedPeer);
+        }
+        let mut reader = BufReader::new(stream);
+        let capture = receive_from_reader_with_transport(&mut reader, expected_token).await?;
+        reader.get_mut().write_all(ACCEPTED_FRAME).await?;
+        Ok(capture)
+    })
     .await
     .map_err(|_| IpcError::ConnectionDeadlineExceeded)?
 }
