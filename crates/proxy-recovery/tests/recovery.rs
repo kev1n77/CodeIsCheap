@@ -27,6 +27,34 @@ fn desired_settings() -> ProxySettings {
     }
 }
 
+#[derive(Debug, Clone)]
+struct ApplyAndRollbackFailureBackend {
+    inner: FileProxyBackend,
+}
+
+impl ProxyBackend for ApplyAndRollbackFailureBackend {
+    fn descriptor(&self) -> codeischeap_proxy_recovery::BackendDescriptor {
+        self.inner.descriptor()
+    }
+
+    fn snapshot(&self) -> Result<ProxySnapshot, RecoveryError> {
+        self.inner.snapshot()
+    }
+
+    fn apply(&self, settings: &ProxySettings) -> Result<(), RecoveryError> {
+        self.inner.apply(settings)?;
+        Err(RecoveryError::PlatformCommandFailed(
+            "fault-injected apply".to_owned(),
+        ))
+    }
+
+    fn restore(&self, _snapshot: &ProxySnapshot) -> Result<(), RecoveryError> {
+        Err(RecoveryError::PlatformCommandFailed(
+            "fault-injected inline rollback".to_owned(),
+        ))
+    }
+}
+
 #[test]
 fn normal_restore_returns_to_the_exact_snapshot() {
     let _lock = PROCESS_TEST_LOCK
@@ -73,6 +101,42 @@ fn normal_restore_returns_to_the_exact_snapshot() {
     session.restore().expect("session must restore");
 
     assert_eq!(file_settings(&backend), original_settings());
+    assert!(!journal.exists());
+    fs::remove_dir_all(root).expect("test directory must clean up");
+}
+
+#[test]
+fn watchdog_recovers_pac_snapshot_when_apply_and_inline_rollback_fail() {
+    let _lock = PROCESS_TEST_LOCK
+        .lock()
+        .expect("process test lock must work");
+    let root = test_directory("apply-rollback-failure");
+    let state = root.join("proxy-state.json");
+    let journal = root.join("recovery.json");
+    let inner = FileProxyBackend::new(&state);
+    inner
+        .apply(&original_settings())
+        .expect("PAC state must be seeded");
+    let backend = ApplyAndRollbackFailureBackend {
+        inner: inner.clone(),
+    };
+
+    let error = match ProxySession::begin(
+        backend,
+        desired_settings(),
+        &journal,
+        env!("CARGO_BIN_EXE_proxy-watchdog"),
+    ) {
+        Ok(_) => panic!("fault-injected apply must fail"),
+        Err(error) => error,
+    };
+
+    assert!(matches!(
+        error,
+        RecoveryError::PlatformCommandFailed(operation)
+            if operation == "fault-injected apply"
+    ));
+    assert_eq!(file_settings(&inner), original_settings());
     assert!(!journal.exists());
     fs::remove_dir_all(root).expect("test directory must clean up");
 }
