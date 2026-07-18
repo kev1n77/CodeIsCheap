@@ -8,7 +8,7 @@
     <p class="lead">覆盖本地 Gateway、显式代理、sidecar、Rust Core、桌面 UI 与本地存储。当前为待独立评审版本，不代表发布批准。</p>
 
     <div class="meta-grid">
-      <div class="meta-item"><span>版本</span><strong>0.1</strong></div><div class="meta-item"><span>状态</span><strong>Review required</strong></div><div class="meta-item"><span>范围</span><strong>Desktop MVP</strong></div><div class="meta-item"><span>更新</span><strong>2026-07-15</strong></div>
+      <div class="meta-item"><span>版本</span><strong>0.1</strong></div><div class="meta-item"><span>状态</span><strong>Review required</strong></div><div class="meta-item"><span>范围</span><strong>Desktop MVP</strong></div><div class="meta-item"><span>更新</span><strong>2026-07-18</strong></div>
     </div>
     <div class="decision"><strong>安全边界</strong>网络请求只有在范围判断和凭据删除后才可跨入 Core；真实请求只有在 SEC-001 与 DAT-001 验收后才可持久化。</div>
 
@@ -43,7 +43,7 @@
 
     <h2 id="threats">威胁台账</h2>
     <div class="table-wrap"><table><thead><tr><th>ID</th><th>威胁</th><th>现有证据</th><th>剩余控制 / 门槛</th></tr></thead><tbody>
-      <tr><td class="task-id">TM-01</td><td>鉴权凭据进入 IPC、日志或 DB</td><td>共享敏感字段策略；sidecar 与 Core 双层 scrubber/canary 测试</td><td>DB、日志、临时文件端到端零命中</td></tr>
+      <tr><td class="task-id">TM-01</td><td>鉴权凭据进入 IPC、日志或 DB</td><td>共享敏感字段策略；sidecar 与 Core 双层 scrubber；DB、WAL、诊断日志、临时文件和支持包端到端 canary 零命中</td><td>独立安全评审与 corpus 持续维护</td></tr>
       <tr><td class="task-id">TM-02</td><td>捕获非目标应用或端点</td><td>Rust/Python 共用精确 host、POST method 与 path pattern 策略</td><td>Profile UI 与自定义端点策略管理</td></tr>
       <tr><td class="task-id">TM-03</td><td>本机其他进程伪造或读取 IPC</td><td>loopback 限制、首帧随机 token、4 MiB 帧上限</td><td>用户级 socket ACL、token 轮换、失败限速</td></tr>
       <tr><td class="task-id">TM-04</td><td>数据库文件被离线读取</td><td>SQLCipher、WAL、迁移、加密备份、错误密钥、DB/WAL canary 与跨平台 OS 凭据库 CI</td><td>锁定状态与 key 丢失恢复体验</td></tr>
@@ -54,14 +54,14 @@
       <tr><td class="task-id">TM-09</td><td>恶意 Prompt 触发 UI 注入</td><td>React 默认转义、Tauri CSP</td><td>Raw 仅纯文本、URL 不自动执行、XSS fixture</td></tr>
       <tr><td class="task-id">TM-10</td><td>超大/高速流量耗尽内存或磁盘</td><td>IPC 帧上限、sidecar 有界队列</td><td>记录降级、配额、磁盘压力与丢弃事件</td></tr>
       <tr><td class="task-id">TM-11</td><td>将推断内容误标为已观察 Prompt</td><td>Prompt IR evidence 类型</td><td>UI 强制显示 observed / inferred / unknown</td></tr>
-      <tr><td class="task-id">TM-12</td><td>诊断、崩溃报告或遥测外泄</td><td>当前无产品遥测；版本化支持包明确排除 Prompt、Raw、请求标识与日志，运行时错误经凭据扫描并由用户预览后保存</td><td>实现无 Prompt 日志并执行 canary；遥测显式选择且先脱敏</td></tr>
+      <tr><td class="task-id">TM-12</td><td>诊断、崩溃报告或遥测外泄</td><td>当前无产品遥测；256 KiB 诊断 journal 仅保存受限事件代码和时间戳；支持包最多包含最近 100 条事件，排除 Prompt、Raw、请求标识和日志详情，并由用户预览后保存</td><td>遥测必须显式选择且先脱敏；建立支持处理与保留流程</td></tr>
     </tbody></table></div>
 
     <h2 id="blockers">发布阻断项</h2>
     <ul class="checklist">
       <li class="checked">凭据在 sidecar IPC 前和 Core 持久化前双重删除，并有 canary 测试</li>
       <li class="checked">代理设置具备正常、强杀和启动恢复路径</li>
-      <li>SEC-001 对 DB、日志、临时文件执行端到端 canary 验收</li>
+      <li class="checked">SEC-001 对 DB、WAL、诊断日志、临时文件和支持包执行端到端 canary 验收</li>
       <li class="checked">DAT-001 完成 SQLCipher 与 OS 凭据库密钥管理</li>
       <li>HTTPS 代理完成 CA 生命周期、权限和卸载验证</li>
       <li>sidecar 与更新包完成签名、hash 和 SBOM 校验</li>

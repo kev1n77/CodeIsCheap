@@ -74,6 +74,13 @@ pub struct SupportBundlePreview {
     pub format_version: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticEvent {
+    pub occurred_at_unix_ms: u64,
+    pub code: String,
+}
+
 pub fn build_export_preview(
     request: &CapturedRequest,
     profile: ExportProfile,
@@ -128,6 +135,7 @@ pub fn build_batch_export_preview(
 pub fn build_support_bundle_preview(
     workspace: &WorkspaceBootstrap,
     runtime_issue: Option<&str>,
+    diagnostic_events: &[DiagnosticEvent],
     generated_at_unix_ms: u64,
 ) -> Result<SupportBundlePreview, serde_json::Error> {
     let certificate = &workspace.capture.certificate_authority;
@@ -146,7 +154,8 @@ pub fn build_support_bundle_preview(
             "requestContentIncluded": false,
             "requestIdentifiersIncluded": false,
             "rawCaptureIncluded": false,
-            "logsIncluded": false,
+            "logsIncluded": !diagnostic_events.is_empty(),
+            "logDetailsIncluded": false,
         },
         "diagnostics": {
             "source": workspace.source,
@@ -175,6 +184,7 @@ pub fn build_support_bundle_preview(
                 "proxyBundle": workspace.capture.proxy_available,
             },
             "runtimeIssue": runtime_issue,
+            "diagnosticEvents": diagnostic_events,
         },
     });
     let mut redactions = Vec::new();
@@ -647,6 +657,10 @@ mod tests {
         let preview = build_support_bundle_preview(
             &workspace,
             Some("Gateway rejected Bearer supportbundlesecret"),
+            &[DiagnosticEvent {
+                occurred_at_unix_ms: 20,
+                code: "gateway_serve_failed".to_owned(),
+            }],
             30,
         )
         .expect("support bundle must encode");
@@ -655,6 +669,12 @@ mod tests {
         assert_eq!(document["privacy"]["requestContentIncluded"], false);
         assert_eq!(document["privacy"]["requestIdentifiersIncluded"], false);
         assert_eq!(document["diagnostics"]["capture"]["requestCount"], 1);
+        assert_eq!(document["privacy"]["logsIncluded"], true);
+        assert_eq!(document["privacy"]["logDetailsIncluded"], false);
+        assert_eq!(
+            document["diagnostics"]["diagnosticEvents"][0]["code"],
+            "gateway_serve_failed"
+        );
         assert!(!preview.content.contains("capture/unsafe"));
         assert!(!preview.content.contains("Use Bearer"));
         assert!(!preview.content.contains("supportbundlesecret"));
