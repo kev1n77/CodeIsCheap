@@ -61,7 +61,7 @@
         <tr><td>Desktop / Frontend</td><td>APP-001~006</td><td>92%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>采集首次捕获耗时并完成真实运行验收</td></tr>
         <tr><td>Capture / Network</td><td>CAP-001~007</td><td>72%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>实现 macOS 特权代理 helper；生产签名随发布凭据补齐</td></tr>
         <tr><td>Prompt / Adapters</td><td>PAR-001~007</td><td>100%</td><td><span class="status done">Done</span></td><td>Codex / TBD</td><td>保持价格目录与 provider usage 映射可追溯</td></tr>
-        <tr><td>Data / Security</td><td>DAT-001~002、SEC-001~004</td><td>70%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>继续 IPC ACL、供应链控制与独立安全评审</td></tr>
+        <tr><td>Data / Security</td><td>DAT-001~002、SEC-001~004</td><td>75%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>继续 OS 级 IPC ACL、WASI 权限、供应链控制与独立安全评审</td></tr>
         <tr><td>Test / Release</td><td>TST-001~004、REL-001~003</td><td>45%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>继续 TST-002 Proxy 取消/背压与支持处理流程</td></tr>
       </tbody></table></div>
 
@@ -88,6 +88,7 @@
         <tr><td class="task-id">DAT-002</td><td>写入、查询、保留与磁盘压力</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>批量写入原子提交；默认保留 30 天/50,000 条并以 500 条事务清理；低于 256 MiB 或 SQLITE_FULL 时暂停记录但保持 Gateway 转发</td></tr>
         <tr><td class="task-id">SEC-001</td><td>范围策略和凭据 scrubber</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / Security Reviewer TBD</td><td>2026-07-18</td><td>请求与响应 header/JSON body 双层脱敏；canary 在 DB、WAL、诊断日志、临时文件和支持包中零命中</td></tr>
         <tr><td class="task-id">SEC-002</td><td>脱敏与导出</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / Security Reviewer TBD</td><td>2026-07-18</td><td>单请求、筛选批量及支持包均强制扫描、完整预览、SHA-256 防陈旧和只新建文件；版本化 corpus 以 36 个字段名、17 类文本 secret 及近似反例覆盖 Rust/Python/Web</td></tr>
+        <tr><td class="task-id">SEC-003</td><td>本地 IPC 与插件隔离</td><td><span class="status active">In progress</span></td><td>60%</td><td>Codex / Security Reviewer TBD</td><td>2026-08-25</td><td>IPC 0.2 使用 loopback、会话级 256-bit token、常量时间比较、mitmproxy 来源声明、1 KiB 认证帧和 2 秒连接截止时间；bundle manifest 启动前校验协议版本，OS socket ACL 与 WASI 权限待完成</td></tr>
         <tr><td class="task-id">PAR-001</td><td>Prompt IR v0.1 与首批 fixtures</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-14</td><td>OpenAI/Anthropic fixtures、校验与 schema 完成</td></tr>
         <tr><td class="task-id">PAR-002</td><td>解析器注册表与检测链</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>置信度排序、错误/panic 隔离、IR 校验、partial issues 与 Raw fallback 完成</td></tr>
         <tr><td class="task-id">PAR-003</td><td>OpenAI-compatible 适配器</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>Responses、Chat、Completions、多模态与 tools golden fixtures 通过</td></tr>
@@ -120,7 +121,7 @@
         <tr><td>S2</td><td>CAP-001/002、PAR-002/003、APP-003</td><td><span class="status done">Done</span></td><td>Gateway、OpenAI 解析与千条实时工作台全部通过验收</td></tr>
         <tr><td>S3</td><td>PAR-004、APP-004、TST-001、DAT-002</td><td><span class="status done">Done</span></td><td>双厂商 Inspector、能力矩阵与数据生命周期全部通过验收</td></tr>
         <tr><td>S4</td><td>CAP-003~005、TST-002</td><td><span class="status active">In progress</span></td><td>sidecar bundle、桌面运行时、协议矩阵、跨平台 CA 状态及两平台用户级信任生命周期已实现；签名、Proxy 取消/背压与交互式验收待推进</td></tr>
-        <tr><td>S5</td><td>CAP-006/007、SEC-002/003、APP-006、TST-003</td><td><span class="status active">In progress</span></td><td>SEC-002 安全导出闭环；Windows 恢复、sidecar 崩溃回退、支持包及设置诊断已接入，继续 macOS helper、IPC ACL 与其余故障注入</td></tr>
+        <tr><td>S5</td><td>CAP-006/007、SEC-002/003、APP-006、TST-003</td><td><span class="status active">In progress</span></td><td>SEC-002 完成，IPC 抗阻塞与协议绑定已接入；继续 macOS helper、OS socket ACL、应用归因与其余故障注入</td></tr>
         <tr><td>S6</td><td>PAR-005~007、APP-005</td><td><span class="status done">Done</span></td><td>四厂商适配器、token/成本/指纹、全文搜索和结构/文本 Compare 全部完成</td></tr>
         <tr><td>S7</td><td>TST-004、性能、可访问性、诊断与保留</td><td><span class="status">Not started</span></td><td>功能冻结</td></tr>
         <tr><td>S8</td><td>SEC-004、REL-001/002、安全评审</td><td><span class="status active">In progress</span></td><td>code-only 诊断与支持包已接入；签名更新、安装回滚、支持流程与安全评审待推进</td></tr>
@@ -211,6 +212,7 @@
         <tr><td>2026-07-18</td><td>Security / Support</td><td>SEC-002 / REL-002 安全支持包首段完成</td><td>Diagnostics 展示后端生成的精确 JSON 支持包；默认排除 Prompt、Raw、请求标识和日志，运行时错误统一扫描凭据，保存前重算 SHA-256 且只创建新文件</td><td>Codex</td></tr>
         <tr><td>2026-07-18</td><td>Security / Export</td><td>SEC-002 版本化 secret corpus 完成</td><td>共享 corpus 定义 36 个敏感字段名与 17 类文本 secret；Capture Policy、Python sidecar、Rust 导出和 Web fallback 对全部正例与近似反例执行一致性回归，SEC-002 达到完成标准</td><td>Codex</td></tr>
         <tr><td>2026-07-18</td><td>Security / Diagnostics</td><td>SEC-001 完成，REL-002 推进</td><td>运行时诊断仅持久化时间戳和受限事件代码，journal 上限 256 KiB；支持包最多携带最近 100 条事件且排除详情，端到端 canary 在 DB、WAL、日志、临时文件和支持包中零命中</td><td>Codex</td></tr>
+        <tr><td>2026-07-18</td><td>Security / IPC</td><td>SEC-003 IPC 会话加固完成首段</td><td>IPC 0.2 将认证帧限制为 1 KiB，使用会话级随机 token 与常量时间比较，要求 mitmproxy 来源声明并对连接设置 2 秒截止时间；Rust/Python bundle verifier 在启动前拒绝旧协议 sidecar</td><td>Codex</td></tr>
         <tr><td colspan="5">后续范围、架构、日期或资源变化均在此追加，并链接对应 ADR/会议结论。</td></tr>
       </tbody></table></div>
 

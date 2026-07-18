@@ -9,6 +9,7 @@ description = "Authenticated local capture IPC contract for CodeIsCheap"
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+subtle.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]

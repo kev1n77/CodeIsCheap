@@ -349,6 +349,8 @@ class AddonTests(unittest.TestCase):
         self.assertFalse(worker.is_alive())
         auth = json.loads(received[0])
         captured = json.loads(received[1])
+        self.assertEqual(auth["version"], "0.2")
+        self.assertEqual(auth["origin"], "mitmproxy")
         self.assertEqual(auth["token"], "synthetic-token")
         self.assertNotIn("token", captured)
         self.assertEqual(captured, envelope)

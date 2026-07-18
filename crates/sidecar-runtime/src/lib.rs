@@ -83,7 +83,9 @@ use windows_sys::Win32::System::SystemServices::{
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
 pub const SIDECAR_MANIFEST_VERSION: &str = "0.1";
-pub const CAPTURE_CONTRACT_VERSION: &str = "0.1";
+pub const CAPTURE_IPC_PROTOCOL_VERSION: &str = "0.2";
+pub const CAPTURE_ENVELOPE_VERSION: &str = "0.1";
+pub const CAPTURE_POLICY_VERSION: &str = "0.1";
 pub const MITMPROXY_VERSION: &str = "12.2.3";
 pub const SIDECAR_NAME: &str = "codeischeap-mitmproxy";
 pub const MANIFEST_FILENAME: &str = "sidecar-manifest.json";
@@ -1613,9 +1615,9 @@ fn validate_manifest(
         ));
     }
     let contract = &manifest.capture_contract;
-    if contract.ipc_protocol != CAPTURE_CONTRACT_VERSION
-        || contract.envelope != CAPTURE_CONTRACT_VERSION
-        || contract.policy != CAPTURE_CONTRACT_VERSION
+    if contract.ipc_protocol != CAPTURE_IPC_PROTOCOL_VERSION
+        || contract.envelope != CAPTURE_ENVELOPE_VERSION
+        || contract.policy != CAPTURE_POLICY_VERSION
     {
         return Err(SidecarError::InvalidManifest(
             "capture contract versions are unsupported".to_owned(),
@@ -2168,7 +2170,7 @@ MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
                 "max_bytes": 1024
             },
             "capture_contract": {
-                "ipc_protocol": "0.1",
+                "ipc_protocol": "0.2",
                 "envelope": "0.1",
                 "policy": "0.1",
                 "policy_file": "capture-policy.v0.1.json",
@@ -2208,6 +2210,26 @@ MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
         assert_eq!(loaded.root(), root);
         assert!(loaded.policy().ends_with("capture-policy.v0.1.json"));
         assert!(loaded.sbom().ends_with("sidecar-sbom.cdx.json"));
+    }
+
+    #[test]
+    fn bundle_rejects_an_incompatible_ipc_protocol() {
+        let (_directory, root) = bundle("unsigned");
+        let manifest_path = root.join(MANIFEST_FILENAME);
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&fs::read(&manifest_path).expect("manifest must be readable"))
+                .expect("manifest must decode");
+        manifest["capture_contract"]["ipc_protocol"] = json!("0.1");
+        fs::write(
+            manifest_path,
+            serde_json::to_vec(&manifest).expect("manifest must encode"),
+        )
+        .expect("manifest must update");
+
+        assert!(matches!(
+            SidecarBundle::load(&root, BundleRequirements::development()),
+            Err(SidecarError::InvalidManifest(_))
+        ));
     }
 
     #[test]

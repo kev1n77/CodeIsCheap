@@ -425,7 +425,8 @@ mod tests {
         let (mut writer, reader) = tokio::io::duplex(16 * 1024);
         let auth = serde_json::json!({
             "protocol": "codeischeap.capture-ipc",
-            "version": "0.1",
+            "version": "0.2",
+            "origin": "mitmproxy",
             "token": token,
         });
         let mut frames = serde_json::to_vec(&auth).expect("auth must encode");
