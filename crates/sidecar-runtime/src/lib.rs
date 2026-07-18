@@ -1592,6 +1592,8 @@ struct IntegrationProbe {
     non_target_tunnel: bool,
     http2_preserved: bool,
     transport_context_preserved: bool,
+    client_cancellation_survived: bool,
+    capture_backpressure_nonblocking: bool,
 }
 
 fn validate_manifest(
@@ -1650,6 +1652,8 @@ fn validate_manifest(
         || !probe.non_target_tunnel
         || !probe.http2_preserved
         || !probe.transport_context_preserved
+        || !probe.client_cancellation_survived
+        || !probe.capture_backpressure_nonblocking
         || probe.credential_canaries_in_envelope != 0
     {
         return Err(SidecarError::InvalidManifest(
@@ -2196,7 +2200,9 @@ MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
                 "stream_credentials_removed": true,
                 "non_target_tunnel": true,
                 "http2_preserved": true,
-                "transport_context_preserved": true
+                "transport_context_preserved": true,
+                "client_cancellation_survived": true,
+                "capture_backpressure_nonblocking": true
             },
             "bundle_ready": true,
             "release_ready": signature == "valid"

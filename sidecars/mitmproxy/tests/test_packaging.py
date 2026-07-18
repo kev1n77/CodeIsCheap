@@ -69,6 +69,8 @@ def write_bundle(bundle: Path) -> dict:
             "non_target_tunnel": True,
             "http2_preserved": True,
             "transport_context_preserved": True,
+            "client_cancellation_survived": True,
+            "capture_backpressure_nonblocking": True,
         },
     }
     (bundle / "sidecar-manifest.json").write_text(json.dumps(manifest))
@@ -103,12 +105,12 @@ class PackagingTests(unittest.TestCase):
                 validate_bundle(bundle)
 
             manifest["capture_contract"]["ipc_protocol"] = "0.4"
-            del manifest["integration_probe"]["http2_preserved"]
+            del manifest["integration_probe"]["capture_backpressure_nonblocking"]
             (bundle / "sidecar-manifest.json").write_text(json.dumps(manifest))
             with self.assertRaisesRegex(ValueError, "integration probe did not pass"):
                 validate_bundle(bundle)
 
-            manifest["integration_probe"]["http2_preserved"] = True
+            manifest["integration_probe"]["capture_backpressure_nonblocking"] = True
             (bundle / "sidecar-manifest.json").write_text(json.dumps(manifest))
             with self.assertRaisesRegex(ValueError, "valid platform signature"):
                 validate_bundle(bundle, require_signature=True)

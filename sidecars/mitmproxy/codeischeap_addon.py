@@ -550,23 +550,49 @@ def send_envelope(
     ).encode("utf-8")
     with socket.create_connection((config.host, config.port), timeout=config.timeout_seconds) as connection:
         connection.sendall(frames)
-        acknowledgement = connection.makefile("rb").readline(256)
-        if json.loads(acknowledgement) != {"status": "accepted"}:
+        acknowledgement = bytearray()
+        while len(acknowledgement) < 256 and b"\n" not in acknowledgement:
+            chunk = connection.recv(256 - len(acknowledgement))
+            if not chunk:
+                break
+            acknowledgement.extend(chunk)
+        frame, separator, _ = bytes(acknowledgement).partition(b"\n")
+        if not separator or json.loads(frame) != {"status": "accepted"}:
             raise ValueError("capture IPC acknowledgement is invalid")
 
 
 class IpcEmitter:
-    def __init__(self, config: IpcConfig, capacity: int = 64) -> None:
+    def __init__(
+        self,
+        config: IpcConfig,
+        capacity: int = 64,
+        retry_delay_seconds: float = 10.0,
+    ) -> None:
         self._config = config
+        self._retry_delay_seconds = retry_delay_seconds
         self._queue: queue.Queue[
             tuple[dict[str, Any], dict[str, str] | None] | None
         ] = queue.Queue(maxsize=capacity)
+        self._state_lock = threading.Lock()
+        self._retry_after = 0.0
+        self._delivery_unavailable = threading.Event()
         self._worker = threading.Thread(target=self._run, name="codeischeap-ipc", daemon=True)
         self._worker.start()
 
     def submit(
         self, envelope: dict[str, Any], transport: dict[str, str] | None
     ) -> bool:
+        now = time.monotonic()
+        with self._state_lock:
+            if now < self._retry_after:
+                unavailable = True
+            else:
+                if self._retry_after:
+                    self._retry_after = 0.0
+                    self._delivery_unavailable.clear()
+                unavailable = False
+        if unavailable:
+            return False
         try:
             self._queue.put_nowait((envelope, transport))
             return True
@@ -589,7 +615,20 @@ class IpcEmitter:
             try:
                 send_envelope(self._config, envelope, transport)
             except (OSError, ValueError):
-                _warn("CodeIsCheap capture IPC delivery failed; the request was not recorded")
+                with self._state_lock:
+                    self._retry_after = time.monotonic() + self._retry_delay_seconds
+                    self._delivery_unavailable.set()
+                if self._discard_pending():
+                    return
+
+    def _discard_pending(self) -> bool:
+        while True:
+            try:
+                submission = self._queue.get_nowait()
+            except queue.Empty:
+                return False
+            if submission is None:
+                return True
 
 
 def _warn(message: str) -> None:
@@ -597,7 +636,7 @@ def _warn(message: str) -> None:
         from mitmproxy import ctx
 
         ctx.log.warn(message)
-    except (ImportError, RuntimeError):
+    except (AttributeError, ImportError, RuntimeError):
         pass
 
 
@@ -638,8 +677,7 @@ class CaptureAddon:
         except (AttributeError, TypeError, ValueError):
             _warn(failure_message)
             return
-        if not self._emitter.submit(envelope, build_transport_context(flow)):
-            _warn("CodeIsCheap capture queue is full; the request was not recorded")
+        self._emitter.submit(envelope, build_transport_context(flow))
 
     def request(self, flow: Any) -> None:
         self._submit(
