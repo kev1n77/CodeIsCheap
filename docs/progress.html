@@ -16,13 +16,13 @@
       <p class="lead">本页是项目状态的单一入口。开发计划定义“应该做什么”，本页只记录“当前做到哪里、是否健康、下一步是什么”。</p>
 
       <div class="meta-grid">
-        <div class="meta-item"><span>工程进度</span><strong>75%</strong></div>
+        <div class="meta-item"><span>工程进度</span><strong>76%</strong></div>
         <div class="meta-item"><span>当前阶段</span><strong>恢复、安全与协议扩展</strong></div>
         <div class="meta-item"><span>当前迭代</span><strong>S5 · 进行中 / S6 · 完成</strong></div>
         <div class="meta-item"><span>最后更新</span><strong>2026-07-17</strong></div>
       </div>
 
-      <div class="decision"><strong>当前结论</strong>四厂商 Prompt IR、搜索和 Compare 已闭环；设置/诊断、首次连接空状态和安全 Gateway 恢复入口已接入。下一步推进批量导出与 macOS helper。</div>
+      <div class="decision"><strong>当前结论</strong>四厂商 Prompt IR、搜索和 Compare 已闭环；设置/诊断、安全 Gateway 恢复入口及批量脱敏导出已接入。下一步推进支持包、扩展 secret corpus 与 macOS helper。</div>
 
       <h2 id="usage">1. 更新规则</h2>
       <ol>
@@ -61,7 +61,7 @@
         <tr><td>Desktop / Frontend</td><td>APP-001~006</td><td>92%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>采集首次捕获耗时并完成真实运行验收</td></tr>
         <tr><td>Capture / Network</td><td>CAP-001~007</td><td>72%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>实现 macOS 特权代理 helper；生产签名随发布凭据补齐</td></tr>
         <tr><td>Prompt / Adapters</td><td>PAR-001~007</td><td>100%</td><td><span class="status done">Done</span></td><td>Codex / TBD</td><td>保持价格目录与 provider usage 映射可追溯</td></tr>
-        <tr><td>Data / Security</td><td>DAT-001~002、SEC-001~004</td><td>55%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>继续日志/临时文件 canary 与批量导出</td></tr>
+        <tr><td>Data / Security</td><td>DAT-001~002、SEC-001~004</td><td>60%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>继续日志/临时文件 canary、支持包与扩展 secret corpus</td></tr>
         <tr><td>Test / Release</td><td>TST-001~004、REL-001~003</td><td>35%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>继续 TST-002 Proxy 取消/背压与证书生命周期测试</td></tr>
       </tbody></table></div>
 
@@ -87,7 +87,7 @@
         <tr><td class="task-id">DAT-001</td><td>SQLCipher、迁移、WAL 与 OS 凭据库</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>schema v2 可从 v0/v1 升级，响应类型、状态码和耗时可查询；备份恢复、DB/WAL canary 与 OS 凭据库均通过</td></tr>
         <tr><td class="task-id">DAT-002</td><td>写入、查询、保留与磁盘压力</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>批量写入原子提交；默认保留 30 天/50,000 条并以 500 条事务清理；低于 256 MiB 或 SQLITE_FULL 时暂停记录但保持 Gateway 转发</td></tr>
         <tr><td class="task-id">SEC-001</td><td>范围策略和凭据 scrubber</td><td><span class="status active">In progress</span></td><td>85%</td><td>Codex / Security Reviewer TBD</td><td>2026-07-28</td><td>请求与响应 header/JSON body 双层脱敏及 DB/WAL canary 通过；日志和临时文件待补</td></tr>
-        <tr><td class="task-id">SEC-002</td><td>脱敏与导出</td><td><span class="status active">In progress</span></td><td>65%</td><td>Codex / Security Reviewer TBD</td><td>2026-08-25</td><td>单请求三档 profile、后端凭据模式扫描、稳定占位符、完整 JSON 预览、内容哈希校验、系统保存对话框和只新建文件已实现；批量导出、支持包与扩展 secret corpus 待完成</td></tr>
+        <tr><td class="task-id">SEC-002</td><td>脱敏与导出</td><td><span class="status active">In progress</span></td><td>85%</td><td>Codex / Security Reviewer TBD</td><td>2026-08-25</td><td>单请求及当前筛选结果均支持三档 JSON 导出、后端凭据扫描、完整预览、SHA-256 防陈旧和只新建文件；批量上限/重复/缺失校验已覆盖，支持包与扩展 secret corpus 待完成</td></tr>
         <tr><td class="task-id">PAR-001</td><td>Prompt IR v0.1 与首批 fixtures</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-14</td><td>OpenAI/Anthropic fixtures、校验与 schema 完成</td></tr>
         <tr><td class="task-id">PAR-002</td><td>解析器注册表与检测链</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>置信度排序、错误/panic 隔离、IR 校验、partial issues 与 Raw fallback 完成</td></tr>
         <tr><td class="task-id">PAR-003</td><td>OpenAI-compatible 适配器</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>Responses、Chat、Completions、多模态与 tools golden fixtures 通过</td></tr>
@@ -119,7 +119,7 @@
         <tr><td>S2</td><td>CAP-001/002、PAR-002/003、APP-003</td><td><span class="status done">Done</span></td><td>Gateway、OpenAI 解析与千条实时工作台全部通过验收</td></tr>
         <tr><td>S3</td><td>PAR-004、APP-004、TST-001、DAT-002</td><td><span class="status done">Done</span></td><td>双厂商 Inspector、能力矩阵与数据生命周期全部通过验收</td></tr>
         <tr><td>S4</td><td>CAP-003~005、TST-002</td><td><span class="status active">In progress</span></td><td>sidecar bundle、桌面运行时、协议矩阵、跨平台 CA 状态及两平台用户级信任生命周期已实现；签名、Proxy 取消/背压与交互式验收待推进</td></tr>
-        <tr><td>S5</td><td>CAP-006/007、SEC-002/003、APP-006、TST-003</td><td><span class="status active">In progress</span></td><td>Windows 恢复、sidecar 崩溃回退、单请求安全导出及设置诊断已接入；继续 macOS helper、批量导出与其余故障注入</td></tr>
+        <tr><td>S5</td><td>CAP-006/007、SEC-002/003、APP-006、TST-003</td><td><span class="status active">In progress</span></td><td>Windows 恢复、sidecar 崩溃回退、单请求/批量安全导出及设置诊断已接入；继续 macOS helper、支持包与其余故障注入</td></tr>
         <tr><td>S6</td><td>PAR-005~007、APP-005</td><td><span class="status done">Done</span></td><td>四厂商适配器、token/成本/指纹、全文搜索和结构/文本 Compare 全部完成</td></tr>
         <tr><td>S7</td><td>TST-004、性能、可访问性、诊断与保留</td><td><span class="status">Not started</span></td><td>功能冻结</td></tr>
         <tr><td>S8</td><td>SEC-004、REL-001/002、安全评审</td><td><span class="status">Not started</span></td><td>Beta 质量门槛通过</td></tr>
@@ -202,6 +202,7 @@
         <tr><td>2026-07-16</td><td>Desktop / Recovery</td><td>CAP-006 Windows 桌面系统代理事务接入</td><td>受信任 CA 下 Proxy 模式自动建立 WinINet 快照与 armed journal，桌面自身以 --journal 运行 watchdog；切回 Gateway、正常退出、强杀后 watchdog 或下次启动均恢复原设置，活 owner 不会被第二实例误恢复，Unix journal 权限固定为目录 0700/文件 0600</td><td>Codex</td></tr>
         <tr><td>2026-07-16</td><td>Desktop / Recovery</td><td>CAP-006 sidecar 独立退出即时回退</td><td>桌面按 250 ms 周期非阻塞检查 sidecar；异常退出或监控失败会撤销对应代际的 Proxy runtime、恢复系统代理、重新启用 Gateway 捕获并通知前端刷新，旧监控任务不能关闭后续新会话</td><td>Codex</td></tr>
         <tr><td>2026-07-16</td><td>Security / Export</td><td>SEC-002 单请求安全导出闭环</td><td>Minimal、Reproducible、Forensic 均由后端生成；已知 API key、Bearer、JWT 与私钥模式替换为稳定占位符并记录 JSON Pointer，用户预览后经系统对话框保存，写入前重算 SHA-256 防止流式内容变化，目标文件只允许新建</td><td>Codex</td></tr>
+        <tr><td>2026-07-17</td><td>Security / Export</td><td>SEC-002 批量安全导出闭环</td><td>当前搜索与筛选结果可按稳定顺序导出为单个版本化 JSON 文档；最多 200 条，空列表、重复 ID、缺失请求和陈旧哈希均拒绝写入，每条请求统一执行凭据扫描并通过系统保存对话框创建新文件</td><td>Codex</td></tr>
         <tr><td>2026-07-17</td><td>Prompt / Adapters</td><td>PAR-005 Gemini 适配器完成</td><td>v1/v1beta 两类生成端点的请求、JSON 与 SSE 响应进入 Prompt IR；systemInstruction、contents、多模态、函数声明/调用/结果、生成参数、finish reason 与 usage 均保留可回溯证据</td><td>Codex</td></tr>
         <tr><td>2026-07-17</td><td>Prompt / Adapters</td><td>PAR-006 Ollama 适配器完成</td><td>显式捕获本机 Ollama chat/generate；消息、system、suffix、多模态、函数调用、options、JSON 与 NDJSON usage 进入 Prompt IR，NDJSON chunk 可按 UTF-8 字节范围回到 Raw</td><td>Codex</td></tr>
         <tr><td>2026-07-17</td><td>Desktop / Compare</td><td>APP-005 Compare 与搜索完成</td><td>桌面搜索接入 SQLCipher FTS；双请求以稳定规则比较消息位置、工具名称和参数名称，文本差异使用成熟 diff 引擎，基准选择、交换、筛选和键盘取消均有回归测试</td><td>Codex</td></tr>

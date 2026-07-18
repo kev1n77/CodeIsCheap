@@ -644,6 +644,85 @@ describe("request workbench", () => {
     expect(await within(dialog).findByText("Saved")).toBeInTheDocument();
   });
 
+  it("exports the current visible request set in stable order", async () => {
+    const user = userEvent.setup();
+    window.__TAURI_INTERNALS__ = {};
+    const workspace = structuredClone(fixture) as unknown as WorkspaceBootstrap;
+    const captureIds = workspace.requests
+      .filter((request) => request.provider === "OpenAI")
+      .map((request) => request.id);
+    const preview = (profile: ExportProfile): ExportPreview => ({
+      profile,
+      suggestedFilename: `codeischeap-batch-${captureIds.length}-${profile}.json`,
+      content: `{"profile":"${profile}","requestCount":${captureIds.length}}\n`,
+      byteCount: 48,
+      contentSha256: "b".repeat(64),
+      exportedAtUnixMs: 1_700_000_000_100,
+      redactions: [],
+      policyVersion: "0.1",
+    });
+    vi.mocked(save).mockResolvedValue("D:\\exports\\visible-requests.json");
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === "bootstrap_workspace") return structuredClone(workspace);
+      if (command === "preview_batch_capture_export") {
+        return preview((args?.profile as ExportProfile) ?? "minimal");
+      }
+      if (command === "write_batch_capture_export") {
+        return { path: args?.path, byteCount: 48, redactionCount: 0 };
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    render(<App />);
+    await user.selectOptions(
+      await screen.findByRole("combobox", { name: "Provider filter" }),
+      "OpenAI",
+    );
+    expect(await screen.findByText(`${captureIds.length} visible`)).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "Export visible requests" }));
+    const dialog = await screen.findByRole("dialog", { name: "Export visible requests" });
+    expect(
+      await within(dialog).findByText(new RegExp(`${captureIds.length} requests$`)),
+    ).toBeInTheDocument();
+    expect(invoke).toHaveBeenCalledWith("preview_batch_capture_export", {
+      captureIds,
+      profile: "minimal",
+    });
+
+    await user.click(within(dialog).getByRole("button", { name: "reproducible" }));
+    expect(await within(dialog).findByText(/"profile":"reproducible"/)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Save JSON" }));
+
+    expect(invoke).toHaveBeenCalledWith("write_batch_capture_export", {
+      captureIds,
+      profile: "reproducible",
+      exportedAtUnixMs: 1_700_000_000_100,
+      expectedSha256: "b".repeat(64),
+      path: "D:\\exports\\visible-requests.json",
+    });
+    expect(await within(dialog).findByText("Saved")).toBeInTheDocument();
+  });
+
+  it("keeps batch export preview failures visible", async () => {
+    const user = userEvent.setup();
+    window.__TAURI_INTERNALS__ = {};
+    const workspace = structuredClone(fixture) as unknown as WorkspaceBootstrap;
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === "bootstrap_workspace") return structuredClone(workspace);
+      if (command === "preview_batch_capture_export") {
+        throw new Error("A request disappeared before export.");
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Export visible requests" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "A request disappeared before export.",
+    );
+  });
+
   it("virtualizes one thousand requests and keeps filtered selection coherent", async () => {
     const user = userEvent.setup();
     window.__TAURI_INTERNALS__ = {};

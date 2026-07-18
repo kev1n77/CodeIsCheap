@@ -46,7 +46,9 @@ import type {
 import {
   installCertificateAuthorityTrust,
   loadWorkspace,
+  previewBatchCaptureExport,
   previewCaptureExport,
+  saveBatchCaptureExport,
   saveCaptureExport,
   searchWorkspace,
   setCaptureActive as persistCaptureActive,
@@ -88,7 +90,10 @@ export function App() {
   const [modeChanging, setModeChanging] = useState(false);
   const [certificateChanging, setCertificateChanging] = useState(false);
   const [certificateError, setCertificateError] = useState("");
-  const [exportRequestId, setExportRequestId] = useState<string | null>(null);
+  const [exportSelection, setExportSelection] = useState<{
+    requests: CapturedRequest[];
+    batch: boolean;
+  } | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [compareBase, setCompareBase] = useState<CapturedRequest | null>(null);
   const [compareMode, setCompareMode] = useState<CompareMode>("structure");
@@ -213,7 +218,6 @@ export function App() {
   const selectedRequest = requests.find((request) => request.id === effectiveSelectedId) ?? selected;
   const knownRequests = [...(workspace?.requests ?? []), ...(searchedRequests ?? [])];
   const compareTarget = compareBase && selectedRequest?.id !== compareBase.id ? selectedRequest : null;
-  const exportRequest = knownRequests.find((request) => request.id === exportRequestId) ?? null;
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -356,6 +360,7 @@ export function App() {
           onApplication={setApplication}
           onSelect={(id) => { setSelectedId(id); setTab("anatomy"); }}
           onCancelCompare={() => setCompareBase(null)}
+          onExportVisible={() => setExportSelection({ requests, batch: true })}
         />
         <ResizeHandle label="Resize request list" onResize={(delta) => setListWidth((width) => clamp(width + delta, 320, 560))} />
         {compareBase && compareTarget ? <CompareView
@@ -372,7 +377,7 @@ export function App() {
           request={selectedRequest}
           tab={tab}
           onTab={setTab}
-          onExport={() => setExportRequestId(selectedRequest.id)}
+          onExport={() => setExportSelection({ requests: [selectedRequest], batch: false })}
           onCompare={() => {
             setCompareBase(selectedRequest);
             setCompareMode("structure");
@@ -380,7 +385,11 @@ export function App() {
           comparing={compareBase?.id === selectedRequest.id}
         /> : <EmptyInspector />}
       </main>
-      {exportRequest && <ExportDialog request={exportRequest} onClose={() => setExportRequestId(null)} />}
+      {exportSelection && <ExportDialog
+        requests={exportSelection.requests}
+        batch={exportSelection.batch}
+        onClose={() => setExportSelection(null)}
+      />}
       {settingsOpen && <SettingsDialog
         workspace={workspace}
         active={captureActive}
@@ -488,7 +497,7 @@ function CaptureSidebar({ workspace, active, canControl, proxyAvailable, mode, m
   );
 }
 
-function RequestPane({ requests, allRequests, selectedId, query, provider, application, searchRef, searchError, compareBaseId, comparisonActive, onQuery, onProvider, onApplication, onSelect, onCancelCompare }: {
+function RequestPane({ requests, allRequests, selectedId, query, provider, application, searchRef, searchError, compareBaseId, comparisonActive, onQuery, onProvider, onApplication, onSelect, onCancelCompare, onExportVisible }: {
   requests: CapturedRequest[];
   allRequests: CapturedRequest[];
   selectedId: string;
@@ -504,6 +513,7 @@ function RequestPane({ requests, allRequests, selectedId, query, provider, appli
   onApplication: (value: string) => void;
   onSelect: (id: string) => void;
   onCancelCompare: () => void;
+  onExportVisible: () => void;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
   const providers = ["All providers", ...new Set(allRequests.map((request) => request.provider))];
@@ -525,7 +535,7 @@ function RequestPane({ requests, allRequests, selectedId, query, provider, appli
 
   return (
     <section className={`request-pane ${compareBaseId ? "has-compare-picker" : ""}`} aria-label="Captured requests">
-      <div className="pane-heading"><div><h1>Requests</h1><span>{requests.length} visible</span></div><button className="icon-button" title="Request list options" aria-label="Request list options"><Filter size={15} /></button></div>
+      <div className="pane-heading"><div><h1>Requests</h1><span>{requests.length} visible</span></div><button className="icon-button" title="Export visible requests" aria-label="Export visible requests" disabled={requests.length === 0} onClick={onExportVisible}><Download size={15} /></button></div>
       <div className="request-toolbar">
         <label className={`search-field ${searchError ? "has-error" : ""}`} title={searchError || undefined}><Search size={15} /><input ref={searchRef} value={query} onChange={(event) => onQuery(event.target.value)} placeholder="Search full prompt text" aria-label="Search requests" /><kbd>/</kbd></label>
         {searchError && <span className="search-error" role="alert">{searchError}</span>}
@@ -601,8 +611,10 @@ function Inspector({ request, tab, comparing, onTab, onExport, onCompare }: { re
   );
 }
 
-function ExportDialog({ request, onClose }: { request: CapturedRequest; onClose: () => void }) {
+function ExportDialog({ requests, batch, onClose }: { requests: CapturedRequest[]; batch: boolean; onClose: () => void }) {
   const closeRef = useRef<HTMLButtonElement>(null);
+  const captureIds = useMemo(() => requests.map((request) => request.id), [requests]);
+  const request = requests[0];
   const [profile, setProfile] = useState<ExportProfile>("minimal");
   const [preview, setPreview] = useState<ExportPreview | null>(null);
   const [error, setError] = useState("");
@@ -621,13 +633,16 @@ function ExportDialog({ request, onClose }: { request: CapturedRequest; onClose:
     setPreview(null);
     setError("");
     setSavedPath("");
-    previewCaptureExport(request.id, profile)
+    const operation = batch
+      ? previewBatchCaptureExport(captureIds, profile)
+      : previewCaptureExport(request.id, profile);
+    operation
       .then((value) => { if (!cancelled) setPreview(value); })
       .catch((reason: unknown) => {
         if (!cancelled) setError(reason instanceof Error ? reason.message : "Export preview could not be generated.");
       });
     return () => { cancelled = true; };
-  }, [request.id, profile]);
+  }, [batch, captureIds, profile, request.id]);
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -641,7 +656,10 @@ function ExportDialog({ request, onClose }: { request: CapturedRequest; onClose:
     if (!preview || saving) return;
     setSaving(true);
     setError("");
-    saveCaptureExport(request.id, preview)
+    const operation = batch
+      ? saveBatchCaptureExport(captureIds, preview)
+      : saveCaptureExport(request.id, preview);
+    operation
       .then((receipt) => { if (receipt) setSavedPath(receipt.path); })
       .catch((reason: unknown) => {
         setError(reason instanceof Error ? reason.message : "Export file could not be written.");
@@ -651,7 +669,7 @@ function ExportDialog({ request, onClose }: { request: CapturedRequest; onClose:
 
   return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) onClose(); }}>
     <section className="export-dialog" role="dialog" aria-modal="true" aria-labelledby="export-title">
-      <header><div><span className="dialog-eyebrow">{request.provider} · {request.operation}</span><h2 id="export-title">Export request</h2></div><button ref={closeRef} className="icon-button" title="Close" aria-label="Close export" disabled={saving} onClick={onClose}><X size={17} /></button></header>
+      <header><div><span className="dialog-eyebrow">{batch ? `Batch · ${requests.length} requests` : `${request.provider} · ${request.operation}`}</span><h2 id="export-title">{batch ? "Export visible requests" : "Export request"}</h2></div><button ref={closeRef} className="icon-button" title="Close" aria-label="Close export" disabled={saving} onClick={onClose}><X size={17} /></button></header>
       <div className="export-toolbar">
         <div className="export-profiles" aria-label="Export profile">
           {(["minimal", "reproducible", "forensic"] as ExportProfile[]).map((value) => <button key={value} aria-pressed={profile === value} onClick={() => setProfile(value)}>{value}</button>)}

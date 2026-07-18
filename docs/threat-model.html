@@ -50,7 +50,7 @@
       <tr><td class="task-id">TM-05</td><td>本地 CA 私钥泄露或残留信任</td><td>每设备 CA、跨平台私钥权限检查、指纹 UI、Windows CurrentUser 与 macOS User 幂等卸载已实现</td><td>两平台交互式验收；发布前独立安全评审</td></tr>
       <tr><td class="task-id">TM-06</td><td>崩溃后系统代理残留</td><td>Windows/macOS 强杀恢复实验；Windows 桌面已接入私有 journal、watchdog、启动恢复和活 owner 校验；sidecar 单独退出会按代际恢复代理并回退 Gateway</td><td>macOS 特权 helper；端口冲突、PAC 与 CA 拒绝故障注入</td></tr>
       <tr><td class="task-id">TM-07</td><td>sidecar 或更新包被替换</td><td>打包 manifest 含 SHA-256</td><td>签名、SBOM、启动前 hash 校验；发布硬门槛</td></tr>
-      <tr><td class="task-id">TM-08</td><td>复制或导出泄露秘密</td><td>单请求三档导出强制后端扫描与完整预览；稳定占位符、JSON Pointer、策略版本和 SHA-256 防陈旧已实现；文件只新建不覆盖</td><td>扩展 secret corpus、批量导出与支持包 canary</td></tr>
+      <tr><td class="task-id">TM-08</td><td>复制或导出泄露秘密</td><td>单请求及最多 200 条批量导出均强制后端扫描与完整预览；稳定占位符、JSON Pointer、策略版本、SHA-256 防陈旧、重复/缺失校验和只新建文件已实现</td><td>扩展 secret corpus 与支持包 canary</td></tr>
       <tr><td class="task-id">TM-09</td><td>恶意 Prompt 触发 UI 注入</td><td>React 默认转义、Tauri CSP</td><td>Raw 仅纯文本、URL 不自动执行、XSS fixture</td></tr>
       <tr><td class="task-id">TM-10</td><td>超大/高速流量耗尽内存或磁盘</td><td>IPC 帧上限、sidecar 有界队列</td><td>记录降级、配额、磁盘压力与丢弃事件</td></tr>
       <tr><td class="task-id">TM-11</td><td>将推断内容误标为已观察 Prompt</td><td>Prompt IR evidence 类型</td><td>UI 强制显示 observed / inferred / unknown</td></tr>

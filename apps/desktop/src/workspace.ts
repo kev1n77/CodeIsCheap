@@ -21,6 +21,8 @@ export interface CaptureRuntimeError {
   detail: string;
 }
 
+const MAX_BATCH_EXPORT_REQUESTS = 200;
+
 export async function loadWorkspace(): Promise<WorkspaceBootstrap> {
   if (window.__TAURI_INTERNALS__) {
     return invoke<WorkspaceBootstrap>("bootstrap_workspace");
@@ -112,6 +114,45 @@ export async function saveCaptureExport(
   };
 }
 
+export async function previewBatchCaptureExport(
+  captureIds: string[],
+  profile: ExportProfile,
+): Promise<ExportPreview> {
+  validateBatchCaptureIds(captureIds);
+  if (window.__TAURI_INTERNALS__) {
+    return invoke<ExportPreview>("preview_batch_capture_export", { captureIds, profile });
+  }
+  const workspace = fixture as unknown as WorkspaceBootstrap;
+  const requests = captureIds.map((captureId) => {
+    const request = workspace.requests.find((candidate) => candidate.id === captureId);
+    if (!request) throw new Error(`Capture ${captureId} is unavailable for export.`);
+    return request;
+  });
+  return fixtureBatchExportPreview(requests, profile);
+}
+
+export async function saveBatchCaptureExport(
+  captureIds: string[],
+  preview: ExportPreview,
+): Promise<ExportReceipt | null> {
+  validateBatchCaptureIds(captureIds);
+  if (window.__TAURI_INTERNALS__) {
+    const path = await save({
+      defaultPath: preview.suggestedFilename,
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+    if (!path) return null;
+    return invoke<ExportReceipt>("write_batch_capture_export", {
+      captureIds,
+      profile: preview.profile,
+      exportedAtUnixMs: preview.exportedAtUnixMs,
+      expectedSha256: preview.contentSha256,
+      path,
+    });
+  }
+  return downloadExportPreview(preview);
+}
+
 export async function subscribeToCaptureEvents(handlers: {
   onUpdated: (event: CaptureUpdated) => void;
   onError: (event: CaptureRuntimeError) => void;
@@ -143,6 +184,43 @@ async function fixtureExportPreview(
   profile: ExportProfile,
 ): Promise<ExportPreview> {
   const exportedAtUnixMs = Date.now();
+  return finishFixtureExport(
+    {
+      formatVersion: "0.1",
+      policyVersion: "0.1",
+      desktopApiVersion: "0.1",
+      profile,
+      exportedAtUnixMs,
+      request: fixtureExportPayload(request, profile),
+    },
+    profile,
+    exportedAtUnixMs,
+    `codeischeap-${request.id.replace(/[^a-z0-9_-]/gi, "_")}-${profile}.json`,
+  );
+}
+
+async function fixtureBatchExportPreview(
+  requests: CapturedRequest[],
+  profile: ExportProfile,
+): Promise<ExportPreview> {
+  const exportedAtUnixMs = Date.now();
+  return finishFixtureExport(
+    {
+      formatVersion: "0.1",
+      policyVersion: "0.1",
+      desktopApiVersion: "0.1",
+      profile,
+      exportedAtUnixMs,
+      requestCount: requests.length,
+      requests: requests.map((request) => fixtureExportPayload(request, profile)),
+    },
+    profile,
+    exportedAtUnixMs,
+    `codeischeap-batch-${requests.length}-${profile}.json`,
+  );
+}
+
+function fixtureExportPayload(request: CapturedRequest, profile: ExportProfile): unknown {
   const metadata = {
     id: request.id,
     observedAtUnixMs: request.observedAtUnixMs,
@@ -184,28 +262,57 @@ async function fixtureExportPreview(
       ...request.detail,
     },
   }[profile];
-  const content = `${JSON.stringify({
-    formatVersion: "0.1",
-    policyVersion: "0.1",
-    desktopApiVersion: "0.1",
-    profile,
-    exportedAtUnixMs,
-    redactionCount: 0,
-    request: payload,
-  }, null, 2)}\n`;
+  return payload;
+}
+
+async function finishFixtureExport(
+  document: Record<string, unknown>,
+  profile: ExportProfile,
+  exportedAtUnixMs: number,
+  suggestedFilename: string,
+): Promise<ExportPreview> {
+  const content = `${JSON.stringify({ ...document, redactionCount: 0 }, null, 2)}\n`;
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(content));
   const contentSha256 = Array.from(new Uint8Array(digest))
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
   return {
     profile,
-    suggestedFilename: `codeischeap-${request.id.replace(/[^a-z0-9_-]/gi, "_")}-${profile}.json`,
+    suggestedFilename,
     content,
     byteCount: new TextEncoder().encode(content).length,
     contentSha256,
     exportedAtUnixMs,
     redactions: [],
     policyVersion: "0.1",
+  };
+}
+
+function validateBatchCaptureIds(captureIds: string[]): void {
+  if (captureIds.length === 0) throw new Error("Batch export requires at least one capture.");
+  if (captureIds.length > MAX_BATCH_EXPORT_REQUESTS) {
+    throw new Error(`Batch export supports at most ${MAX_BATCH_EXPORT_REQUESTS} captures.`);
+  }
+  const unique = new Set(captureIds);
+  if (unique.size !== captureIds.length) {
+    throw new Error("Batch export cannot contain duplicate capture IDs.");
+  }
+  if (captureIds.some((captureId) => captureId.length === 0)) {
+    throw new Error("Batch export capture IDs cannot be empty.");
+  }
+}
+
+function downloadExportPreview(preview: ExportPreview): ExportReceipt {
+  const url = URL.createObjectURL(new Blob([preview.content], { type: "application/json" }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = preview.suggestedFilename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+  return {
+    path: preview.suggestedFilename,
+    byteCount: preview.byteCount,
+    redactionCount: preview.redactions.length,
   };
 }
 

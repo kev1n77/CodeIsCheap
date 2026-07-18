@@ -22,8 +22,9 @@ use codeischeap_core::{
 };
 use codeischeap_desktop_api::{
     CaptureMode, CapturedRequest, CertificateAuthority, CertificateAuthorityState,
-    CertificatePrivateMaterial, CertificateTrust, ExportPreview, ExportProfile, ExportReceipt,
-    WorkspaceBootstrap, build_export_preview, load_workspace, search_requests,
+    CertificatePrivateMaterial, CertificateTrust, DesktopApiError, ExportPreview, ExportProfile,
+    ExportReceipt, WorkspaceBootstrap, build_batch_export_preview, build_export_preview,
+    load_request, load_workspace, search_requests,
 };
 use codeischeap_gateway::{Gateway, GatewayCapture, GatewayCaptureEvent};
 use codeischeap_proxy_recovery::recover_from_journal;
@@ -59,6 +60,7 @@ const CAPTURE_UPDATED_EVENT: &str = "capture-updated";
 const CAPTURE_RUNTIME_ERROR_EVENT: &str = "capture-runtime-error";
 const MAX_PENDING_CAPTURE_OUTCOMES: usize = 256;
 const CAPTURES_PER_RETENTION_RUN: usize = 100;
+const MAX_BATCH_EXPORT_REQUESTS: usize = 200;
 const SIDECAR_STARTUP_TIMEOUT: Duration = Duration::from_secs(10);
 const SIDECAR_MONITOR_INTERVAL: Duration = Duration::from_millis(250);
 const PROXY_RECOVERY_JOURNAL_FILENAME: &str = "proxy-recovery.v0.1.json";
@@ -312,6 +314,22 @@ async fn preview_capture_export(
 }
 
 #[tauri::command]
+async fn preview_batch_capture_export(
+    capture_ids: Vec<String>,
+    profile: ExportProfile,
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+) -> Result<ExportPreview, String> {
+    initialize_store(&app, &state.store)?;
+    let store = state.store.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        build_batch_capture_export(&store, &capture_ids, profile, current_unix_ms()?)
+    })
+    .await
+    .map_err(|error| format!("batch capture export preview task failed: {error}"))?
+}
+
+#[tauri::command]
 async fn write_capture_export(
     capture_id: String,
     profile: ExportProfile,
@@ -337,6 +355,32 @@ async fn write_capture_export(
     })
     .await
     .map_err(|error| format!("capture export write task failed: {error}"))?
+}
+
+#[tauri::command]
+async fn write_batch_capture_export(
+    capture_ids: Vec<String>,
+    profile: ExportProfile,
+    exported_at_unix_ms: u64,
+    expected_sha256: String,
+    path: PathBuf,
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+) -> Result<ExportReceipt, String> {
+    initialize_store(&app, &state.store)?;
+    let store = state.store.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        write_batch_capture_export_file(
+            &store,
+            &capture_ids,
+            profile,
+            exported_at_unix_ms,
+            &expected_sha256,
+            &path,
+        )
+    })
+    .await
+    .map_err(|error| format!("batch capture export write task failed: {error}"))?
 }
 
 pub fn run() {
@@ -392,11 +436,13 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             bootstrap_workspace,
             install_certificate_authority_trust,
+            preview_batch_capture_export,
             preview_capture_export,
             search_workspace,
             set_capture_active,
             set_capture_mode,
             uninstall_certificate_authority_trust,
+            write_batch_capture_export,
             write_capture_export
         ])
         .run(tauri::generate_context!())
@@ -499,21 +545,86 @@ fn build_capture_export(
         .map_err(|error| format!("capture export could not be encoded: {error}"))
 }
 
+fn build_batch_capture_export(
+    store: &SharedStore,
+    capture_ids: &[String],
+    profile: ExportProfile,
+    exported_at_unix_ms: u64,
+) -> Result<ExportPreview, String> {
+    validate_batch_capture_ids(capture_ids)?;
+    let requests = export_requests(store, capture_ids)?;
+    build_batch_export_preview(&requests, profile, exported_at_unix_ms)
+        .map_err(|error| format!("batch capture export could not be encoded: {error}"))
+}
+
 fn export_request(store: &SharedStore, capture_id: &str) -> Result<CapturedRequest, String> {
+    export_requests(store, &[capture_id.to_owned()]).map(|mut requests| requests.remove(0))
+}
+
+fn export_requests(
+    store: &SharedStore,
+    capture_ids: &[String],
+) -> Result<Vec<CapturedRequest>, String> {
     let store = store
         .lock()
         .map_err(|_| "encrypted workspace is temporarily unavailable".to_owned())?;
-    let workspace = load_workspace(
-        store
-            .as_ref()
-            .ok_or_else(|| "encrypted workspace has not initialized".to_owned())?,
-    )
-    .map_err(|error| error.to_string())?;
-    workspace
-        .requests
-        .into_iter()
-        .find(|request| request.id == capture_id)
-        .ok_or_else(|| format!("capture {capture_id} is unavailable for export"))
+    let store = store
+        .as_ref()
+        .ok_or_else(|| "encrypted workspace has not initialized".to_owned())?;
+    capture_ids
+        .iter()
+        .map(|capture_id| {
+            load_request(store, capture_id).map_err(|error| match error {
+                DesktopApiError::MissingCapture(_) => {
+                    format!("capture {capture_id} is unavailable for export")
+                }
+                other => other.to_string(),
+            })
+        })
+        .collect()
+}
+
+fn validate_batch_capture_ids(capture_ids: &[String]) -> Result<(), String> {
+    if capture_ids.is_empty() {
+        return Err("batch export requires at least one capture".to_owned());
+    }
+    if capture_ids.len() > MAX_BATCH_EXPORT_REQUESTS {
+        return Err(format!(
+            "batch export supports at most {MAX_BATCH_EXPORT_REQUESTS} captures"
+        ));
+    }
+    let mut unique = BTreeSet::new();
+    for capture_id in capture_ids {
+        if capture_id.is_empty() {
+            return Err("batch export capture IDs cannot be empty".to_owned());
+        }
+        if !unique.insert(capture_id) {
+            return Err(format!(
+                "capture {capture_id} appears more than once in the batch export"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn write_batch_capture_export_file(
+    store: &SharedStore,
+    capture_ids: &[String],
+    profile: ExportProfile,
+    exported_at_unix_ms: u64,
+    expected_sha256: &str,
+    path: &Path,
+) -> Result<ExportReceipt, String> {
+    let preview = build_batch_capture_export(store, capture_ids, profile, exported_at_unix_ms)?;
+    if preview.content_sha256 != expected_sha256 {
+        return Err("a capture changed after preview; review the refreshed export".to_owned());
+    }
+    write_export_file(path, preview.content.as_bytes())?;
+    Ok(ExportReceipt {
+        path: path.to_string_lossy().into_owned(),
+        byte_count: preview.byte_count,
+        redaction_count: u64::try_from(preview.redactions.len()).unwrap_or(u64::MAX),
+    })
 }
 
 fn current_unix_ms() -> Result<u64, String> {
@@ -1650,6 +1761,71 @@ mod tests {
         );
         assert!(write_export_file(&path, b"replacement").is_err());
         assert!(write_export_file(&directory.path().join("capture.txt"), b"{}").is_err());
+    }
+
+    #[test]
+    fn batch_export_rejects_invalid_capture_lists() {
+        assert!(validate_batch_capture_ids(&[]).is_err());
+        assert!(validate_batch_capture_ids(&[String::new()]).is_err());
+        assert!(
+            validate_batch_capture_ids(&["capture-1".to_owned(), "capture-1".to_owned()]).is_err()
+        );
+        assert!(
+            validate_batch_capture_ids(
+                &(0..=MAX_BATCH_EXPORT_REQUESTS)
+                    .map(|index| format!("capture-{index}"))
+                    .collect::<Vec<_>>()
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn batch_export_rejects_missing_captures() {
+        let directory = tempdir().expect("temp directory must be created");
+        let store = Arc::new(Mutex::new(Some(
+            EncryptedStore::open(
+                directory.path().join("captures.db"),
+                DatabaseKey::from_bytes([0x66; 32]),
+            )
+            .expect("encrypted store must open"),
+        )));
+
+        let error = build_batch_capture_export(
+            &store,
+            &["missing-capture".to_owned()],
+            ExportProfile::Minimal,
+            10,
+        )
+        .expect_err("missing capture must reject the entire batch");
+
+        assert!(error.contains("missing-capture"));
+    }
+
+    #[test]
+    fn batch_export_hash_mismatch_does_not_create_a_file() {
+        let directory = tempdir().expect("temp directory must be created");
+        let mut encrypted = EncryptedStore::open(
+            directory.path().join("captures.db"),
+            DatabaseKey::from_bytes([0x67; 32]),
+        )
+        .expect("encrypted store must open");
+        seed_demo_capture(&mut encrypted).expect("demo capture must seed");
+        let store = Arc::new(Mutex::new(Some(encrypted)));
+        let path = directory.path().join("batch.json");
+
+        let error = write_batch_capture_export_file(
+            &store,
+            &[LEGACY_DEMO_CAPTURE_ID.to_owned()],
+            ExportProfile::Forensic,
+            10,
+            &"0".repeat(64),
+            &path,
+        )
+        .expect_err("stale preview hash must reject the write");
+
+        assert!(error.contains("changed after preview"));
+        assert!(!path.exists());
     }
 
     #[test]
