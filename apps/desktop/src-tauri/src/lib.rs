@@ -1473,7 +1473,7 @@ async fn receive_and_persist_proxy_capture(
     Ok(Some(capture_id))
 }
 
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 async fn sidecar_peer_matches(
     peer: SocketAddr,
     server: SocketAddr,
@@ -1487,7 +1487,7 @@ async fn sidecar_peer_matches(
         == Some(expected_process_id)
 }
 
-#[cfg(not(any(windows, target_os = "macos")))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 async fn sidecar_peer_matches(
     peer: SocketAddr,
     server: SocketAddr,
@@ -2047,7 +2047,7 @@ mod tests {
         ))
         .expect("request fixture must parse");
 
-        #[cfg(any(windows, target_os = "macos"))]
+        #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
         {
             let mut rejected_session = ProxyCaptureSession::new(u32::MAX);
             let (acknowledged, result) = tokio::join!(

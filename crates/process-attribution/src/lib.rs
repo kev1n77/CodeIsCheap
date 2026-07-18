@@ -4,6 +4,8 @@ use std::fmt;
 use std::io;
 use std::net::SocketAddr;
 
+#[cfg(target_os = "linux")]
+mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(windows)]
@@ -88,7 +90,11 @@ pub fn resolve_loopback_client_pid(
     {
         macos::resolve(client, server)
     }
-    #[cfg(not(any(windows, target_os = "macos")))]
+    #[cfg(target_os = "linux")]
+    {
+        linux::resolve(client, server)
+    }
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
     {
         let _ = (client, server);
         Ok(None)
