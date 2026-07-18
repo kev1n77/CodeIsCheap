@@ -41,7 +41,7 @@ def write_bundle(bundle: Path) -> dict:
             "max_bytes": 1024,
         },
         "capture_contract": {
-            "ipc_protocol": "0.3",
+            "ipc_protocol": "0.4",
             "envelope": "0.1",
             "policy": "0.1",
             "policy_file": "capture-policy.v0.1.json",
@@ -102,7 +102,7 @@ class PackagingTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "contract version"):
                 validate_bundle(bundle)
 
-            manifest["capture_contract"]["ipc_protocol"] = "0.3"
+            manifest["capture_contract"]["ipc_protocol"] = "0.4"
             del manifest["integration_probe"]["http2_preserved"]
             (bundle / "sidecar-manifest.json").write_text(json.dumps(manifest))
             with self.assertRaisesRegex(ValueError, "integration probe did not pass"):

@@ -565,6 +565,7 @@ def main() -> None:
                 with connection:
                     stream = connection.makefile("rb")
                     ipc_frames.append((stream.readline(), stream.readline()))
+                    connection.sendall(b'{"status":"accepted"}\n')
 
         ipc_thread = threading.Thread(target=receive_ipc, daemon=True)
         ipc_thread.start()

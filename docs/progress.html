@@ -89,7 +89,7 @@
         <tr><td class="task-id">DAT-002</td><td>写入、查询、保留与磁盘压力</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>批量写入原子提交；默认保留 30 天/50,000 条并以 500 条事务清理；低于 256 MiB 或 SQLITE_FULL 时暂停记录但保持 Gateway 转发</td></tr>
         <tr><td class="task-id">SEC-001</td><td>范围策略和凭据 scrubber</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / Security Reviewer TBD</td><td>2026-07-18</td><td>请求与响应 header/JSON body 双层脱敏；canary 在 DB、WAL、诊断日志、临时文件和支持包中零命中</td></tr>
         <tr><td class="task-id">SEC-002</td><td>脱敏与导出</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / Security Reviewer TBD</td><td>2026-07-18</td><td>单请求、筛选批量及支持包均强制扫描、完整预览、SHA-256 防陈旧和只新建文件；版本化 corpus 以 36 个字段名、17 类文本 secret 及近似反例覆盖 Rust/Python/Web</td></tr>
-        <tr><td class="task-id">SEC-003</td><td>本地 IPC 与插件隔离</td><td><span class="status active">In progress</span></td><td>70%</td><td>Codex / Security Reviewer TBD</td><td>2026-08-25</td><td>IPC 0.3 使用 loopback、会话级 256-bit token、常量时间比较、mitmproxy 来源声明、1 KiB 认证帧和 2 秒连接截止时间；Windows/macOS 首连接绑定已启动 sidecar PID，临时归因端点不进入 Envelope；用户级 socket ACL、Linux peer 绑定与 WASI 权限待完成</td></tr>
+        <tr><td class="task-id">SEC-003</td><td>本地 IPC 与插件隔离</td><td><span class="status active">In progress</span></td><td>72%</td><td>Codex / Security Reviewer TBD</td><td>2026-08-25</td><td>IPC 0.4 使用 loopback、会话级 256-bit token、常量时间比较、mitmproxy 来源声明、1 KiB 认证帧和 2 秒端到端截止时间；Windows/macOS 首连接绑定已启动 sidecar PID，并以服务端 ACK 消除短连接竞态，临时端点不进入 Envelope；用户级 socket ACL、Linux peer 绑定与 WASI 权限待完成</td></tr>
         <tr><td class="task-id">PAR-001</td><td>Prompt IR v0.1 与首批 fixtures</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-14</td><td>OpenAI/Anthropic fixtures、校验与 schema 完成</td></tr>
         <tr><td class="task-id">PAR-002</td><td>解析器注册表与检测链</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>置信度排序、错误/panic 隔离、IR 校验、partial issues 与 Raw fallback 完成</td></tr>
         <tr><td class="task-id">PAR-003</td><td>OpenAI-compatible 适配器</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>Responses、Chat、Completions、多模态与 tools golden fixtures 通过</td></tr>
@@ -216,7 +216,7 @@
         <tr><td>2026-07-18</td><td>Security / Diagnostics</td><td>SEC-001 完成，REL-002 推进</td><td>运行时诊断仅持久化时间戳和受限事件代码，journal 上限 256 KiB；支持包最多携带最近 100 条事件且排除详情，端到端 canary 在 DB、WAL、日志、临时文件和支持包中零命中</td><td>Codex</td></tr>
         <tr><td>2026-07-18</td><td>Security / IPC</td><td>SEC-003 IPC 会话加固完成首段</td><td>IPC 0.2 将认证帧限制为 1 KiB，使用会话级随机 token 与常量时间比较，要求 mitmproxy 来源声明并对连接设置 2 秒截止时间；Rust/Python bundle verifier 在启动前拒绝旧协议 sidecar</td><td>Codex</td></tr>
         <tr><td>2026-07-18</td><td>Capture / Security</td><td>CAP-007 完成、SEC-003 推进</td><td>IPC 0.3 在认证帧中传递严格 loopback 临时端点，桌面端忽略 sidecar PID 并用 OS socket 表精确归因 Proxy 进程；端点不进入 Envelope、数据库或导出，查询失败保持未知</td><td>Codex</td></tr>
-        <tr><td>2026-07-18</td><td>Security / IPC</td><td>SEC-003 sidecar peer 绑定完成首段</td><td>Windows/macOS Proxy 会话首个 IPC 连接在读取认证帧前通过 OS socket 表核对已启动 sidecar PID；不匹配或查询失败只拒绝捕获，代理转发继续，后续连接仍受会话 token 保护</td><td>Codex</td></tr>
+        <tr><td>2026-07-18</td><td>Security / IPC</td><td>SEC-003 sidecar peer 绑定完成首段</td><td>IPC 0.4 让 sidecar 等待服务端 ACK，从协议层保持首连接直到 Windows/macOS OS socket 表完成 PID 核对；不匹配、查询失败或 2 秒超时只拒绝捕获，代理转发继续，后续连接仍受会话 token 保护</td><td>Codex</td></tr>
         <tr><td colspan="5">后续范围、架构、日期或资源变化均在此追加，并链接对应 ADR/会议结论。</td></tr>
       </tbody></table></div>
 

@@ -13,18 +13,19 @@ use std::time::Duration;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq as _;
-use tokio::io::{AsyncBufRead, AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::time::timeout;
 
 pub const CAPTURE_ENVELOPE_VERSION: &str = "0.1";
 pub const IPC_PROTOCOL: &str = "codeischeap.capture-ipc";
-pub const IPC_PROTOCOL_VERSION: &str = "0.3";
+pub const IPC_PROTOCOL_VERSION: &str = "0.4";
 pub const IPC_ORIGIN_MITMPROXY: &str = "mitmproxy";
 pub const CLIENT_LABEL_HEADER: &str = "x-codeischeap-client";
 pub const MAX_AUTH_FRAME_BYTES: usize = 1024;
 pub const MAX_FRAME_BYTES: usize = 4 * 1024 * 1024;
 pub const DEFAULT_CONNECTION_DEADLINE: Duration = Duration::from_secs(2);
+const ACCEPTED_FRAME: &[u8] = b"{\"status\":\"accepted\"}\n";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -343,7 +344,10 @@ where
         if !verify_peer(peer, server).await {
             return Err(IpcError::UnauthorizedPeer);
         }
-        receive_from_reader_with_transport(&mut BufReader::new(stream), expected_token).await
+        let mut reader = BufReader::new(stream);
+        let capture = receive_from_reader_with_transport(&mut reader, expected_token).await?;
+        reader.get_mut().write_all(ACCEPTED_FRAME).await?;
+        Ok(capture)
     })
     .await
     .map_err(|_| IpcError::ConnectionDeadlineExceeded)?

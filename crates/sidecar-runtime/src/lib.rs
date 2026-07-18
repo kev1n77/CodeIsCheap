@@ -83,7 +83,7 @@ use windows_sys::Win32::System::SystemServices::{
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
 pub const SIDECAR_MANIFEST_VERSION: &str = "0.1";
-pub const CAPTURE_IPC_PROTOCOL_VERSION: &str = "0.3";
+pub const CAPTURE_IPC_PROTOCOL_VERSION: &str = "0.4";
 pub const CAPTURE_ENVELOPE_VERSION: &str = "0.1";
 pub const CAPTURE_POLICY_VERSION: &str = "0.1";
 pub const MITMPROXY_VERSION: &str = "12.2.3";
@@ -2177,7 +2177,7 @@ MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
                 "max_bytes": 1024
             },
             "capture_contract": {
-                "ipc_protocol": "0.3",
+                "ipc_protocol": "0.4",
                 "envelope": "0.1",
                 "policy": "0.1",
                 "policy_file": "capture-policy.v0.1.json",

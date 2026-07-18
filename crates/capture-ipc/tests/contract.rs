@@ -6,7 +6,7 @@ use codeischeap_capture_ipc::{
     receive_one_with_deadline, receive_one_with_transport_verified,
 };
 use schemars::schema_for;
-use tokio::io::{AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 
 use std::time::Duration;
@@ -99,7 +99,7 @@ async fn rejects_the_previous_transport_protocol() {
     let mut reader = framed_reader_with_auth(
         "synthetic-token",
         IPC_ORIGIN_MITMPROXY,
-        "0.2",
+        "0.3",
         &expected,
         None,
     )
@@ -278,6 +278,12 @@ async fn stalled_connection_expires_and_the_next_sidecar_can_deliver() {
             )
             .await
             .expect("sidecar frames must write");
+        let mut acknowledgement = String::new();
+        BufReader::new(stream)
+            .read_line(&mut acknowledgement)
+            .await
+            .expect("acknowledgement must read");
+        assert_eq!(acknowledgement, "{\"status\":\"accepted\"}\n");
     });
 
     let received = receive_one_with_deadline(&listener, "synthetic-token", Duration::from_secs(1))

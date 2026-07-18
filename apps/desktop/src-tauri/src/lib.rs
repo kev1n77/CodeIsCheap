@@ -1770,7 +1770,7 @@ mod tests {
     use codeischeap_storage::DatabaseKey;
     use std::net::TcpStream as StdTcpStream;
     use tempfile::tempdir;
-    use tokio::io::AsyncWriteExt;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     use tokio::net::TcpStream;
 
     use super::*;
@@ -2050,18 +2050,20 @@ mod tests {
         #[cfg(any(windows, target_os = "macos"))]
         {
             let mut rejected_session = ProxyCaptureSession::new(u32::MAX);
-            send_ipc_capture(address, &token, &request, Some(transport)).await;
-            let error = receive_and_persist_proxy_capture(
-                &listener,
-                &token,
-                &policy,
-                &adapters,
-                &store,
-                &active,
-                &mut rejected_session,
-            )
-            .await
-            .expect_err("an unexpected IPC process must be rejected");
+            let (acknowledged, result) = tokio::join!(
+                send_ipc_capture(address, &token, &request, Some(transport)),
+                receive_and_persist_proxy_capture(
+                    &listener,
+                    &token,
+                    &policy,
+                    &adapters,
+                    &store,
+                    &active,
+                    &mut rejected_session,
+                )
+            );
+            let error = result.expect_err("an unexpected IPC process must be rejected");
+            assert!(!acknowledged);
             assert!(matches!(
                 error,
                 ProxyCaptureError::Ingest(IngestError::Ipc(IpcError::UnauthorizedPeer))
@@ -2069,8 +2071,8 @@ mod tests {
             assert!(!rejected_session.peer_verified);
         }
 
-        send_ipc_capture(address, &token, &request, Some(transport)).await;
-        assert_eq!(
+        let (acknowledged, result) = tokio::join!(
+            send_ipc_capture(address, &token, &request, Some(transport)),
             receive_and_persist_proxy_capture(
                 &listener,
                 &token,
@@ -2080,8 +2082,10 @@ mod tests {
                 &active,
                 &mut session,
             )
-            .await
-            .expect("request must persist"),
+        );
+        assert!(acknowledged);
+        assert_eq!(
+            result.expect("request must persist"),
             Some(request.capture_id.clone())
         );
         assert!(session.peer_verified);
@@ -2097,24 +2101,8 @@ mod tests {
             duration_ms: 42,
             completeness: ResponseCompleteness::Complete,
         }));
-        send_ipc_capture(address, &token, &response, None).await;
-        receive_and_persist_proxy_capture(
-            &listener,
-            &token,
-            &policy,
-            &adapters,
-            &store,
-            &active,
-            &mut session,
-        )
-        .await
-        .expect("response must persist");
-
-        active.store(false, Ordering::Release);
-        let mut paused = request.clone();
-        paused.capture_id = "paused_capture".to_owned();
-        send_ipc_capture(address, &token, &paused, None).await;
-        assert_eq!(
+        let (acknowledged, result) = tokio::join!(
+            send_ipc_capture(address, &token, &response, None),
             receive_and_persist_proxy_capture(
                 &listener,
                 &token,
@@ -2124,8 +2112,28 @@ mod tests {
                 &active,
                 &mut session,
             )
-            .await
-            .expect("paused event must be accepted and discarded"),
+        );
+        assert!(acknowledged);
+        result.expect("response must persist");
+
+        active.store(false, Ordering::Release);
+        let mut paused = request.clone();
+        paused.capture_id = "paused_capture".to_owned();
+        let (acknowledged, result) = tokio::join!(
+            send_ipc_capture(address, &token, &paused, None),
+            receive_and_persist_proxy_capture(
+                &listener,
+                &token,
+                &policy,
+                &adapters,
+                &store,
+                &active,
+                &mut session,
+            )
+        );
+        assert!(acknowledged);
+        assert_eq!(
+            result.expect("paused event must be accepted and discarded"),
             None
         );
 
@@ -2152,13 +2160,13 @@ mod tests {
         token: &str,
         envelope: &CaptureEnvelope,
         transport: Option<CaptureTransport>,
-    ) {
+    ) -> bool {
         let mut stream = TcpStream::connect(address)
             .await
             .expect("IPC client must connect");
         let auth = serde_json::json!({
             "protocol": "codeischeap.capture-ipc",
-            "version": "0.3",
+            "version": "0.4",
             "origin": "mitmproxy",
             "token": token,
             "transport": transport,
@@ -2167,7 +2175,16 @@ mod tests {
             .write_all(format!("{auth}\n{}\n", serde_json::to_string(envelope).unwrap()).as_bytes())
             .await
             .expect("IPC frames must write");
-        stream.shutdown().await.expect("IPC client must close");
+        let mut acknowledgement = String::new();
+        if BufReader::new(stream)
+            .read_line(&mut acknowledgement)
+            .await
+            .is_err()
+        {
+            return false;
+        }
+        serde_json::from_str::<serde_json::Value>(&acknowledgement).ok()
+            == Some(serde_json::json!({"status": "accepted"}))
     }
 
     #[test]

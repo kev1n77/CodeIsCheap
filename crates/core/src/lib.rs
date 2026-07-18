@@ -444,7 +444,7 @@ mod tests {
         let (mut writer, reader) = tokio::io::duplex(16 * 1024);
         let auth = serde_json::json!({
             "protocol": "codeischeap.capture-ipc",
-            "version": "0.3",
+            "version": "0.4",
             "origin": "mitmproxy",
             "token": token,
         });
