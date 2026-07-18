@@ -22,6 +22,7 @@ from codeischeap_addon import (
     IpcConfig,
     build_envelope,
     build_failure_envelope,
+    build_startup_probe_response,
     build_transport_context,
     load_policy,
     send_envelope,
@@ -110,6 +111,27 @@ class FakeError:
 
 
 class AddonTests(unittest.TestCase):
+    def test_startup_probe_is_local_versioned_and_token_bound(self) -> None:
+        request = FakeRequest()
+        request.method = "GET"
+        request.host = "codeischeap.invalid"
+        request.pretty_url = (
+            "http://codeischeap.invalid/.well-known/codeischeap/ready"
+        )
+        request.url = request.pretty_url
+        request.headers = FakeHeaders([("x-codeischeap-startup-probe", "0.1")])
+        token = "ab" * 32
+
+        with patch.dict(os.environ, {"CIC_CAPTURE_STARTUP_TOKEN": token}):
+            self.assertEqual(build_startup_probe_response(request), (200, token.encode()))
+
+        request.headers = FakeHeaders([])
+        self.assertEqual(build_startup_probe_response(request), (403, b""))
+        request.pretty_url = "http://codeischeap.invalid/not-the-probe"
+        self.assertEqual(build_startup_probe_response(request), (404, b""))
+        request.host = "api.openai.com"
+        self.assertIsNone(build_startup_probe_response(request))
+
     def test_output_matches_the_shared_rust_fixture(self) -> None:
         expected = json.loads(FIXTURE.read_text(encoding="utf-8"))
 

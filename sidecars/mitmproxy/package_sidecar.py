@@ -33,6 +33,7 @@ ALLOWED_ENVIRONMENT = [
     "CIC_CAPTURE_IPC_ADDR",
     "CIC_CAPTURE_IPC_TOKEN",
     "CIC_CAPTURE_POLICY_PATH",
+    "CIC_CAPTURE_STARTUP_TOKEN",
 ]
 
 
@@ -301,6 +302,7 @@ def main() -> None:
             "transport_context_preserved",
             "client_cancellation_survived",
             "capture_backpressure_nonblocking",
+            "startup_identity_verified",
         )
     ) and probe_result.get("credential_canaries_in_envelope") == 0
     manifest = {

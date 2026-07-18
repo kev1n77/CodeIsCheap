@@ -7,10 +7,13 @@ The parent process must provide:
 ```text
 CIC_CAPTURE_IPC_ADDR=127.0.0.1:<ephemeral-port>
 CIC_CAPTURE_IPC_TOKEN=<random-per-launch-token>
+CIC_CAPTURE_STARTUP_TOKEN=<independent-random-per-launch-token>
 CIC_CAPTURE_HOSTS=api.openai.com,api.anthropic.com
 ```
 
 The addon loads `policies/capture-policy.v0.1.json` and only records exact target hosts, approved POST paths, and methods. `CIC_CAPTURE_HOSTS` can opt an OpenAI-compatible host into the same approved path set; it does not disable path checks. The addon removes credential headers, sensitive query fields, and recursively named JSON secret fields before sending an authenticated NDJSON envelope. Unsupported request body formats are omitted. The original network request is not modified.
+
+Startup is authenticated separately from capture IPC. The reserved `codeischeap.invalid` readiness route is always terminated inside the addon and returns the per-launch startup token only for the versioned probe. The desktop rejects a listener that merely occupies the selected port, returns the wrong token, or runs an older addon.
 
 Capture delivery uses a bounded non-blocking queue. A full queue drops only the capture event. The first IPC delivery failure discards the pending backlog and opens a 10-second retry circuit; proxy forwarding continues, and the next event after the cooldown probes IPC recovery.
 

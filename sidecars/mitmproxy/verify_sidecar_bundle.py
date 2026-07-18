@@ -23,6 +23,7 @@ EXPECTED_ENVIRONMENT = {
     "CIC_CAPTURE_IPC_ADDR",
     "CIC_CAPTURE_IPC_TOKEN",
     "CIC_CAPTURE_POLICY_PATH",
+    "CIC_CAPTURE_STARTUP_TOKEN",
 }
 
 
@@ -96,6 +97,7 @@ def validate_bundle(bundle: Path, require_signature: bool = False) -> dict[str, 
             "transport_context_preserved",
             "client_cancellation_survived",
             "capture_backpressure_nonblocking",
+            "startup_identity_verified",
         )
     ):
         raise ValueError("sidecar integration probe did not pass")

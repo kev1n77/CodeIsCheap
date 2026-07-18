@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 use std::ffi::OsStr;
 use std::fmt;
 use std::fs::{self, File};
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpStream};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
+use subtle::ConstantTimeEq as _;
 use x509_parser::{parse_x509_certificate, pem::parse_x509_pem};
 
 #[cfg(target_os = "macos")]
@@ -107,12 +108,17 @@ unsafe extern "C" {
     ) -> OSStatus;
 }
 
-const CAPTURE_ENVIRONMENT: [&str; 4] = [
+const CAPTURE_ENVIRONMENT: [&str; 5] = [
     "CIC_CAPTURE_HOSTS",
     "CIC_CAPTURE_IPC_ADDR",
     "CIC_CAPTURE_IPC_TOKEN",
     "CIC_CAPTURE_POLICY_PATH",
+    "CIC_CAPTURE_STARTUP_TOKEN",
 ];
+const STARTUP_PROBE_HOST: &str = "codeischeap.invalid";
+const STARTUP_PROBE_PATH: &str = "/.well-known/codeischeap/ready";
+const STARTUP_PROBE_VERSION: &str = "0.1";
+const STARTUP_PROBE_MAX_RESPONSE_BYTES: usize = 4096;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CertificateAuthorityState {
@@ -1251,6 +1257,7 @@ impl SidecarBundle {
         command
             .env("CIC_CAPTURE_IPC_ADDR", config.ipc_addr.to_string())
             .env("CIC_CAPTURE_IPC_TOKEN", &config.ipc_token)
+            .env("CIC_CAPTURE_STARTUP_TOKEN", &config.startup_token)
             .env("CIC_CAPTURE_HOSTS", config.target_hosts.join(","))
             .env("CIC_CAPTURE_POLICY_PATH", &self.policy)
             .args([
@@ -1267,6 +1274,9 @@ impl SidecarBundle {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
+        command
+            .arg("--allow-hosts")
+            .arg(allow_host_pattern(STARTUP_PROBE_HOST));
         for host in &config.target_hosts {
             command.arg("--allow-hosts").arg(allow_host_pattern(host));
         }
@@ -1297,7 +1307,7 @@ impl SidecarBundle {
                 let _ = terminate_process_group(child.id());
                 return Err(SidecarError::ProcessExited(status.code()));
             }
-            if TcpStream::connect_timeout(&config.listen_addr, Duration::from_millis(100)).is_ok() {
+            if startup_probe_succeeds(&config.listen_addr, &config.startup_token) {
                 return Ok(SidecarProcess {
                     child: Some(child),
                     endpoint: config.listen_addr,
@@ -1431,6 +1441,7 @@ impl Drop for SidecarProcess {
 pub struct SidecarLaunchConfig {
     pub ipc_addr: SocketAddr,
     ipc_token: String,
+    startup_token: String,
     pub target_hosts: Vec<String>,
     pub listen_addr: SocketAddr,
     pub confdir: PathBuf,
@@ -1441,6 +1452,7 @@ impl SidecarLaunchConfig {
     pub fn new(
         ipc_addr: SocketAddr,
         ipc_token: impl Into<String>,
+        startup_token: impl Into<String>,
         target_hosts: Vec<String>,
         listen_addr: SocketAddr,
         confdir: impl Into<PathBuf>,
@@ -1448,6 +1460,7 @@ impl SidecarLaunchConfig {
         Self {
             ipc_addr,
             ipc_token: ipc_token.into(),
+            startup_token: startup_token.into(),
             target_hosts,
             listen_addr,
             confdir: confdir.into(),
@@ -1468,6 +1481,16 @@ impl SidecarLaunchConfig {
         if self.ipc_token.len() < 16 || self.ipc_token.chars().any(char::is_whitespace) {
             return Err(SidecarError::InvalidLaunchConfig(
                 "capture IPC token is too short or contains whitespace".to_owned(),
+            ));
+        }
+        if self.startup_token.len() != 64
+            || self
+                .startup_token
+                .bytes()
+                .any(|byte| !byte.is_ascii_hexdigit() || byte.is_ascii_uppercase())
+        {
+            return Err(SidecarError::InvalidLaunchConfig(
+                "sidecar startup token must be 256-bit lowercase hexadecimal".to_owned(),
             ));
         }
         if self.target_hosts.is_empty()
@@ -1528,11 +1551,73 @@ impl fmt::Debug for SidecarLaunchConfig {
             .debug_struct("SidecarLaunchConfig")
             .field("ipc_addr", &self.ipc_addr)
             .field("ipc_token", &"[REDACTED]")
+            .field("startup_token", &"[REDACTED]")
             .field("target_hosts", &self.target_hosts)
             .field("listen_addr", &self.listen_addr)
             .field("confdir", &self.confdir)
             .finish()
     }
+}
+
+fn startup_probe_succeeds(address: &SocketAddr, expected_token: &str) -> bool {
+    let Ok(mut stream) = TcpStream::connect_timeout(address, Duration::from_millis(100)) else {
+        return false;
+    };
+    if stream
+        .set_read_timeout(Some(Duration::from_millis(250)))
+        .is_err()
+        || stream
+            .set_write_timeout(Some(Duration::from_millis(250)))
+            .is_err()
+    {
+        return false;
+    }
+    let request = format!(
+        "GET http://{STARTUP_PROBE_HOST}{STARTUP_PROBE_PATH} HTTP/1.1\r\nHost: {STARTUP_PROBE_HOST}\r\nX-CodeIsCheap-Startup-Probe: {STARTUP_PROBE_VERSION}\r\nConnection: close\r\n\r\n"
+    );
+    if stream.write_all(request.as_bytes()).is_err() {
+        return false;
+    }
+
+    let mut response = Vec::with_capacity(1024);
+    let mut buffer = [0_u8; 1024];
+    while response.len() <= STARTUP_PROBE_MAX_RESPONSE_BYTES {
+        let read = match stream.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(read) => read,
+            Err(_) => return false,
+        };
+        response.extend_from_slice(&buffer[..read]);
+        if response.len() > STARTUP_PROBE_MAX_RESPONSE_BYTES {
+            return false;
+        }
+        let Some(header_end) = response.windows(4).position(|window| window == b"\r\n\r\n") else {
+            continue;
+        };
+        let body_start = header_end + 4;
+        if response.len() < body_start + expected_token.len() {
+            continue;
+        }
+        let headers = String::from_utf8_lossy(&response[..header_end]);
+        let mut lines = headers.lines();
+        if !lines
+            .next()
+            .is_some_and(|status| status.starts_with("HTTP/1.1 200 "))
+        {
+            return false;
+        }
+        let expected_length = expected_token.len().to_string();
+        if !lines.any(|line| {
+            line.split_once(':').is_some_and(|(name, value)| {
+                name.eq_ignore_ascii_case("content-length") && value.trim() == expected_length
+            })
+        }) {
+            return false;
+        }
+        let body = &response[body_start..body_start + expected_token.len()];
+        return bool::from(body.ct_eq(expected_token.as_bytes()));
+    }
+    false
 }
 
 #[derive(Debug, Deserialize)]
@@ -1594,6 +1679,7 @@ struct IntegrationProbe {
     transport_context_preserved: bool,
     client_cancellation_survived: bool,
     capture_backpressure_nonblocking: bool,
+    startup_identity_verified: bool,
 }
 
 fn validate_manifest(
@@ -1654,6 +1740,7 @@ fn validate_manifest(
         || !probe.transport_context_preserved
         || !probe.client_cancellation_survived
         || !probe.capture_backpressure_nonblocking
+        || !probe.startup_identity_verified
         || probe.credential_canaries_in_envelope != 0
     {
         return Err(SidecarError::InvalidManifest(
@@ -2202,7 +2289,8 @@ MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
                 "http2_preserved": true,
                 "transport_context_preserved": true,
                 "client_cancellation_survived": true,
-                "capture_backpressure_nonblocking": true
+                "capture_backpressure_nonblocking": true,
+                "startup_identity_verified": true
             },
             "bundle_ready": true,
             "release_ready": signature == "valid"
@@ -2273,6 +2361,7 @@ MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
         let config = SidecarLaunchConfig::new(
             "127.0.0.1:41001".parse().unwrap(),
             "synthetic-token-123456",
+            "ab".repeat(32),
             vec!["api.openai.com".to_owned(), "api.anthropic.com".to_owned()],
             "127.0.0.1:41002".parse().unwrap(),
             &confdir,
@@ -2293,6 +2382,10 @@ MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
         assert_eq!(
             environment.get(OsStr::new("CIC_CAPTURE_HOSTS")),
             Some(&OsString::from("api.openai.com,api.anthropic.com"))
+        );
+        assert_eq!(
+            environment.get(OsStr::new("CIC_CAPTURE_STARTUP_TOKEN")),
+            Some(&OsString::from("ab".repeat(32)))
         );
         let arguments = command
             .get_args()
@@ -2320,6 +2413,7 @@ MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
                 .all(|key| allowed.contains(key.as_os_str()))
         );
         assert!(!format!("{config:?}").contains("synthetic-token-123456"));
+        assert!(!format!("{config:?}").contains(&"ab".repeat(32)));
     }
 
     #[test]
@@ -2329,6 +2423,7 @@ MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
         let invalid = SidecarLaunchConfig::new(
             "0.0.0.0:41001".parse().unwrap(),
             "synthetic-token-123456",
+            "ab".repeat(32),
             vec!["api.openai.com".to_owned()],
             "127.0.0.1:41002".parse().unwrap(),
             "relative-conf",
@@ -2338,10 +2433,24 @@ MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
             Err(SidecarError::InvalidLaunchConfig(_))
         ));
 
+        let invalid_startup = SidecarLaunchConfig::new(
+            "127.0.0.1:41001".parse().unwrap(),
+            "synthetic-token-123456",
+            "short",
+            vec!["api.openai.com".to_owned()],
+            "127.0.0.1:41002".parse().unwrap(),
+            &root,
+        );
+        assert!(matches!(
+            loaded.command(&invalid_startup),
+            Err(SidecarError::InvalidLaunchConfig(_))
+        ));
+
         for host in ["-api.openai.com", "api.openai.com|.*", "api..openai.com"] {
             let invalid_host = SidecarLaunchConfig::new(
                 "127.0.0.1:41001".parse().unwrap(),
                 "synthetic-token-123456",
+                "ab".repeat(32),
                 vec![host.to_owned()],
                 "127.0.0.1:41002".parse().unwrap(),
                 &root,
@@ -2394,6 +2503,29 @@ MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
     }
 
     #[test]
+    fn startup_probe_rejects_a_listener_without_the_launch_token() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("probe listener");
+        let address = listener.local_addr().expect("probe address");
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("probe connection");
+            let mut request = [0_u8; 1024];
+            let read = stream.read(&mut request).expect("probe request");
+            assert!(String::from_utf8_lossy(&request[..read]).contains(STARTUP_PROBE_PATH));
+            let wrong = "00".repeat(32);
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                wrong.len(),
+                wrong
+            )
+            .expect("probe response");
+        });
+
+        assert!(!startup_probe_succeeds(&address, &"ab".repeat(32)));
+        server.join().expect("probe server");
+    }
+
+    #[test]
     fn launch_starts_a_verified_process_without_inheriting_unapproved_environment() {
         let (_directory, root) = bundle("unsigned");
         let source = root.join("fixture.rs");
@@ -2402,6 +2534,7 @@ MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
             r#"
 use std::env;
 use std::fs;
+use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::PathBuf;
 use std::process::Command;
@@ -2435,7 +2568,17 @@ fn main() {
         .spawn()
         .unwrap();
     let listener = TcpListener::bind(format!("{host}:{port}")).unwrap();
-    let _ = listener.accept();
+    let (mut stream, _) = listener.accept().unwrap();
+    let mut request = [0_u8; 2048];
+    let read = stream.read(&mut request).unwrap();
+    assert!(String::from_utf8_lossy(&request[..read]).contains("/.well-known/codeischeap/ready"));
+    let startup_token = env::var("CIC_CAPTURE_STARTUP_TOKEN").unwrap();
+    write!(
+        stream,
+        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        startup_token.len(),
+        startup_token
+    ).unwrap();
     thread::sleep(Duration::from_secs(30));
 }
 "#,
@@ -2466,9 +2609,11 @@ fn main() {
         let descendant_port = free_port();
         let confdir = root.join("runtime-conf");
         let token = format!("runtime-token-123456-{descendant_port}");
+        let startup_token = "cd".repeat(32);
         let config = SidecarLaunchConfig::new(
             format!("127.0.0.1:{ipc_port}").parse().unwrap(),
             &token,
+            &startup_token,
             vec!["api.openai.com".to_owned()],
             format!("127.0.0.1:{listen_port}").parse().unwrap(),
             &confdir,
@@ -2485,11 +2630,30 @@ fn main() {
         );
         let environment = fs::read_to_string(confdir.join("observed-environment.txt")).unwrap();
         assert!(environment.contains(&format!("CIC_CAPTURE_IPC_TOKEN={token}")));
+        assert!(environment.contains(&format!("CIC_CAPTURE_STARTUP_TOKEN={startup_token}")));
         assert!(environment.contains("CIC_CAPTURE_HOSTS=api.openai.com"));
         assert!(!environment.lines().any(|line| line.starts_with("PATH=")));
         wait_for_file(&confdir.join("descendant-ready.txt"));
         process.stop().expect("fixture must stop");
         wait_for_port_release(descendant_port);
+
+        let occupied = TcpListener::bind("127.0.0.1:0").expect("conflict listener");
+        let occupied_address = occupied.local_addr().expect("conflict address");
+        let conflict_descendant_port = free_port();
+        let conflict_config = SidecarLaunchConfig::new(
+            format!("127.0.0.1:{ipc_port}").parse().unwrap(),
+            format!("runtime-token-123456-{conflict_descendant_port}"),
+            "ef".repeat(32),
+            vec!["api.openai.com".to_owned()],
+            occupied_address,
+            root.join("conflict-conf"),
+        );
+        assert!(matches!(
+            bundle.launch(&conflict_config, Duration::from_secs(2)),
+            Err(SidecarError::ProcessExited(_)) | Err(SidecarError::StartupTimeout(_))
+        ));
+        drop(occupied);
+        wait_for_port_release(conflict_descendant_port);
     }
 
     fn free_port() -> u16 {
