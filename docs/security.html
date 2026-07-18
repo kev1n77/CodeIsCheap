@@ -19,7 +19,7 @@
     <div class="table-wrap"><table><thead><tr><th>风险</th><th>控制</th></tr></thead><tbody>
       <tr><td>过度采集</td><td>AI host/path allowlist；非目标流量只 tunnel</td></tr>
       <tr><td>密钥落盘</td><td>删除 Authorization、Cookie、API key header 和敏感 query</td></tr>
-      <tr><td>本机进程伪造或阻塞 IPC</td><td>IPC 0.3 仅限 loopback，使用会话级随机 token、常量时间比较、来源声明、1 KiB 认证帧与 2 秒连接截止时间；临时进程归因端点不进入 Envelope 或存储</td></tr>
+      <tr><td>本机进程伪造或阻塞 IPC</td><td>IPC 0.3 仅限 loopback，使用会话级随机 token、常量时间比较、来源声明、1 KiB 认证帧与 2 秒连接截止时间；Windows/macOS 首连接绑定已启动 sidecar PID；临时进程归因端点不进入 Envelope 或存储</td></tr>
       <tr><td>CA 私钥泄露</td><td>每设备独立生成、不可同步、最小文件权限、一键卸载</td></tr>
       <tr><td>导出泄密</td><td>强制预览、秘密扫描、稳定占位符、策略版本记录</td></tr>
       <tr><td>诊断泄密</td><td>持久化日志仅含时间戳和受限事件代码；不记录错误详情、Prompt、Raw 或请求标识</td></tr>

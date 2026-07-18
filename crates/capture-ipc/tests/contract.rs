@@ -3,7 +3,7 @@ use codeischeap_capture_ipc::{
     CapturedBody, CapturedBodyState, CapturedField, CapturedRequest, CapturedResponse,
     IPC_ORIGIN_MITMPROXY, IPC_PROTOCOL, IPC_PROTOCOL_VERSION, IpcError, MAX_AUTH_FRAME_BYTES,
     ResponseCompleteness, receive_from_reader, receive_from_reader_with_transport,
-    receive_one_with_deadline,
+    receive_one_with_deadline, receive_one_with_transport_verified,
 };
 use schemars::schema_for;
 use tokio::io::{AsyncWriteExt, BufReader};
@@ -285,6 +285,34 @@ async fn stalled_connection_expires_and_the_next_sidecar_can_deliver() {
         .expect("next sidecar delivery must be accepted");
     sender.await.expect("sidecar sender must complete");
     assert_eq!(received, expected);
+}
+
+#[tokio::test]
+async fn rejects_an_unauthorized_peer_before_reading_auth() {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("listener must bind");
+    let address = listener.local_addr().expect("listener address");
+    let sender = tokio::spawn(async move {
+        TcpStream::connect(address)
+            .await
+            .expect("unauthorized peer must connect")
+    });
+
+    let error = receive_one_with_transport_verified(
+        &listener,
+        "synthetic-token",
+        |peer, server| async move {
+            assert!(peer.ip().is_loopback());
+            assert_eq!(server, address);
+            false
+        },
+    )
+    .await
+    .expect_err("unauthorized peer must be rejected");
+    let _stream = sender.await.expect("sender task must complete");
+
+    assert!(matches!(error, IpcError::UnauthorizedPeer));
 }
 
 #[test]

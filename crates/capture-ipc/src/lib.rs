@@ -5,6 +5,7 @@
 //! confused with data that may later be persisted.
 
 use std::fmt;
+use std::future::{Future, ready};
 use std::io;
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -202,6 +203,7 @@ pub enum IpcError {
     UnsupportedProtocol,
     UnsupportedOrigin,
     Unauthorized,
+    UnauthorizedPeer,
     InvalidTransport,
     UnsupportedEnvelopeVersion(String),
 }
@@ -225,6 +227,9 @@ impl fmt::Display for IpcError {
             Self::UnsupportedProtocol => write!(formatter, "capture IPC protocol is unsupported"),
             Self::UnsupportedOrigin => write!(formatter, "capture IPC origin is unsupported"),
             Self::Unauthorized => write!(formatter, "capture IPC authentication failed"),
+            Self::UnauthorizedPeer => {
+                write!(formatter, "capture IPC peer process is unauthorized")
+            }
             Self::InvalidTransport => {
                 write!(formatter, "capture IPC transport context is invalid")
             }
@@ -270,6 +275,24 @@ pub async fn receive_one_with_transport(
     receive_one_with_transport_deadline(listener, expected_token, DEFAULT_CONNECTION_DEADLINE).await
 }
 
+pub async fn receive_one_with_transport_verified<F, Fut>(
+    listener: &TcpListener,
+    expected_token: &str,
+    verify_peer: F,
+) -> Result<ReceivedCapture, IpcError>
+where
+    F: FnOnce(SocketAddr, SocketAddr) -> Fut,
+    Fut: Future<Output = bool>,
+{
+    receive_one_with_transport_verifier_deadline(
+        listener,
+        expected_token,
+        DEFAULT_CONNECTION_DEADLINE,
+        verify_peer,
+    )
+    .await
+}
+
 pub async fn receive_one_with_deadline(
     listener: &TcpListener,
     expected_token: &str,
@@ -287,6 +310,25 @@ pub async fn receive_one_with_transport_deadline(
     expected_token: &str,
     connection_deadline: Duration,
 ) -> Result<ReceivedCapture, IpcError> {
+    receive_one_with_transport_verifier_deadline(
+        listener,
+        expected_token,
+        connection_deadline,
+        |_, _| ready(true),
+    )
+    .await
+}
+
+async fn receive_one_with_transport_verifier_deadline<F, Fut>(
+    listener: &TcpListener,
+    expected_token: &str,
+    connection_deadline: Duration,
+    verify_peer: F,
+) -> Result<ReceivedCapture, IpcError>
+where
+    F: FnOnce(SocketAddr, SocketAddr) -> Fut,
+    Fut: Future<Output = bool>,
+{
     if !listener.local_addr()?.ip().is_loopback() {
         return Err(IpcError::NonLoopbackListener);
     }
@@ -295,11 +337,14 @@ pub async fn receive_one_with_transport_deadline(
     if !peer.ip().is_loopback() {
         return Err(IpcError::NonLoopbackPeer);
     }
+    let server = stream.local_addr()?;
 
-    timeout(
-        connection_deadline,
-        receive_from_reader_with_transport(&mut BufReader::new(stream), expected_token),
-    )
+    timeout(connection_deadline, async move {
+        if !verify_peer(peer, server).await {
+            return Err(IpcError::UnauthorizedPeer);
+        }
+        receive_from_reader_with_transport(&mut BufReader::new(stream), expected_token).await
+    })
     .await
     .map_err(|_| IpcError::ConnectionDeadlineExceeded)?
 }

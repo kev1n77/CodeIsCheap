@@ -13,7 +13,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
 
 use codeischeap_adapters::AdapterRegistry;
-use codeischeap_capture_ipc::{CaptureEnvelope, CaptureTransport, receive_one_with_transport};
+use codeischeap_capture_ipc::{
+    CaptureEnvelope, CaptureTransport, receive_one_with_transport,
+    receive_one_with_transport_verified,
+};
 use codeischeap_capture_policy::CapturePolicy;
 use codeischeap_core::{
     GatewayCaptureError, GatewayCaptureOutcome, IngestError, ingest_envelope, persist_capture,
@@ -114,6 +117,7 @@ struct ProxyCaptureContext {
     listener: TcpListener,
     token: String,
     policy: CapturePolicy,
+    sidecar_process_id: u32,
 }
 
 #[derive(Default)]
@@ -146,6 +150,22 @@ impl ProcessIdCache {
     fn finish(&mut self, capture_id: &str) {
         self.process_ids.remove(capture_id);
         self.order.retain(|pending| pending != capture_id);
+    }
+}
+
+struct ProxyCaptureSession {
+    process_ids: ProcessIdCache,
+    sidecar_process_id: u32,
+    peer_verified: bool,
+}
+
+impl ProxyCaptureSession {
+    fn new(sidecar_process_id: u32) -> Self {
+        Self {
+            process_ids: ProcessIdCache::default(),
+            sidecar_process_id,
+            peer_verified: false,
+        }
     }
 }
 
@@ -1153,6 +1173,9 @@ async fn ensure_proxy(app: &AppHandle, state: &DesktopState) -> Result<(), Strin
     .await
     .map_err(|error| format!("explicit proxy launch task failed: {error}"))?
     .map_err(|error| error.to_string())?;
+    let sidecar_process_id = process
+        .process_id()
+        .ok_or_else(|| "explicit proxy process ID is unavailable".to_owned())?;
     let endpoint = format!("http://{}", process.endpoint());
     let generation = state.next_proxy_generation.fetch_add(1, Ordering::Relaxed);
     state.proxy_session_event_count.store(0, Ordering::Release);
@@ -1174,6 +1197,7 @@ async fn ensure_proxy(app: &AppHandle, state: &DesktopState) -> Result<(), Strin
             listener,
             token,
             policy,
+            sidecar_process_id,
         },
         shutdown_rx,
     ));
@@ -1348,7 +1372,7 @@ fn generate_ipc_token() -> Result<String, String> {
 async fn process_proxy_events(context: ProxyCaptureContext, mut shutdown: oneshot::Receiver<()>) {
     let adapters = AdapterRegistry::default();
     let mut captures_since_retention = 0_usize;
-    let mut process_ids = ProcessIdCache::default();
+    let mut session = ProxyCaptureSession::new(context.sidecar_process_id);
     loop {
         let result = tokio::select! {
             _ = &mut shutdown => break,
@@ -1359,7 +1383,7 @@ async fn process_proxy_events(context: ProxyCaptureContext, mut shutdown: onesho
                 &adapters,
                 &context.store,
                 &context.capture_active,
-                &mut process_ids,
+                &mut session,
             ) => result,
         };
         match result {
@@ -1404,16 +1428,33 @@ async fn receive_and_persist_proxy_capture(
     adapters: &AdapterRegistry,
     store: &SharedStore,
     capture_active: &AtomicBool,
-    process_ids: &mut ProcessIdCache,
+    session: &mut ProxyCaptureSession,
 ) -> Result<Option<String>, ProxyCaptureError> {
-    let received = receive_one_with_transport(listener, token)
-        .await
-        .map_err(IngestError::from)?;
+    let received = if session.peer_verified {
+        receive_one_with_transport(listener, token).await
+    } else {
+        let expected_process_id = session.sidecar_process_id;
+        let received =
+            receive_one_with_transport_verified(listener, token, move |peer, server| async move {
+                sidecar_peer_matches(peer, server, expected_process_id).await
+            })
+            .await;
+        if received.is_ok() {
+            session.peer_verified = true;
+        }
+        received
+    }
+    .map_err(IngestError::from)?;
     let mut envelope = received.envelope;
     let capture_id = envelope.capture_id.clone();
     let is_outcome = envelope.outcome.is_some();
     let resolved_process_id = resolve_proxy_process(received.transport).await;
-    apply_proxy_process_id(&mut envelope, policy, process_ids, resolved_process_id);
+    apply_proxy_process_id(
+        &mut envelope,
+        policy,
+        &mut session.process_ids,
+        resolved_process_id,
+    );
     let capture = ingest_envelope(envelope, policy)?;
     if !capture_active.load(Ordering::Acquire) {
         return Ok(None);
@@ -1427,9 +1468,33 @@ async fn receive_and_persist_proxy_capture(
         .ok_or(ProxyCaptureError::StoreUninitialized)?;
     persist_capture(store, &capture, parsed.prompt_ir.as_ref())?;
     if is_outcome {
-        process_ids.finish(&capture_id);
+        session.process_ids.finish(&capture_id);
     }
     Ok(Some(capture_id))
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+async fn sidecar_peer_matches(
+    peer: SocketAddr,
+    server: SocketAddr,
+    expected_process_id: u32,
+) -> bool {
+    resolve_proxy_process(Some(CaptureTransport {
+        client_addr: peer,
+        server_addr: server,
+    }))
+    .await
+        == Some(expected_process_id)
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+async fn sidecar_peer_matches(
+    peer: SocketAddr,
+    server: SocketAddr,
+    expected_process_id: u32,
+) -> bool {
+    let _ = (peer, server, expected_process_id);
+    true
 }
 
 async fn resolve_proxy_process(transport: Option<CaptureTransport>) -> Option<u32> {
@@ -1695,6 +1760,8 @@ fn show_main_window(app: &tauri::AppHandle) {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(any(windows, target_os = "macos"))]
+    use codeischeap_capture_ipc::IpcError;
     use codeischeap_capture_ipc::{
         AttributionConfidence, AttributionSource, CaptureAttribution, CaptureOutcome, CapturedBody,
         CapturedBodyState, CapturedResponse, ResponseCompleteness,
@@ -1960,7 +2027,7 @@ mod tests {
         let policy = CapturePolicy::load_default().expect("capture policy must load");
         let adapters = AdapterRegistry::default();
         let active = AtomicBool::new(true);
-        let mut process_ids = ProcessIdCache::default();
+        let mut session = ProxyCaptureSession::new(std::process::id());
         let process_listener = StdTcpListener::bind((Ipv4Addr::LOCALHOST, 0))
             .expect("process attribution listener must bind");
         let process_server_addr = process_listener
@@ -1980,6 +2047,28 @@ mod tests {
         ))
         .expect("request fixture must parse");
 
+        #[cfg(any(windows, target_os = "macos"))]
+        {
+            let mut rejected_session = ProxyCaptureSession::new(u32::MAX);
+            send_ipc_capture(address, &token, &request, Some(transport)).await;
+            let error = receive_and_persist_proxy_capture(
+                &listener,
+                &token,
+                &policy,
+                &adapters,
+                &store,
+                &active,
+                &mut rejected_session,
+            )
+            .await
+            .expect_err("an unexpected IPC process must be rejected");
+            assert!(matches!(
+                error,
+                ProxyCaptureError::Ingest(IngestError::Ipc(IpcError::UnauthorizedPeer))
+            ));
+            assert!(!rejected_session.peer_verified);
+        }
+
         send_ipc_capture(address, &token, &request, Some(transport)).await;
         assert_eq!(
             receive_and_persist_proxy_capture(
@@ -1989,12 +2078,13 @@ mod tests {
                 &adapters,
                 &store,
                 &active,
-                &mut process_ids,
+                &mut session,
             )
             .await
             .expect("request must persist"),
             Some(request.capture_id.clone())
         );
+        assert!(session.peer_verified);
 
         let mut response = request.clone();
         response.outcome = Some(CaptureOutcome::Response(CapturedResponse {
@@ -2015,7 +2105,7 @@ mod tests {
             &adapters,
             &store,
             &active,
-            &mut process_ids,
+            &mut session,
         )
         .await
         .expect("response must persist");
@@ -2032,7 +2122,7 @@ mod tests {
                 &adapters,
                 &store,
                 &active,
-                &mut process_ids,
+                &mut session,
             )
             .await
             .expect("paused event must be accepted and discarded"),
