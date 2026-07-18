@@ -1,0 +1,9 @@
+[package]
+name = "codeischeap-process-attribution"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Conservative loopback socket process attribution for CodeIsCheap"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_NetworkManagement_IpHelper", "Win32_Networking_WinSock"] }

@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/adapters", "crates/capture-ipc", "crates/capture-policy", "crates/core", "crates/desktop-api", "crates/gateway", "crates/prompt-ir", "crates/proxy-recovery", "crates/sidecar-runtime", "crates/storage"]
+members = ["crates/adapters", "crates/capture-ipc", "crates/capture-policy", "crates/core", "crates/desktop-api", "crates/gateway", "crates/process-attribution", "crates/prompt-ir", "crates/proxy-recovery", "crates/sidecar-runtime", "crates/storage"]
 exclude = ["apps/desktop/src-tauri"]
 resolver = "3"
 

@@ -20,6 +20,7 @@ codeischeap-capture-policy = { path = "../../../crates/capture-policy" }
 codeischeap-core = { path = "../../../crates/core" }
 codeischeap-desktop-api = { path = "../../../crates/desktop-api" }
 codeischeap-gateway = { path = "../../../crates/gateway" }
+codeischeap-process-attribution = { path = "../../../crates/process-attribution" }
 codeischeap-proxy-recovery = { path = "../../../crates/proxy-recovery" }
 codeischeap-sidecar-runtime = { path = "../../../crates/sidecar-runtime" }
 codeischeap-storage = { path = "../../../crates/storage" }

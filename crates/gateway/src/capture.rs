@@ -1,4 +1,5 @@
 use std::fmt;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Instant;
@@ -152,6 +153,8 @@ pub struct GatewayRequestCapture {
     pub host: String,
     pub port: u16,
     pub path: String,
+    pub client_addr: Option<SocketAddr>,
+    pub process_id: Option<u32>,
     pub query: Vec<(String, String)>,
     pub headers: Vec<(String, String)>,
     pub body: CapturedPayload,
@@ -288,6 +291,8 @@ impl RequestCaptureGuard {
                 host: metadata.host,
                 port: metadata.port,
                 path: metadata.path,
+                client_addr: metadata.client_addr,
+                process_id: metadata.process_id,
                 query: metadata.query,
                 headers: metadata.headers,
                 body: payload,
@@ -366,6 +371,8 @@ pub(crate) struct RequestMetadata {
     pub host: String,
     pub port: u16,
     pub path: String,
+    pub client_addr: Option<SocketAddr>,
+    pub process_id: Option<u32>,
     pub query: Vec<(String, String)>,
     pub headers: Vec<(String, String)>,
 }

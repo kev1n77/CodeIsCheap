@@ -53,7 +53,7 @@ cargo run -p codeischeap-desktop-api --bin export-desktop-contract
 
 sidecar IPC 协议为 `0.2`：仅监听 loopback，使用每次 Proxy 会话重新生成的 256-bit token，认证帧限制为 1 KiB，并要求 `mitmproxy` 来源声明；已接受连接必须在 2 秒内完成认证与数据帧，否则释放连接。sidecar manifest 分别声明 IPC、Envelope 和 Policy 版本，不兼容 bundle 会在启动前被拒绝。
 
-Gateway 和 Proxy 捕获会按显式客户端标签、User-Agent 规则或捕获模式回退生成带置信度的应用归因。Gateway 客户端可设置 `x-codeischeap-client: <application>` 提供高置信度标签；该内部请求头会在持久化和转发上游前删除。当前归因不声明进程 PID，未知客户端会明确显示为低置信度的 `Gateway client` 或 `Proxy client`。
+Gateway 和 Proxy 捕获会按显式客户端标签、User-Agent 规则或捕获模式回退生成带置信度的应用归因。Gateway 客户端可设置 `x-codeischeap-client: <application>` 提供高置信度标签；该内部请求头会在持久化和转发上游前删除。Windows 与 macOS 上的 Gateway 会用操作系统 TCP 连接表精确匹配客户端 PID，查询失败时保持未知，不做启发式推断；用于匹配的临时 socket 端点不会进入持久化或导出。Proxy 的 PID 归因仍待实现，未知客户端会明确显示为低置信度的 `Gateway client` 或 `Proxy client`。
 
 Connection 设置页会按 Proxy bundle、loopback 端点、本地 CA、系统信任和当前会话捕获事件生成兼容诊断。Proxy 全部就绪但仍无事件时，只提示低置信度的代理绕过/证书固定可能性，并提供 Gateway 回退；产品不会尝试绕过证书固定。
 

@@ -5,11 +5,12 @@ mod capture;
 use std::collections::HashSet;
 use std::future::Future;
 use std::io;
+use std::net::SocketAddr;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use axum::Router;
 use axum::body::{Body, HttpBody};
-use axum::extract::State;
+use axum::extract::{ConnectInfo, State};
 use axum::http::header::{
     CONNECTION, HOST, PROXY_AUTHENTICATE, PROXY_AUTHORIZATION, TE, TRAILER, TRANSFER_ENCODING,
     UPGRADE,
@@ -109,9 +110,13 @@ impl Gateway {
     where
         F: Future<Output = ()> + Send + 'static,
     {
-        axum::serve(listener, self.router())
-            .with_graceful_shutdown(shutdown)
-            .await
+        axum::serve(
+            listener,
+            self.router()
+                .into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .with_graceful_shutdown(shutdown)
+        .await
     }
 
     fn target_url(&self, uri: &Uri) -> Result<Url, url::ParseError> {
@@ -131,7 +136,11 @@ impl Gateway {
 }
 
 async fn forward(State(gateway): State<Gateway>, request: Request<Body>) -> Response<Body> {
-    match forward_to_upstream(&gateway, request).await {
+    let client_addr = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|connection| connection.0);
+    match forward_to_upstream(&gateway, request, client_addr).await {
         Ok(response) => response,
         Err(error) => error_response(error),
     }
@@ -140,6 +149,7 @@ async fn forward(State(gateway): State<Gateway>, request: Request<Body>) -> Resp
 async fn forward_to_upstream(
     gateway: &Gateway,
     request: Request<Body>,
+    client_addr: Option<SocketAddr>,
 ) -> Result<Response<Body>, ForwardError> {
     let started = Instant::now();
     let (parts, body) = request.into_parts();
@@ -161,6 +171,8 @@ async fn forward_to_upstream(
                 host: target.host_str().unwrap_or_default().to_owned(),
                 port: target.port_or_known_default().unwrap_or_default(),
                 path: target.path().to_owned(),
+                client_addr,
+                process_id: None,
                 query: target
                     .query_pairs()
                     .map(|(name, value)| (name.into_owned(), value.into_owned()))

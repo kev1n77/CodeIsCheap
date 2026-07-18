@@ -28,6 +28,7 @@ use codeischeap_desktop_api::{
     diagnose_capture_compatibility, load_request, load_workspace, search_requests,
 };
 use codeischeap_gateway::{Gateway, GatewayCapture, GatewayCaptureEvent};
+use codeischeap_process_attribution::resolve_loopback_client_pid;
 use codeischeap_proxy_recovery::recover_from_journal;
 #[cfg(windows)]
 use codeischeap_proxy_recovery::{ProxySession, ProxySettings, WindowsProxyBackend};
@@ -1033,6 +1034,7 @@ async fn ensure_gateway(app: &AppHandle, state: &DesktopState) -> Result<(), Str
         state.store.clone(),
         capture.clone(),
         state.capture_active.clone(),
+        address,
         receiver,
     ));
 
@@ -1409,6 +1411,7 @@ async fn process_capture_events(
     store: SharedStore,
     capture: GatewayCapture,
     capture_active: Arc<AtomicBool>,
+    gateway_address: SocketAddr,
     mut receiver: mpsc::Receiver<GatewayCaptureEvent>,
 ) {
     let policy = match CapturePolicy::load_default() {
@@ -1425,6 +1428,7 @@ async fn process_capture_events(
     while let Some(event) = receiver.recv().await {
         let mut ready = VecDeque::from([event]);
         while let Some(event) = ready.pop_front() {
+            let event = attribute_gateway_process(event, gateway_address).await;
             let retry_event = event.clone();
             let result = {
                 let mut store = match store.lock() {
@@ -1503,6 +1507,27 @@ async fn process_capture_events(
             }
         }
     }
+}
+
+async fn attribute_gateway_process(
+    event: GatewayCaptureEvent,
+    gateway_address: SocketAddr,
+) -> GatewayCaptureEvent {
+    let GatewayCaptureEvent::Request(mut request) = event else {
+        return event;
+    };
+    let Some(client_address) = request.client_addr else {
+        return GatewayCaptureEvent::Request(request);
+    };
+    request.process_id = tokio::task::spawn_blocking(move || {
+        resolve_loopback_client_pid(client_address, gateway_address)
+            .ok()
+            .flatten()
+    })
+    .await
+    .ok()
+    .flatten();
+    GatewayCaptureEvent::Request(request)
 }
 
 fn maintain_store(store: &mut EncryptedStore) -> Result<RetentionReport, StorageError> {

@@ -1,4 +1,5 @@
 use std::convert::Infallible;
+use std::future::pending;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -49,7 +50,22 @@ async fn spawn_gateway(upstream: Url, capture: GatewayCapture) -> TestServer {
     let gateway = Gateway::new(upstream)
         .expect("gateway must build")
         .with_capture(capture);
-    spawn(gateway.router()).await
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("gateway listener must bind");
+    let address = listener
+        .local_addr()
+        .expect("gateway listener must have an address");
+    let task = tokio::spawn(async move {
+        gateway
+            .serve(listener, pending())
+            .await
+            .expect("gateway must run");
+    });
+    TestServer {
+        base_url: Url::parse(&format!("http://{address}")).expect("gateway URL must parse"),
+        task,
+    }
 }
 
 async fn fixed_response(request: Request<Body>) -> Response<Body> {
@@ -107,6 +123,12 @@ async fn captures_exact_forwarded_request_and_response_bodies() {
     assert_eq!(request.scheme, "http");
     assert_eq!(request.host, "127.0.0.1");
     assert_eq!(request.path, "/v1/responses");
+    assert!(
+        request
+            .client_addr
+            .is_some_and(|address| address.ip().is_loopback())
+    );
+    assert_eq!(request.process_id, None);
     assert_eq!(request.query, [("stream".to_owned(), "true".to_owned())]);
     assert!(
         request
