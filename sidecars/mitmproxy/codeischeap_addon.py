@@ -16,7 +16,7 @@ from urllib.parse import parse_qsl, urlsplit
 
 
 IPC_PROTOCOL = "codeischeap.capture-ipc"
-IPC_PROTOCOL_VERSION = "0.2"
+IPC_PROTOCOL_VERSION = "0.3"
 IPC_ORIGIN = "mitmproxy"
 CAPTURE_ENVELOPE_VERSION = "0.1"
 CAPTURE_POLICY_VERSION = "0.1"
@@ -503,13 +503,45 @@ class IpcConfig:
         return cls(host=host, port=port, token=token)
 
 
-def send_envelope(config: IpcConfig, envelope: dict[str, Any]) -> None:
+def _socket_address(value: Any) -> tuple[str, int] | None:
+    if not isinstance(value, (tuple, list)) or len(value) < 2:
+        return None
+    host = _text(value[0]).strip()
+    port = value[1]
+    if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
+        return None
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return None
+    if not address.is_loopback:
+        return None
+    rendered = f"[{address}]:{port}" if address.version == 6 else f"{address}:{port}"
+    return rendered, address.version
+
+
+def build_transport_context(flow: Any) -> dict[str, str] | None:
+    connection = getattr(flow, "client_conn", None)
+    client = _socket_address(getattr(connection, "peername", None))
+    server = _socket_address(getattr(connection, "sockname", None))
+    if client is None or server is None or client[1] != server[1]:
+        return None
+    return {"client_addr": client[0], "server_addr": server[0]}
+
+
+def send_envelope(
+    config: IpcConfig,
+    envelope: dict[str, Any],
+    transport: dict[str, str] | None = None,
+) -> None:
     auth = {
         "protocol": IPC_PROTOCOL,
         "version": IPC_PROTOCOL_VERSION,
         "origin": IPC_ORIGIN,
         "token": config.token,
     }
+    if transport is not None:
+        auth["transport"] = transport
     frames = (
         json.dumps(auth, ensure_ascii=True, separators=(",", ":"))
         + "\n"
@@ -523,13 +555,17 @@ def send_envelope(config: IpcConfig, envelope: dict[str, Any]) -> None:
 class IpcEmitter:
     def __init__(self, config: IpcConfig, capacity: int = 64) -> None:
         self._config = config
-        self._queue: queue.Queue[dict[str, Any] | None] = queue.Queue(maxsize=capacity)
+        self._queue: queue.Queue[
+            tuple[dict[str, Any], dict[str, str] | None] | None
+        ] = queue.Queue(maxsize=capacity)
         self._worker = threading.Thread(target=self._run, name="codeischeap-ipc", daemon=True)
         self._worker.start()
 
-    def submit(self, envelope: dict[str, Any]) -> bool:
+    def submit(
+        self, envelope: dict[str, Any], transport: dict[str, str] | None
+    ) -> bool:
         try:
-            self._queue.put_nowait(envelope)
+            self._queue.put_nowait((envelope, transport))
             return True
         except queue.Full:
             return False
@@ -543,11 +579,12 @@ class IpcEmitter:
 
     def _run(self) -> None:
         while True:
-            envelope = self._queue.get()
-            if envelope is None:
+            submission = self._queue.get()
+            if submission is None:
                 return
+            envelope, transport = submission
             try:
-                send_envelope(self._config, envelope)
+                send_envelope(self._config, envelope, transport)
             except (OSError, ValueError):
                 _warn("CodeIsCheap capture IPC delivery failed; the request was not recorded")
 
@@ -598,7 +635,7 @@ class CaptureAddon:
         except (AttributeError, TypeError, ValueError):
             _warn(failure_message)
             return
-        if not self._emitter.submit(envelope):
+        if not self._emitter.submit(envelope, build_transport_context(flow)):
             _warn("CodeIsCheap capture queue is full; the request was not recorded")
 
     def request(self, flow: Any) -> None:

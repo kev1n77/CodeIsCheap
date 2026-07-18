@@ -83,7 +83,7 @@ use windows_sys::Win32::System::SystemServices::{
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
 pub const SIDECAR_MANIFEST_VERSION: &str = "0.1";
-pub const CAPTURE_IPC_PROTOCOL_VERSION: &str = "0.2";
+pub const CAPTURE_IPC_PROTOCOL_VERSION: &str = "0.3";
 pub const CAPTURE_ENVELOPE_VERSION: &str = "0.1";
 pub const CAPTURE_POLICY_VERSION: &str = "0.1";
 pub const MITMPROXY_VERSION: &str = "12.2.3";
@@ -1586,6 +1586,7 @@ struct IntegrationProbe {
     stream_credentials_removed: bool,
     non_target_tunnel: bool,
     http2_preserved: bool,
+    transport_context_preserved: bool,
 }
 
 fn validate_manifest(
@@ -1643,6 +1644,7 @@ fn validate_manifest(
         || !probe.stream_credentials_removed
         || !probe.non_target_tunnel
         || !probe.http2_preserved
+        || !probe.transport_context_preserved
         || probe.credential_canaries_in_envelope != 0
     {
         return Err(SidecarError::InvalidManifest(
@@ -2170,7 +2172,7 @@ MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
                 "max_bytes": 1024
             },
             "capture_contract": {
-                "ipc_protocol": "0.2",
+                "ipc_protocol": "0.3",
                 "envelope": "0.1",
                 "policy": "0.1",
                 "policy_file": "capture-policy.v0.1.json",
@@ -2188,7 +2190,8 @@ MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
                 "compressed_response_preserved": true,
                 "stream_credentials_removed": true,
                 "non_target_tunnel": true,
-                "http2_preserved": true
+                "http2_preserved": true,
+                "transport_context_preserved": true
             },
             "bundle_ready": true,
             "release_ready": signature == "valid"

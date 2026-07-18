@@ -1,8 +1,9 @@
 use codeischeap_capture_ipc::{
-    CAPTURE_ENVELOPE_VERSION, CaptureEnvelope, CaptureOutcome, CaptureSource, CapturedBody,
-    CapturedBodyState, CapturedField, CapturedRequest, CapturedResponse, IPC_ORIGIN_MITMPROXY,
-    IPC_PROTOCOL, IPC_PROTOCOL_VERSION, IpcError, MAX_AUTH_FRAME_BYTES, ResponseCompleteness,
-    receive_from_reader, receive_one_with_deadline,
+    CAPTURE_ENVELOPE_VERSION, CaptureEnvelope, CaptureOutcome, CaptureSource, CaptureTransport,
+    CapturedBody, CapturedBodyState, CapturedField, CapturedRequest, CapturedResponse,
+    IPC_ORIGIN_MITMPROXY, IPC_PROTOCOL, IPC_PROTOCOL_VERSION, IpcError, MAX_AUTH_FRAME_BYTES,
+    ResponseCompleteness, receive_from_reader, receive_from_reader_with_transport,
+    receive_one_with_deadline,
 };
 use schemars::schema_for;
 use tokio::io::{AsyncWriteExt, BufReader};
@@ -52,12 +53,32 @@ async fn framed_reader_with_origin(
     origin: &str,
     envelope: &CaptureEnvelope,
 ) -> BufReader<tokio::io::DuplexStream> {
+    framed_reader_with_transport(token, origin, envelope, None).await
+}
+
+async fn framed_reader_with_transport(
+    token: &str,
+    origin: &str,
+    envelope: &CaptureEnvelope,
+    transport: Option<CaptureTransport>,
+) -> BufReader<tokio::io::DuplexStream> {
+    framed_reader_with_auth(token, origin, IPC_PROTOCOL_VERSION, envelope, transport).await
+}
+
+async fn framed_reader_with_auth(
+    token: &str,
+    origin: &str,
+    version: &str,
+    envelope: &CaptureEnvelope,
+    transport: Option<CaptureTransport>,
+) -> BufReader<tokio::io::DuplexStream> {
     let (mut writer, reader) = tokio::io::duplex(16 * 1024);
     let auth = serde_json::json!({
         "protocol": IPC_PROTOCOL,
-        "version": IPC_PROTOCOL_VERSION,
+        "version": version,
         "origin": origin,
         "token": token,
+        "transport": transport,
     });
     let mut frames = serde_json::to_vec(&auth).expect("auth frame must serialize");
     frames.push(b'\n');
@@ -70,6 +91,70 @@ async fn framed_reader_with_origin(
             .expect("frames must be writable");
     });
     BufReader::new(reader)
+}
+
+#[tokio::test]
+async fn rejects_the_previous_transport_protocol() {
+    let expected = sample_envelope();
+    let mut reader = framed_reader_with_auth(
+        "synthetic-token",
+        IPC_ORIGIN_MITMPROXY,
+        "0.2",
+        &expected,
+        None,
+    )
+    .await;
+
+    let error = receive_from_reader(&mut reader, "synthetic-token")
+        .await
+        .expect_err("old sidecars must be rejected");
+
+    assert!(matches!(error, IpcError::UnsupportedProtocol));
+}
+
+#[tokio::test]
+async fn accepts_ephemeral_loopback_transport_context() {
+    let expected = sample_envelope();
+    let transport = CaptureTransport {
+        client_addr: "127.0.0.1:53110".parse().unwrap(),
+        server_addr: "127.0.0.1:8787".parse().unwrap(),
+    };
+    let mut reader = framed_reader_with_transport(
+        "synthetic-token",
+        IPC_ORIGIN_MITMPROXY,
+        &expected,
+        Some(transport),
+    )
+    .await;
+
+    let received = receive_from_reader_with_transport(&mut reader, "synthetic-token")
+        .await
+        .expect("valid transport context must be accepted");
+
+    assert_eq!(received.envelope, expected);
+    assert_eq!(received.transport, Some(transport));
+}
+
+#[tokio::test]
+async fn rejects_non_loopback_transport_context() {
+    let expected = sample_envelope();
+    let transport = CaptureTransport {
+        client_addr: "192.0.2.10:53110".parse().unwrap(),
+        server_addr: "127.0.0.1:8787".parse().unwrap(),
+    };
+    let mut reader = framed_reader_with_transport(
+        "synthetic-token",
+        IPC_ORIGIN_MITMPROXY,
+        &expected,
+        Some(transport),
+    )
+    .await;
+
+    let error = receive_from_reader_with_transport(&mut reader, "synthetic-token")
+        .await
+        .expect_err("non-loopback transport context must be rejected");
+
+    assert!(matches!(error, IpcError::InvalidTransport));
 }
 
 #[tokio::test]
