@@ -612,6 +612,54 @@ describe("request workbench", () => {
     expect(screen.getByRole("button", { name: "Remove trust" })).toBeInTheDocument();
   });
 
+  it("keeps CA trust retryable after the user rejects the system prompt", async () => {
+    const user = userEvent.setup();
+    window.__TAURI_INTERNALS__ = {};
+    const untrusted = structuredClone(fixture) as unknown as WorkspaceBootstrap;
+    untrusted.capture.mode = "proxy";
+    untrusted.capture.profile = "Explicit TLS proxy";
+    untrusted.capture.endpoint = "http://127.0.0.1:43125";
+    untrusted.capture.certificateAuthority = {
+      state: "ready",
+      canManageTrust: true,
+      fingerprintSha256: "AA:BB:CC:DD",
+      subject: "mitmproxy",
+      validFromUnixMs: 1_577_836_800_000,
+      validUntilUnixMs: 4_070_908_800_000,
+      privateMaterial: "restricted",
+      trust: "not_trusted",
+      detail: null,
+    };
+    const trusted = structuredClone(untrusted);
+    trusted.capture.certificateAuthority.trust = "trusted";
+    let installAttempts = 0;
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === "bootstrap_workspace") return structuredClone(untrusted);
+      if (command === "install_certificate_authority_trust") {
+        installAttempts += 1;
+        if (installAttempts === 1) {
+          throw new Error("certificate trust update failed: the user cancelled the security prompt");
+        }
+        return structuredClone(trusted);
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Trust CA" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("user cancelled");
+    expect(screen.getByText("Ready · not trusted")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Proxy" })).toHaveAttribute("aria-pressed", "true");
+    const retry = screen.getByRole("button", { name: "Trust CA" });
+    expect(retry).toBeEnabled();
+
+    await user.click(retry);
+    expect(await screen.findByText("Ready · trusted")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove trust" })).toBeInTheDocument();
+    expect(installAttempts).toBe(2);
+  });
+
   it("removes certificate trust and accepts the safe gateway fallback", async () => {
     const user = userEvent.setup();
     window.__TAURI_INTERNALS__ = {};

@@ -810,17 +810,44 @@ fn macos_install_certificate(certificate_der: &[u8]) -> io::Result<bool> {
                 (certificate, added)
             }
         };
-    if let Err(error) = settings.set_trust_settings_always(&certificate) {
-        if added_to_keychain {
-            let _ = certificate.delete();
-        }
-        return Err(macos_security_error(
-            "set user certificate trust",
-            error.code(),
-        ));
-    }
+    set_macos_trust_with_new_certificate_cleanup(
+        added_to_keychain,
+        || {
+            settings
+                .set_trust_settings_always(&certificate)
+                .map_err(|error| macos_security_error("set user certificate trust", error.code()))
+        },
+        || match certificate.delete() {
+            Ok(()) => Ok(()),
+            Err(error) if error.code() == ERR_SEC_ITEM_NOT_FOUND => Ok(()),
+            Err(error) => Err(macos_security_error(
+                "remove rejected certificate from login keychain",
+                error.code(),
+            )),
+        },
+    )?;
     macos_wait_for_user_trust(certificate_der, Some(CertificateTrustState::Trusted))?;
     Ok(true)
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn set_macos_trust_with_new_certificate_cleanup(
+    added_to_keychain: bool,
+    set_trust: impl FnOnce() -> io::Result<()>,
+    remove_new_certificate: impl FnOnce() -> io::Result<()>,
+) -> io::Result<()> {
+    let Err(trust_error) = set_trust() else {
+        return Ok(());
+    };
+    if !added_to_keychain {
+        return Err(trust_error);
+    }
+    match remove_new_certificate() {
+        Ok(()) => Err(trust_error),
+        Err(cleanup_error) => Err(io::Error::other(format!(
+            "{trust_error}; newly added certificate cleanup failed: {cleanup_error}"
+        ))),
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -879,7 +906,7 @@ fn macos_wait_for_user_trust(
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", test))]
 fn macos_security_error(action: &str, code: i32) -> io::Error {
     let detail = match code {
         -128 | -60_006 => "the user cancelled the security prompt",
@@ -1961,6 +1988,50 @@ MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
             load_certificate_der(directory.path()),
             Err(CertificateAuthorityError::InvalidCertificate(_))
         ));
+    }
+
+    #[test]
+    fn macos_ca_refusal_cleans_new_certificate_and_reports_cleanup_failure() {
+        use std::cell::Cell;
+
+        let removed = Cell::new(false);
+        let error = set_macos_trust_with_new_certificate_cleanup(
+            true,
+            || Err(macos_security_error("set user certificate trust", -128)),
+            || {
+                removed.set(true);
+                Ok(())
+            },
+        )
+        .expect_err("cancelled trust must fail");
+        assert!(removed.get());
+        assert!(error.to_string().contains("user cancelled"));
+
+        removed.set(false);
+        let _ = set_macos_trust_with_new_certificate_cleanup(
+            false,
+            || Err(macos_security_error("set user certificate trust", -128)),
+            || {
+                removed.set(true);
+                Ok(())
+            },
+        )
+        .expect_err("pre-existing certificate trust refusal must fail");
+        assert!(
+            !removed.get(),
+            "pre-existing certificates must be preserved"
+        );
+
+        let error = set_macos_trust_with_new_certificate_cleanup(
+            true,
+            || Err(macos_security_error("set user certificate trust", -60_006)),
+            || Err(io::Error::other("fault-injected keychain cleanup refusal")),
+        )
+        .expect_err("failed cleanup must remain actionable");
+        let detail = error.to_string();
+        assert!(detail.contains("user cancelled"));
+        assert!(detail.contains("newly added certificate cleanup failed"));
+        assert!(detail.contains("fault-injected keychain cleanup refusal"));
     }
 
     #[cfg(windows)]

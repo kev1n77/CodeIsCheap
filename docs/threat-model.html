@@ -47,8 +47,8 @@
       <tr><td class="task-id">TM-02</td><td>捕获非目标应用或端点</td><td>Rust/Python 共用精确 host、POST method 与 path pattern 策略</td><td>Profile UI 与自定义端点策略管理</td></tr>
       <tr><td class="task-id">TM-03</td><td>本机其他进程伪造、读取或阻塞 IPC</td><td>IPC 0.4 仅限 loopback；每次 Proxy 会话生成 256-bit token 并常量时间比较；Windows/macOS/Linux 首连接通过 OS socket 表绑定已启动 sidecar PID，Linux 仅接受精确 socket inode 的唯一 owner；sidecar 在服务端 ACK 前保持连接；认证帧 1 KiB、Envelope 4 MiB；要求 mitmproxy 来源声明；连接全流程 2 秒未完成即释放；临时归因端点严格限制为同地址族 loopback 且不进入 Envelope；旧协议 bundle 启动前拒绝</td><td>用户级 socket ACL；插件启用后的 WASI 最小权限</td></tr>
       <tr><td class="task-id">TM-04</td><td>数据库文件被离线读取</td><td>SQLCipher、WAL、迁移、加密备份、错误密钥、DB/WAL canary 与跨平台 OS 凭据库 CI</td><td>锁定状态与 key 丢失恢复体验</td></tr>
-      <tr><td class="task-id">TM-05</td><td>本地 CA 私钥泄露或残留信任</td><td>每设备 CA、跨平台私钥权限检查、指纹 UI、Windows CurrentUser 与 macOS User 幂等卸载已实现</td><td>两平台交互式验收；发布前独立安全评审</td></tr>
-      <tr><td class="task-id">TM-06</td><td>崩溃后系统代理残留</td><td>Windows/macOS 强杀恢复实验；Windows 桌面已接入私有 journal、watchdog、启动恢复和活 owner 校验；sidecar 单独退出会按代际恢复代理并回退 Gateway；端口占用者无法通过独立 256-bit readiness token 校验，冲突启动会清理进程树且不会切换系统代理</td><td>macOS 特权 helper；PAC 与 CA 拒绝故障注入</td></tr>
+      <tr><td class="task-id">TM-05</td><td>本地 CA 私钥泄露或残留信任</td><td>每设备 CA、跨平台私钥权限检查、指纹 UI、Windows CurrentUser 与 macOS User 幂等卸载已实现；macOS 信任拒绝会清理本次新增证书，桌面保持未信任并允许重试</td><td>两平台交互式验收；发布前独立安全评审</td></tr>
+      <tr><td class="task-id">TM-06</td><td>崩溃后系统代理残留</td><td>Windows/macOS 强杀恢复实验；Windows 桌面已接入私有 journal、watchdog、启动恢复和活 owner 校验；sidecar 单独退出会按代际恢复代理并回退 Gateway；端口占用者无法通过独立 256-bit readiness token 校验，冲突启动会清理进程树且不会切换系统代理；PAC 双重失败由 watchdog 恢复</td><td>macOS 特权 helper</td></tr>
       <tr><td class="task-id">TM-07</td><td>sidecar 或更新包被替换</td><td>打包 manifest 含 SHA-256</td><td>签名、SBOM、启动前 hash 校验；发布硬门槛</td></tr>
       <tr><td class="task-id">TM-08</td><td>复制或导出泄露秘密</td><td>单请求、最多 200 条批量导出及支持包均强制扫描与完整预览；版本化 corpus 覆盖 36 个敏感字段名、17 类文本 secret 及近似反例，Rust/Python/Web 一致性回归通过；稳定占位符、策略版本、SHA-256 防陈旧和只新建文件已实现</td><td>独立安全评审与 corpus 持续维护</td></tr>
       <tr><td class="task-id">TM-09</td><td>恶意 Prompt 触发 UI 注入</td><td>React 默认转义、Tauri CSP</td><td>Raw 仅纯文本、URL 不自动执行、XSS fixture</td></tr>
