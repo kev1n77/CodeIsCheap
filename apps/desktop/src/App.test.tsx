@@ -1,4 +1,4 @@
-import { act, render, screen, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -6,7 +6,12 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import fixture from "./data/workspace.json";
-import type { ExportPreview, ExportProfile, WorkspaceBootstrap } from "./types";
+import type {
+  ExportPreview,
+  ExportProfile,
+  SupportBundlePreview,
+  WorkspaceBootstrap,
+} from "./types";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
@@ -83,12 +88,57 @@ describe("request workbench", () => {
       .toHaveAttribute("aria-selected", "true");
     await user.click(within(dialog).getByRole("button", { name: "Diagnostics" }));
     const preview = within(dialog).getByLabelText("Diagnostic report preview");
-    expect(preview).toHaveTextContent("requestCount");
+    await waitFor(() => expect(preview).toHaveTextContent("requestCount"));
     expect(preview).not.toHaveTextContent(workspacePrompt(fixture as unknown as WorkspaceBootstrap));
+    expect(preview).toHaveTextContent('"requestContentIncluded": false');
     await user.click(within(dialog).getByRole("button", { name: "Copy report" }));
     expect(within(dialog).getByRole("button", { name: "Copied" })).toBeInTheDocument();
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: "Settings & diagnostics" })).not.toBeInTheDocument();
+  });
+
+  it("previews and saves a scanned support bundle", async () => {
+    const user = userEvent.setup();
+    window.__TAURI_INTERNALS__ = {};
+    const workspace = structuredClone(fixture) as unknown as WorkspaceBootstrap;
+    const preview: SupportBundlePreview = {
+      suggestedFilename: "codeischeap-support-1700000000200.json",
+      content: "{\"privacy\":{\"requestContentIncluded\":false},\"redactionCount\":1}\n",
+      byteCount: 73,
+      contentSha256: "c".repeat(64),
+      generatedAtUnixMs: 1_700_000_000_200,
+      redactions: [{ category: "bearer_token", pointer: "/diagnostics/runtimeIssue" }],
+      policyVersion: "0.1",
+      formatVersion: "0.1",
+    };
+    vi.mocked(save).mockResolvedValue("D:\\exports\\support.json");
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === "bootstrap_workspace") return structuredClone(workspace);
+      if (command === "preview_support_bundle") return preview;
+      if (command === "write_support_bundle") {
+        return { path: args?.path, byteCount: preview.byteCount, redactionCount: 1 };
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    const dialog = screen.getByRole("dialog", { name: "Settings & diagnostics" });
+    await user.click(within(dialog).getByRole("button", { name: "Diagnostics" }));
+    expect(await within(dialog).findByText(/requestContentIncluded/)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Save support bundle" }));
+
+    expect(save).toHaveBeenCalledWith({
+      defaultPath: preview.suggestedFilename,
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+    expect(invoke).toHaveBeenCalledWith("write_support_bundle", {
+      runtimeIssue: null,
+      generatedAtUnixMs: preview.generatedAtUnixMs,
+      expectedSha256: preview.contentSha256,
+      path: "D:\\exports\\support.json",
+    });
+    expect(await within(dialog).findByText("Support bundle saved")).toBeInTheDocument();
   });
 
   it("opens the connection flow for an empty first-run workspace", async () => {

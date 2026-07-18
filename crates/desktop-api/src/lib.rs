@@ -4,7 +4,8 @@ mod export;
 
 pub use export::{
     EXPORT_FORMAT_VERSION, EXPORT_POLICY_VERSION, ExportPreview, ExportProfile, ExportReceipt,
-    ExportRedaction, build_batch_export_preview, build_export_preview,
+    ExportRedaction, SUPPORT_BUNDLE_FORMAT_VERSION, SupportBundlePreview,
+    build_batch_export_preview, build_export_preview, build_support_bundle_preview,
 };
 
 use std::{fmt, ops::Range};
@@ -1263,6 +1264,8 @@ mod tests {
         ExportRedaction::export_all(&config).expect("export redaction binding must export");
         ExportPreview::export_all(&config).expect("export preview binding must export");
         ExportReceipt::export_all(&config).expect("export receipt binding must export");
+        SupportBundlePreview::export_all(&config)
+            .expect("support bundle preview binding must export");
         let checked_in = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../apps/desktop/src/generated/desktop-api");
 

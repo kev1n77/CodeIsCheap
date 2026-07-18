@@ -7,10 +7,11 @@ use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use ts_rs::TS;
 
-use crate::{CapturedRequest, DESKTOP_API_VERSION};
+use crate::{CapturedRequest, DESKTOP_API_VERSION, WorkspaceBootstrap, WorkspaceSource};
 
 pub const EXPORT_FORMAT_VERSION: &str = "0.1";
 pub const EXPORT_POLICY_VERSION: &str = "0.1";
+pub const SUPPORT_BUNDLE_FORMAT_VERSION: &str = "0.1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "snake_case")]
@@ -56,6 +57,19 @@ pub struct ExportReceipt {
     pub path: String,
     pub byte_count: u64,
     pub redaction_count: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SupportBundlePreview {
+    pub suggested_filename: String,
+    pub content: String,
+    pub byte_count: u64,
+    pub content_sha256: String,
+    pub generated_at_unix_ms: u64,
+    pub redactions: Vec<ExportRedaction>,
+    pub policy_version: String,
+    pub format_version: String,
 }
 
 pub fn build_export_preview(
@@ -107,6 +121,80 @@ pub fn build_batch_export_preview(
             profile.slug()
         ),
     )
+}
+
+pub fn build_support_bundle_preview(
+    workspace: &WorkspaceBootstrap,
+    runtime_issue: Option<&str>,
+    generated_at_unix_ms: u64,
+) -> Result<SupportBundlePreview, serde_json::Error> {
+    let certificate = &workspace.capture.certificate_authority;
+    let mut document = json!({
+        "formatVersion": SUPPORT_BUNDLE_FORMAT_VERSION,
+        "policyVersion": EXPORT_POLICY_VERSION,
+        "generatedAtUnixMs": generated_at_unix_ms,
+        "product": {
+            "name": "CodeIsCheap",
+            "version": env!("CARGO_PKG_VERSION"),
+            "desktopApiVersion": DESKTOP_API_VERSION,
+            "platform": std::env::consts::OS,
+            "architecture": std::env::consts::ARCH,
+        },
+        "privacy": {
+            "requestContentIncluded": false,
+            "requestIdentifiersIncluded": false,
+            "rawCaptureIncluded": false,
+            "logsIncluded": false,
+        },
+        "diagnostics": {
+            "source": workspace.source,
+            "capture": {
+                "active": workspace.capture.active,
+                "canControl": workspace.capture.can_control,
+                "mode": workspace.capture.mode,
+                "endpoint": workspace.capture.endpoint,
+                "profile": workspace.capture.profile,
+                "proxyAvailable": workspace.capture.proxy_available,
+                "requestCount": workspace.capture.request_count,
+                "storage": workspace.capture.storage,
+            },
+            "certificateAuthority": {
+                "state": certificate.state,
+                "trust": certificate.trust,
+                "privateMaterial": certificate.private_material,
+                "canManageTrust": certificate.can_manage_trust,
+                "fingerprintSha256": certificate.fingerprint_sha256,
+            },
+            "health": {
+                "encryptedStore": workspace.capture.storage.to_ascii_lowercase().contains("sqlcipher")
+                    || workspace.source == WorkspaceSource::SyntheticFixture,
+                "captureRuntime": runtime_issue.is_none(),
+                "endpointConnected": workspace.capture.endpoint != "Not connected",
+                "proxyBundle": workspace.capture.proxy_available,
+            },
+            "runtimeIssue": runtime_issue,
+        },
+    });
+    let mut redactions = Vec::new();
+    scrub_value(&mut document, "", &mut redactions);
+    document
+        .as_object_mut()
+        .expect("support bundle document is always an object")
+        .insert("redactionCount".to_owned(), json!(redactions.len()));
+    let mut content = serde_json::to_string_pretty(&document)?;
+    content.push('\n');
+    let byte_count = u64::try_from(content.len()).unwrap_or(u64::MAX);
+    let content_sha256 = format!("{:x}", Sha256::digest(content.as_bytes()));
+    Ok(SupportBundlePreview {
+        suggested_filename: format!("codeischeap-support-{generated_at_unix_ms}.json"),
+        content,
+        byte_count,
+        content_sha256,
+        generated_at_unix_ms,
+        redactions,
+        policy_version: EXPORT_POLICY_VERSION.to_owned(),
+        format_version: SUPPORT_BUNDLE_FORMAT_VERSION.to_owned(),
+    })
 }
 
 fn request_payload(
@@ -341,7 +429,8 @@ fn credential_patterns() -> &'static [CredentialPattern] {
 mod tests {
     use super::*;
     use crate::{
-        AnatomyItem, AnatomySection, CaptureStatus, EvidenceLevel, RequestDetail, TimelineEvent,
+        AnatomyItem, AnatomySection, CaptureMode, CaptureState, CaptureStatus,
+        CertificateAuthority, EvidenceLevel, RequestDetail, TimelineEvent, WorkspaceBootstrap,
     };
 
     fn request() -> CapturedRequest {
@@ -508,5 +597,44 @@ mod tests {
             "codeischeap-batch-2-reproducible.json"
         );
         assert_eq!(preview.content_sha256.len(), 64);
+    }
+
+    #[test]
+    fn support_bundles_exclude_requests_and_scan_runtime_issues() {
+        let workspace = WorkspaceBootstrap {
+            api_version: DESKTOP_API_VERSION.to_owned(),
+            source: WorkspaceSource::EncryptedLocal,
+            capture: CaptureState {
+                active: true,
+                can_control: true,
+                proxy_available: false,
+                mode: CaptureMode::Gateway,
+                profile: "Local gateway".to_owned(),
+                endpoint: "127.0.0.1:8787".to_owned(),
+                storage: "SQLCipher 4 / WAL".to_owned(),
+                request_count: 1,
+                certificate_authority: CertificateAuthority::missing(),
+            },
+            requests: vec![request()],
+        };
+
+        let preview = build_support_bundle_preview(
+            &workspace,
+            Some("Gateway rejected Bearer supportbundlesecret"),
+            30,
+        )
+        .expect("support bundle must encode");
+        let document: Value = serde_json::from_str(&preview.content).expect("bundle must be JSON");
+
+        assert_eq!(document["privacy"]["requestContentIncluded"], false);
+        assert_eq!(document["privacy"]["requestIdentifiersIncluded"], false);
+        assert_eq!(document["diagnostics"]["capture"]["requestCount"], 1);
+        assert!(!preview.content.contains("capture/unsafe"));
+        assert!(!preview.content.contains("Use Bearer"));
+        assert!(!preview.content.contains("supportbundlesecret"));
+        assert!(preview.redactions.iter().any(|redaction| {
+            redaction.pointer == "/diagnostics/runtimeIssue" && redaction.category == "bearer_token"
+        }));
+        assert_eq!(preview.suggested_filename, "codeischeap-support-30.json");
     }
 }

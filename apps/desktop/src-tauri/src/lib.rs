@@ -23,8 +23,9 @@ use codeischeap_core::{
 use codeischeap_desktop_api::{
     CaptureMode, CapturedRequest, CertificateAuthority, CertificateAuthorityState,
     CertificatePrivateMaterial, CertificateTrust, DesktopApiError, ExportPreview, ExportProfile,
-    ExportReceipt, WorkspaceBootstrap, build_batch_export_preview, build_export_preview,
-    load_request, load_workspace, search_requests,
+    ExportReceipt, SupportBundlePreview, WorkspaceBootstrap, build_batch_export_preview,
+    build_export_preview, build_support_bundle_preview, load_request, load_workspace,
+    search_requests,
 };
 use codeischeap_gateway::{Gateway, GatewayCapture, GatewayCaptureEvent};
 use codeischeap_proxy_recovery::recover_from_journal;
@@ -346,7 +347,7 @@ async fn write_capture_export(
         if preview.content_sha256 != expected_sha256 {
             return Err("capture changed after preview; review the refreshed export".to_owned());
         }
-        write_export_file(&path, preview.content.as_bytes())?;
+        write_new_json_file(&path, preview.content.as_bytes())?;
         Ok(ExportReceipt {
             path: path.to_string_lossy().into_owned(),
             byte_count: preview.byte_count,
@@ -381,6 +382,42 @@ async fn write_batch_capture_export(
     })
     .await
     .map_err(|error| format!("batch capture export write task failed: {error}"))?
+}
+
+#[tauri::command]
+async fn preview_support_bundle(
+    runtime_issue: Option<String>,
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+) -> Result<SupportBundlePreview, String> {
+    initialize_store(&app, &state.store)?;
+    let workspace = load_runtime_workspace(&app, &state).await?;
+    build_support_bundle_preview(&workspace, runtime_issue.as_deref(), current_unix_ms()?)
+        .map_err(|error| format!("support bundle could not be encoded: {error}"))
+}
+
+#[tauri::command]
+async fn write_support_bundle(
+    runtime_issue: Option<String>,
+    generated_at_unix_ms: u64,
+    expected_sha256: String,
+    path: PathBuf,
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+) -> Result<ExportReceipt, String> {
+    initialize_store(&app, &state.store)?;
+    let workspace = load_runtime_workspace(&app, &state).await?;
+    tauri::async_runtime::spawn_blocking(move || {
+        write_support_bundle_file(
+            &workspace,
+            runtime_issue.as_deref(),
+            generated_at_unix_ms,
+            &expected_sha256,
+            &path,
+        )
+    })
+    .await
+    .map_err(|error| format!("support bundle write task failed: {error}"))?
 }
 
 pub fn run() {
@@ -438,12 +475,14 @@ pub fn run() {
             install_certificate_authority_trust,
             preview_batch_capture_export,
             preview_capture_export,
+            preview_support_bundle,
             search_workspace,
             set_capture_active,
             set_capture_mode,
             uninstall_certificate_authority_trust,
             write_batch_capture_export,
-            write_capture_export
+            write_capture_export,
+            write_support_bundle
         ])
         .run(tauri::generate_context!())
         .expect("CodeIsCheap desktop runtime failed");
@@ -619,7 +658,30 @@ fn write_batch_capture_export_file(
     if preview.content_sha256 != expected_sha256 {
         return Err("a capture changed after preview; review the refreshed export".to_owned());
     }
-    write_export_file(path, preview.content.as_bytes())?;
+    write_new_json_file(path, preview.content.as_bytes())?;
+    Ok(ExportReceipt {
+        path: path.to_string_lossy().into_owned(),
+        byte_count: preview.byte_count,
+        redaction_count: u64::try_from(preview.redactions.len()).unwrap_or(u64::MAX),
+    })
+}
+
+fn write_support_bundle_file(
+    workspace: &WorkspaceBootstrap,
+    runtime_issue: Option<&str>,
+    generated_at_unix_ms: u64,
+    expected_sha256: &str,
+    path: &Path,
+) -> Result<ExportReceipt, String> {
+    let preview = build_support_bundle_preview(workspace, runtime_issue, generated_at_unix_ms)
+        .map_err(|error| format!("support bundle could not be encoded: {error}"))?;
+    if preview.content_sha256 != expected_sha256 {
+        return Err(
+            "diagnostic state changed after preview; review the refreshed support bundle"
+                .to_owned(),
+        );
+    }
+    write_new_json_file(path, preview.content.as_bytes())?;
     Ok(ExportReceipt {
         path: path.to_string_lossy().into_owned(),
         byte_count: preview.byte_count,
@@ -634,14 +696,14 @@ fn current_unix_ms() -> Result<u64, String> {
     u64::try_from(elapsed.as_millis()).map_err(|_| "system time is out of range".to_owned())
 }
 
-fn write_export_file(path: &Path, content: &[u8]) -> Result<(), String> {
+fn write_new_json_file(path: &Path, content: &[u8]) -> Result<(), String> {
     if !path.is_absolute()
         || path
             .extension()
             .and_then(|extension| extension.to_str())
             .is_none_or(|extension| !extension.eq_ignore_ascii_case("json"))
     {
-        return Err("capture exports require a new absolute .json path".to_owned());
+        return Err("exports require a new absolute .json path".to_owned());
     }
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);
@@ -1754,13 +1816,13 @@ mod tests {
         let directory = tempdir().expect("export directory");
         let path = directory.path().join("capture.json");
 
-        write_export_file(&path, b"{\"safe\":true}\n").expect("new export must write");
+        write_new_json_file(&path, b"{\"safe\":true}\n").expect("new export must write");
         assert_eq!(
             std::fs::read(&path).expect("export must be readable"),
             b"{\"safe\":true}\n"
         );
-        assert!(write_export_file(&path, b"replacement").is_err());
-        assert!(write_export_file(&directory.path().join("capture.txt"), b"{}").is_err());
+        assert!(write_new_json_file(&path, b"replacement").is_err());
+        assert!(write_new_json_file(&directory.path().join("capture.txt"), b"{}").is_err());
     }
 
     #[test]
@@ -1826,6 +1888,43 @@ mod tests {
 
         assert!(error.contains("changed after preview"));
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn support_bundle_writes_the_reviewed_scanned_document() {
+        let directory = tempdir().expect("temp directory must be created");
+        let mut store = EncryptedStore::open(
+            directory.path().join("captures.db"),
+            DatabaseKey::from_bytes([0x68; 32]),
+        )
+        .expect("encrypted store must open");
+        seed_demo_capture(&mut store).expect("demo capture must seed");
+        let workspace = load_workspace(&store).expect("workspace must load");
+        let runtime_issue = Some("Proxy rejected Bearer supportbundlecanary");
+        let preview = build_support_bundle_preview(&workspace, runtime_issue, 40)
+            .expect("support bundle must preview");
+        let path = directory.path().join("support.json");
+
+        let receipt = write_support_bundle_file(
+            &workspace,
+            runtime_issue,
+            40,
+            &preview.content_sha256,
+            &path,
+        )
+        .expect("reviewed support bundle must write");
+
+        assert_eq!(receipt.redaction_count, 1);
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("support bundle must be readable"),
+            preview.content
+        );
+        let stale_path = directory.path().join("stale-support.json");
+        assert!(
+            write_support_bundle_file(&workspace, runtime_issue, 40, &"0".repeat(64), &stale_path,)
+                .is_err()
+        );
+        assert!(!stale_path.exists());
     }
 
     #[test]

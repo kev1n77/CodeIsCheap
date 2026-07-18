@@ -15,6 +15,7 @@ export type { ExportProfile } from "./generated/desktop-api/ExportProfile";
 export type { ExportReceipt } from "./generated/desktop-api/ExportReceipt";
 export type { ExportRedaction } from "./generated/desktop-api/ExportRedaction";
 export type { RequestDetail } from "./generated/desktop-api/RequestDetail";
+export type { SupportBundlePreview } from "./generated/desktop-api/SupportBundlePreview";
 export type { TimelineEvent } from "./generated/desktop-api/TimelineEvent";
 export type { WorkspaceBootstrap } from "./generated/desktop-api/WorkspaceBootstrap";
 export type { WorkspaceSource } from "./generated/desktop-api/WorkspaceSource";
