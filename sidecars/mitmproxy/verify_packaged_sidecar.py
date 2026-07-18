@@ -45,6 +45,29 @@ CANARIES = {
     "response_cookie": "response-cookie-canary",
     "response_body": "response-body-canary",
 }
+
+
+def valid_loopback_transport(auth: dict[str, Any]) -> bool:
+    transport = auth.get("transport")
+    if not isinstance(transport, dict):
+        return False
+    versions = []
+    for field in ("client_addr", "server_addr"):
+        value = transport.get(field)
+        if not isinstance(value, str):
+            return False
+        try:
+            parsed = urlsplit(f"//{value}")
+            address = ipaddress.ip_address(parsed.hostname or "")
+            port = parsed.port
+        except ValueError:
+            return False
+        if not address.is_loopback or port is None or not 1 <= port <= 65535:
+            return False
+        versions.append(address.version)
+    return versions[0] == versions[1]
+
+
 HTTP1_CASES = ("gzip", "brotli", "sse")
 TARGET_CASES = (*HTTP1_CASES, "http2")
 
@@ -603,6 +626,8 @@ def main() -> None:
             frames = [(json.loads(auth), json.loads(envelope)) for auth, envelope in ipc_frames]
             if any(auth.get("token") != token for auth, _ in frames):
                 raise RuntimeError("IPC auth token was not preserved in every auth frame")
+            if any(not valid_loopback_transport(auth) for auth, _ in frames):
+                raise RuntimeError("IPC loopback transport context was not preserved")
             envelopes = [envelope for _, envelope in frames]
             encoded_envelopes = json.dumps(envelopes)
             if any(canary in encoded_envelopes for canary in CANARIES.values()):
@@ -703,6 +728,7 @@ def main() -> None:
                         "startup_ms": startup_ms,
                         "forwarding_preserved": True,
                         "credential_canaries_in_envelope": 0,
+                        "transport_context_preserved": True,
                         "prompt_preserved": True,
                         "response_preserved": True,
                         "compressed_response_preserved": True,

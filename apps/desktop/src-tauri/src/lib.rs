@@ -13,11 +13,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
 
 use codeischeap_adapters::AdapterRegistry;
-#[cfg(test)]
-use codeischeap_capture_ipc::CaptureEnvelope;
+use codeischeap_capture_ipc::{CaptureEnvelope, CaptureTransport, receive_one_with_transport};
 use codeischeap_capture_policy::CapturePolicy;
 use codeischeap_core::{
-    GatewayCaptureError, GatewayCaptureOutcome, IngestError, ingest_one, persist_capture,
+    GatewayCaptureError, GatewayCaptureOutcome, IngestError, ingest_envelope, persist_capture,
     process_gateway_event,
 };
 use codeischeap_desktop_api::{
@@ -115,6 +114,39 @@ struct ProxyCaptureContext {
     listener: TcpListener,
     token: String,
     policy: CapturePolicy,
+}
+
+#[derive(Default)]
+struct ProcessIdCache {
+    process_ids: HashMap<String, u32>,
+    order: VecDeque<String>,
+}
+
+impl ProcessIdCache {
+    fn get(&self, capture_id: &str) -> Option<u32> {
+        self.process_ids.get(capture_id).copied()
+    }
+
+    fn remember(&mut self, capture_id: &str, process_id: u32) {
+        if let Some(existing) = self.process_ids.get_mut(capture_id) {
+            *existing = process_id;
+            return;
+        }
+        while self.process_ids.len() >= MAX_PENDING_CAPTURE_OUTCOMES {
+            let Some(oldest) = self.order.pop_front() else {
+                break;
+            };
+            self.process_ids.remove(&oldest);
+        }
+        let capture_id = capture_id.to_owned();
+        self.process_ids.insert(capture_id.clone(), process_id);
+        self.order.push_back(capture_id);
+    }
+
+    fn finish(&mut self, capture_id: &str) {
+        self.process_ids.remove(capture_id);
+        self.order.retain(|pending| pending != capture_id);
+    }
 }
 
 impl ProxyRuntime {
@@ -1316,6 +1348,7 @@ fn generate_ipc_token() -> Result<String, String> {
 async fn process_proxy_events(context: ProxyCaptureContext, mut shutdown: oneshot::Receiver<()>) {
     let adapters = AdapterRegistry::default();
     let mut captures_since_retention = 0_usize;
+    let mut process_ids = ProcessIdCache::default();
     loop {
         let result = tokio::select! {
             _ = &mut shutdown => break,
@@ -1326,6 +1359,7 @@ async fn process_proxy_events(context: ProxyCaptureContext, mut shutdown: onesho
                 &adapters,
                 &context.store,
                 &context.capture_active,
+                &mut process_ids,
             ) => result,
         };
         match result {
@@ -1370,12 +1404,20 @@ async fn receive_and_persist_proxy_capture(
     adapters: &AdapterRegistry,
     store: &SharedStore,
     capture_active: &AtomicBool,
+    process_ids: &mut ProcessIdCache,
 ) -> Result<Option<String>, ProxyCaptureError> {
-    let capture = ingest_one(listener, token, policy).await?;
+    let received = receive_one_with_transport(listener, token)
+        .await
+        .map_err(IngestError::from)?;
+    let mut envelope = received.envelope;
+    let capture_id = envelope.capture_id.clone();
+    let is_outcome = envelope.outcome.is_some();
+    let resolved_process_id = resolve_proxy_process(received.transport).await;
+    apply_proxy_process_id(&mut envelope, policy, process_ids, resolved_process_id);
+    let capture = ingest_envelope(envelope, policy)?;
     if !capture_active.load(Ordering::Acquire) {
         return Ok(None);
     }
-    let capture_id = capture.envelope().capture_id.clone();
     let parsed = adapters.parse(&capture);
     let mut store = store
         .lock()
@@ -1384,7 +1426,42 @@ async fn receive_and_persist_proxy_capture(
         .as_mut()
         .ok_or(ProxyCaptureError::StoreUninitialized)?;
     persist_capture(store, &capture, parsed.prompt_ir.as_ref())?;
+    if is_outcome {
+        process_ids.finish(&capture_id);
+    }
     Ok(Some(capture_id))
+}
+
+async fn resolve_proxy_process(transport: Option<CaptureTransport>) -> Option<u32> {
+    let transport = transport?;
+    tokio::task::spawn_blocking(move || {
+        resolve_loopback_client_pid(transport.client_addr, transport.server_addr)
+            .ok()
+            .flatten()
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+fn apply_proxy_process_id(
+    envelope: &mut CaptureEnvelope,
+    policy: &CapturePolicy,
+    process_ids: &mut ProcessIdCache,
+    resolved_process_id: Option<u32>,
+) {
+    if let Some(attribution) = envelope.attribution.as_mut() {
+        attribution.process_id = None;
+    }
+    let process_id = resolved_process_id.or_else(|| process_ids.get(&envelope.capture_id));
+    let Some(process_id) = process_id else {
+        return;
+    };
+    let attribution = envelope
+        .attribution
+        .get_or_insert_with(|| policy.attribution_for(envelope.source, &envelope.request.headers));
+    attribution.process_id = Some(process_id);
+    process_ids.remember(&envelope.capture_id, process_id);
 }
 
 fn apply_proxy_error_policy(
@@ -1619,10 +1696,12 @@ fn show_main_window(app: &tauri::AppHandle) {
 #[cfg(test)]
 mod tests {
     use codeischeap_capture_ipc::{
-        CaptureOutcome, CapturedBody, CapturedBodyState, CapturedResponse, ResponseCompleteness,
+        AttributionConfidence, AttributionSource, CaptureAttribution, CaptureOutcome, CapturedBody,
+        CapturedBodyState, CapturedResponse, ResponseCompleteness,
     };
     use codeischeap_gateway::{CapturedPayload, GatewayResponseCapture};
     use codeischeap_storage::DatabaseKey;
+    use std::net::TcpStream as StdTcpStream;
     use tempfile::tempdir;
     use tokio::io::AsyncWriteExt;
     use tokio::net::TcpStream;
@@ -1881,15 +1960,36 @@ mod tests {
         let policy = CapturePolicy::load_default().expect("capture policy must load");
         let adapters = AdapterRegistry::default();
         let active = AtomicBool::new(true);
+        let mut process_ids = ProcessIdCache::default();
+        let process_listener = StdTcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+            .expect("process attribution listener must bind");
+        let process_server_addr = process_listener
+            .local_addr()
+            .expect("process attribution server address must exist");
+        let _process_client =
+            StdTcpStream::connect(process_server_addr).expect("process client must connect");
+        let (_process_server, process_client_addr) = process_listener
+            .accept()
+            .expect("process server must accept");
+        let transport = CaptureTransport {
+            client_addr: process_client_addr,
+            server_addr: process_server_addr,
+        };
         let request: CaptureEnvelope = serde_json::from_str(include_str!(
             "../../../../crates/capture-ipc/tests/fixtures/mitmproxy-request.json"
         ))
         .expect("request fixture must parse");
 
-        send_ipc_capture(address, &token, &request).await;
+        send_ipc_capture(address, &token, &request, Some(transport)).await;
         assert_eq!(
             receive_and_persist_proxy_capture(
-                &listener, &token, &policy, &adapters, &store, &active,
+                &listener,
+                &token,
+                &policy,
+                &adapters,
+                &store,
+                &active,
+                &mut process_ids,
             )
             .await
             .expect("request must persist"),
@@ -1907,18 +2007,32 @@ mod tests {
             duration_ms: 42,
             completeness: ResponseCompleteness::Complete,
         }));
-        send_ipc_capture(address, &token, &response).await;
-        receive_and_persist_proxy_capture(&listener, &token, &policy, &adapters, &store, &active)
-            .await
-            .expect("response must persist");
+        send_ipc_capture(address, &token, &response, None).await;
+        receive_and_persist_proxy_capture(
+            &listener,
+            &token,
+            &policy,
+            &adapters,
+            &store,
+            &active,
+            &mut process_ids,
+        )
+        .await
+        .expect("response must persist");
 
         active.store(false, Ordering::Release);
         let mut paused = request.clone();
         paused.capture_id = "paused_capture".to_owned();
-        send_ipc_capture(address, &token, &paused).await;
+        send_ipc_capture(address, &token, &paused, None).await;
         assert_eq!(
             receive_and_persist_proxy_capture(
-                &listener, &token, &policy, &adapters, &store, &active,
+                &listener,
+                &token,
+                &policy,
+                &adapters,
+                &store,
+                &active,
+                &mut process_ids,
             )
             .await
             .expect("paused event must be accepted and discarded"),
@@ -1929,6 +2043,13 @@ mod tests {
         let workspace = load_workspace(store.as_ref().expect("store must be initialized"))
             .expect("workspace must load");
         assert_eq!(workspace.capture.request_count, 1);
+        #[cfg(any(windows, target_os = "macos"))]
+        assert_eq!(
+            workspace.requests[0].application_process_id,
+            Some(std::process::id())
+        );
+        #[cfg(not(any(windows, target_os = "macos")))]
+        assert_eq!(workspace.requests[0].application_process_id, None);
         assert_eq!(workspace.requests[0].duration_ms, Some(42));
         assert_eq!(
             workspace.requests[0].status,
@@ -1936,21 +2057,64 @@ mod tests {
         );
     }
 
-    async fn send_ipc_capture(address: SocketAddr, token: &str, envelope: &CaptureEnvelope) {
+    async fn send_ipc_capture(
+        address: SocketAddr,
+        token: &str,
+        envelope: &CaptureEnvelope,
+        transport: Option<CaptureTransport>,
+    ) {
         let mut stream = TcpStream::connect(address)
             .await
             .expect("IPC client must connect");
         let auth = serde_json::json!({
             "protocol": "codeischeap.capture-ipc",
-            "version": "0.2",
+            "version": "0.3",
             "origin": "mitmproxy",
             "token": token,
+            "transport": transport,
         });
         stream
             .write_all(format!("{auth}\n{}\n", serde_json::to_string(envelope).unwrap()).as_bytes())
             .await
             .expect("IPC frames must write");
         stream.shutdown().await.expect("IPC client must close");
+    }
+
+    #[test]
+    fn proxy_process_ids_override_sidecar_claims_reach_outcomes_and_stay_bounded() {
+        let policy = CapturePolicy::load_default().expect("policy must load");
+        let mut request: CaptureEnvelope = serde_json::from_str(DEMO_CAPTURE).unwrap();
+        request.capture_id = "proxy-process".to_owned();
+        request.attribution = Some(CaptureAttribution {
+            application: "Proxy client".to_owned(),
+            source: AttributionSource::CaptureMode,
+            confidence: AttributionConfidence::Low,
+            process_id: Some(999),
+        });
+        let mut process_ids = ProcessIdCache::default();
+
+        apply_proxy_process_id(&mut request, &policy, &mut process_ids, Some(4242));
+        assert_eq!(request.attribution.unwrap().process_id, Some(4242));
+        assert_eq!(process_ids.get("proxy-process"), Some(4242));
+
+        let mut outcome: CaptureEnvelope = serde_json::from_str(DEMO_CAPTURE).unwrap();
+        outcome.capture_id = "proxy-process".to_owned();
+        outcome.attribution = Some(CaptureAttribution {
+            application: "Proxy client".to_owned(),
+            source: AttributionSource::CaptureMode,
+            confidence: AttributionConfidence::Low,
+            process_id: Some(777),
+        });
+        apply_proxy_process_id(&mut outcome, &policy, &mut process_ids, None);
+        assert_eq!(outcome.attribution.unwrap().process_id, Some(4242));
+        process_ids.finish("proxy-process");
+        assert_eq!(process_ids.get("proxy-process"), None);
+
+        for process_id in 1..=MAX_PENDING_CAPTURE_OUTCOMES as u32 + 1 {
+            process_ids.remember(&format!("capture-{process_id}"), process_id);
+        }
+        assert_eq!(process_ids.process_ids.len(), MAX_PENDING_CAPTURE_OUTCOMES);
+        assert_eq!(process_ids.get("capture-1"), None);
     }
 
     #[test]

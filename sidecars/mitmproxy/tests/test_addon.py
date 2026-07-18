@@ -20,6 +20,7 @@ from codeischeap_addon import (
     IpcConfig,
     build_envelope,
     build_failure_envelope,
+    build_transport_context,
     load_policy,
     send_envelope,
     should_capture,
@@ -79,6 +80,11 @@ class FakeRequest:
 class FakeFlow:
     id = "flow_1"
     request = FakeRequest()
+    client_conn = type(
+        "FakeClientConnection",
+        (),
+        {"peername": ("127.0.0.1", 53110), "sockname": ("127.0.0.1", 8787)},
+    )()
 
 
 class FakeResponse:
@@ -365,6 +371,22 @@ class AddonTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "loopback"):
                 IpcConfig.from_env()
 
+    def test_transport_context_accepts_only_exact_loopback_endpoints(self) -> None:
+        self.assertEqual(
+            build_transport_context(FakeFlow()),
+            {
+                "client_addr": "127.0.0.1:53110",
+                "server_addr": "127.0.0.1:8787",
+            },
+        )
+        flow = FakeFlow()
+        flow.client_conn = type(
+            "NonLoopbackConnection",
+            (),
+            {"peername": ("192.0.2.10", 53110), "sockname": ("127.0.0.1", 8787)},
+        )()
+        self.assertIsNone(build_transport_context(flow))
+
     def test_ipc_sends_auth_and_envelope_as_separate_frames(self) -> None:
         listener = socket.socket()
         listener.bind(("127.0.0.1", 0))
@@ -381,17 +403,20 @@ class AddonTests(unittest.TestCase):
         worker.start()
         config = IpcConfig("127.0.0.1", listener.getsockname()[1], "synthetic-token")
         envelope = build_envelope(FakeFlow())
-        send_envelope(config, envelope)
+        transport = build_transport_context(FakeFlow())
+        send_envelope(config, envelope, transport)
         worker.join(timeout=2)
         listener.close()
 
         self.assertFalse(worker.is_alive())
         auth = json.loads(received[0])
         captured = json.loads(received[1])
-        self.assertEqual(auth["version"], "0.2")
+        self.assertEqual(auth["version"], "0.3")
         self.assertEqual(auth["origin"], "mitmproxy")
         self.assertEqual(auth["token"], "synthetic-token")
+        self.assertEqual(auth["transport"], transport)
         self.assertNotIn("token", captured)
+        self.assertNotIn("transport", captured)
         self.assertEqual(captured, envelope)
 
 

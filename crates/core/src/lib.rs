@@ -65,7 +65,7 @@ pub async fn ingest_one(
     policy: &CapturePolicy,
 ) -> Result<SanitizedCapture, IngestError> {
     let envelope = receive_one(listener, expected_token).await?;
-    policy.sanitize_envelope(envelope).map_err(Into::into)
+    ingest_envelope(envelope, policy)
 }
 
 pub async fn ingest_from_reader<R>(
@@ -77,6 +77,13 @@ where
     R: AsyncBufRead + Unpin,
 {
     let envelope = receive_from_reader(reader, expected_token).await?;
+    ingest_envelope(envelope, policy)
+}
+
+pub fn ingest_envelope(
+    envelope: CaptureEnvelope,
+    policy: &CapturePolicy,
+) -> Result<SanitizedCapture, IngestError> {
     policy.sanitize_envelope(envelope).map_err(Into::into)
 }
 
@@ -437,7 +444,7 @@ mod tests {
         let (mut writer, reader) = tokio::io::duplex(16 * 1024);
         let auth = serde_json::json!({
             "protocol": "codeischeap.capture-ipc",
-            "version": "0.2",
+            "version": "0.3",
             "origin": "mitmproxy",
             "token": token,
         });

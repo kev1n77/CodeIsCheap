@@ -6,6 +6,7 @@
 
 use std::fmt;
 use std::io;
+use std::net::SocketAddr;
 use std::time::Duration;
 
 use schemars::JsonSchema;
@@ -17,7 +18,7 @@ use tokio::time::timeout;
 
 pub const CAPTURE_ENVELOPE_VERSION: &str = "0.1";
 pub const IPC_PROTOCOL: &str = "codeischeap.capture-ipc";
-pub const IPC_PROTOCOL_VERSION: &str = "0.2";
+pub const IPC_PROTOCOL_VERSION: &str = "0.3";
 pub const IPC_ORIGIN_MITMPROXY: &str = "mitmproxy";
 pub const CLIENT_LABEL_HEADER: &str = "x-codeischeap-client";
 pub const MAX_AUTH_FRAME_BYTES: usize = 1024;
@@ -170,6 +171,21 @@ struct AuthFrame {
     version: String,
     origin: String,
     token: String,
+    #[serde(default)]
+    transport: Option<CaptureTransport>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CaptureTransport {
+    pub client_addr: SocketAddr,
+    pub server_addr: SocketAddr,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReceivedCapture {
+    pub envelope: CaptureEnvelope,
+    pub transport: Option<CaptureTransport>,
 }
 
 #[derive(Debug)]
@@ -186,6 +202,7 @@ pub enum IpcError {
     UnsupportedProtocol,
     UnsupportedOrigin,
     Unauthorized,
+    InvalidTransport,
     UnsupportedEnvelopeVersion(String),
 }
 
@@ -208,6 +225,9 @@ impl fmt::Display for IpcError {
             Self::UnsupportedProtocol => write!(formatter, "capture IPC protocol is unsupported"),
             Self::UnsupportedOrigin => write!(formatter, "capture IPC origin is unsupported"),
             Self::Unauthorized => write!(formatter, "capture IPC authentication failed"),
+            Self::InvalidTransport => {
+                write!(formatter, "capture IPC transport context is invalid")
+            }
             Self::UnsupportedEnvelopeVersion(version) => {
                 write!(
                     formatter,
@@ -238,7 +258,16 @@ pub async fn receive_one(
     listener: &TcpListener,
     expected_token: &str,
 ) -> Result<CaptureEnvelope, IpcError> {
-    receive_one_with_deadline(listener, expected_token, DEFAULT_CONNECTION_DEADLINE).await
+    Ok(receive_one_with_transport(listener, expected_token)
+        .await?
+        .envelope)
+}
+
+pub async fn receive_one_with_transport(
+    listener: &TcpListener,
+    expected_token: &str,
+) -> Result<ReceivedCapture, IpcError> {
+    receive_one_with_transport_deadline(listener, expected_token, DEFAULT_CONNECTION_DEADLINE).await
 }
 
 pub async fn receive_one_with_deadline(
@@ -246,6 +275,18 @@ pub async fn receive_one_with_deadline(
     expected_token: &str,
     connection_deadline: Duration,
 ) -> Result<CaptureEnvelope, IpcError> {
+    Ok(
+        receive_one_with_transport_deadline(listener, expected_token, connection_deadline)
+            .await?
+            .envelope,
+    )
+}
+
+pub async fn receive_one_with_transport_deadline(
+    listener: &TcpListener,
+    expected_token: &str,
+    connection_deadline: Duration,
+) -> Result<ReceivedCapture, IpcError> {
     if !listener.local_addr()?.ip().is_loopback() {
         return Err(IpcError::NonLoopbackListener);
     }
@@ -257,7 +298,7 @@ pub async fn receive_one_with_deadline(
 
     timeout(
         connection_deadline,
-        receive_from_reader(&mut BufReader::new(stream), expected_token),
+        receive_from_reader_with_transport(&mut BufReader::new(stream), expected_token),
     )
     .await
     .map_err(|_| IpcError::ConnectionDeadlineExceeded)?
@@ -267,6 +308,18 @@ pub async fn receive_from_reader<R>(
     reader: &mut R,
     expected_token: &str,
 ) -> Result<CaptureEnvelope, IpcError>
+where
+    R: AsyncBufRead + Unpin,
+{
+    Ok(receive_from_reader_with_transport(reader, expected_token)
+        .await?
+        .envelope)
+}
+
+pub async fn receive_from_reader_with_transport<R>(
+    reader: &mut R,
+    expected_token: &str,
+) -> Result<ReceivedCapture, IpcError>
 where
     R: AsyncBufRead + Unpin,
 {
@@ -290,6 +343,13 @@ where
     {
         return Err(IpcError::Unauthorized);
     }
+    if auth.transport.is_some_and(|transport| {
+        !transport.client_addr.ip().is_loopback()
+            || !transport.server_addr.ip().is_loopback()
+            || transport.client_addr.is_ipv4() != transport.server_addr.is_ipv4()
+    }) {
+        return Err(IpcError::InvalidTransport);
+    }
 
     let envelope_bytes = read_frame(reader, MAX_FRAME_BYTES).await?;
     let envelope: CaptureEnvelope =
@@ -297,7 +357,10 @@ where
     if envelope.version != CAPTURE_ENVELOPE_VERSION {
         return Err(IpcError::UnsupportedEnvelopeVersion(envelope.version));
     }
-    Ok(envelope)
+    Ok(ReceivedCapture {
+        envelope,
+        transport: auth.transport,
+    })
 }
 
 async fn read_frame<R>(reader: &mut R, max_bytes: usize) -> Result<Vec<u8>, IpcError>
