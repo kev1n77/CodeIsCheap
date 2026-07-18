@@ -253,13 +253,10 @@ export function App() {
   const toggleCapture = () => {
     const next = !captureActive;
     persistCaptureActive(next)
-      .then((active) => {
-        setCaptureActive(active);
+      .then((nextWorkspace) => {
+        setCaptureActive(nextWorkspace.capture.active);
         setCaptureError("");
-        setWorkspace((current) => current && {
-          ...current,
-          capture: { ...current.capture, active },
-        });
+        setWorkspace(nextWorkspace);
       })
       .catch((error: unknown) => {
         setCaptureError(error instanceof Error ? error.message : "Capture state could not change.");

@@ -297,6 +297,24 @@ kbd { min-width: 18px; padding: 1px 5px; border: 1px solid var(--border); border
 .settings-band > div:first-child > span { color: var(--text-tertiary); font-size: 9px; font-weight: 700; text-transform: uppercase; }
 .settings-band > div:first-child > strong { font-size: 13px; }
 .settings-band > div:first-child > small { max-width: 480px; overflow-wrap: anywhere; color: var(--text-secondary); font-size: 10px; line-height: 1.45; }
+.compatibility-diagnostic { padding: 18px 22px; border-bottom: 1px solid var(--border); box-shadow: inset 3px 0 var(--amber); }
+.compatibility-diagnostic.compatibility-ready { box-shadow: inset 3px 0 var(--accent); }
+.compatibility-diagnostic.compatibility-blocked { box-shadow: inset 3px 0 var(--danger); }
+.compatibility-diagnostic > header { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
+.compatibility-diagnostic > header > div { display: grid; gap: 4px; }
+.compatibility-diagnostic > header > div > span { color: var(--text-tertiary); font-size: 9px; font-weight: 700; text-transform: uppercase; }
+.compatibility-diagnostic > header strong { font-size: 13px; }
+.compatibility-confidence { flex: 0 0 auto; color: var(--text-tertiary); font: 9px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; text-transform: uppercase; }
+.compatibility-diagnostic > p { max-width: 650px; margin: 8px 0 14px; color: var(--text-secondary); font-size: 10px; line-height: 1.55; }
+.compatibility-diagnostic > ul { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px 20px; margin: 0; padding: 0; list-style: none; }
+.compatibility-diagnostic li { min-width: 0; display: grid; grid-template-columns: 15px minmax(0, 1fr); align-items: start; gap: 7px; }
+.compatibility-diagnostic li svg { margin-top: 1px; color: var(--amber); }
+.compatibility-diagnostic li.compatibility-step-pass svg { color: var(--accent); }
+.compatibility-diagnostic li.compatibility-step-blocked svg { color: var(--danger); }
+.compatibility-diagnostic li > div { min-width: 0; display: grid; gap: 2px; }
+.compatibility-diagnostic li strong { color: var(--text-secondary); font-size: 10px; }
+.compatibility-diagnostic li span { overflow-wrap: anywhere; color: var(--text-tertiary); font: 9px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.compatibility-command { margin-top: 15px; }
 .settings-mode { width: 220px; }
 .settings-command { min-width: 112px; height: 31px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 11px; border: 1px solid var(--border-strong); border-radius: 5px; background: var(--surface); color: var(--text-secondary); cursor: pointer; }
 .settings-command:hover { color: var(--text); background: var(--surface-subtle); }
@@ -326,6 +344,10 @@ kbd { min-width: 18px; padding: 1px 5px; border: 1px solid var(--border); border
   .fixture-label { display: none; }
   .export-dialog { width: calc(100vw - 24px); height: calc(100vh - 24px); }
   .settings-dialog { width: calc(100vw - 24px); height: calc(100vh - 24px); }
+}
+
+@media (max-width: 620px) {
+  .compatibility-diagnostic > ul { grid-template-columns: minmax(0, 1fr); }
 }
 
 @media (prefers-reduced-motion: no-preference) {

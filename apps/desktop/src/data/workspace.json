@@ -22,6 +22,20 @@
       "detail": null
     }
   },
+  "compatibility": {
+    "code": "gateway_ready",
+    "status": "ready",
+    "confidence": "high",
+    "title": "Gateway capture ready",
+    "summary": "Route the target client to the local Gateway endpoint. Local certificate trust is not required.",
+    "recommendedMode": "gateway",
+    "action": "none",
+    "steps": [
+      { "id": "gateway_runtime", "status": "pass", "label": "Local Gateway", "detail": "127.0.0.1:3210" },
+      { "id": "certificate_interception", "status": "pass", "label": "Certificate interception", "detail": "Not required in Gateway mode" },
+      { "id": "recording", "status": "pass", "label": "Recording", "detail": "Active" }
+    ]
+  },
   "requests": [
     {
       "id": "req_anthropic_tools",

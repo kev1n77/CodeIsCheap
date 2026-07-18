@@ -24,8 +24,8 @@ use codeischeap_desktop_api::{
     CaptureMode, CapturedRequest, CertificateAuthority, CertificateAuthorityState,
     CertificatePrivateMaterial, CertificateTrust, DesktopApiError, DiagnosticEvent, ExportPreview,
     ExportProfile, ExportReceipt, SupportBundlePreview, WorkspaceBootstrap,
-    build_batch_export_preview, build_export_preview, build_support_bundle_preview, load_request,
-    load_workspace, search_requests,
+    build_batch_export_preview, build_export_preview, build_support_bundle_preview,
+    diagnose_capture_compatibility, load_request, load_workspace, search_requests,
 };
 use codeischeap_gateway::{Gateway, GatewayCapture, GatewayCaptureEvent};
 use codeischeap_proxy_recovery::recover_from_journal;
@@ -77,6 +77,7 @@ struct DesktopState {
     proxy: AsyncMutex<Option<ProxyRuntime>>,
     mode: AsyncMutex<CaptureMode>,
     capture_active: Arc<AtomicBool>,
+    proxy_session_event_count: Arc<AtomicU64>,
     next_proxy_generation: AtomicU64,
     proxy_recovery_checked: AtomicBool,
     sidecar_bundle: Option<Arc<SidecarBundle>>,
@@ -103,6 +104,16 @@ struct ProxyRuntime {
     process: Option<SidecarProcess>,
     endpoint: String,
     shutdown: Option<oneshot::Sender<()>>,
+}
+
+struct ProxyCaptureContext {
+    app: AppHandle,
+    store: SharedStore,
+    capture_active: Arc<AtomicBool>,
+    session_event_count: Arc<AtomicU64>,
+    listener: TcpListener,
+    token: String,
+    policy: CapturePolicy,
 }
 
 impl ProxyRuntime {
@@ -147,6 +158,7 @@ struct RuntimeSnapshot {
     gateway_endpoint: Option<String>,
     proxy_endpoint: Option<String>,
     system_proxy_active: bool,
+    proxy_session_event_count: u64,
     certificate_authority: CertificateAuthority,
 }
 
@@ -232,7 +244,11 @@ async fn search_workspace(
 }
 
 #[tauri::command]
-async fn set_capture_active(active: bool, state: State<'_, DesktopState>) -> Result<bool, String> {
+async fn set_capture_active(
+    active: bool,
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+) -> Result<WorkspaceBootstrap, String> {
     let mode = *state.mode.lock().await;
     match mode {
         CaptureMode::Gateway => {
@@ -249,7 +265,7 @@ async fn set_capture_active(active: bool, state: State<'_, DesktopState>) -> Res
         }
     }
     state.capture_active.store(active, Ordering::Release);
-    Ok(active)
+    load_runtime_workspace(&app, &state).await
 }
 
 #[tauri::command]
@@ -443,6 +459,7 @@ pub fn run() {
                 proxy: AsyncMutex::new(None),
                 mode: AsyncMutex::new(CaptureMode::Gateway),
                 capture_active: Arc::new(AtomicBool::new(true)),
+                proxy_session_event_count: Arc::new(AtomicU64::new(0)),
                 next_proxy_generation: AtomicU64::new(1),
                 proxy_recovery_checked: AtomicBool::new(false),
                 sidecar_bundle,
@@ -873,6 +890,7 @@ async fn runtime_snapshot(app: &AppHandle, state: &DesktopState) -> RuntimeSnaps
         gateway_endpoint,
         proxy_endpoint,
         system_proxy_active,
+        proxy_session_event_count: state.proxy_session_event_count.load(Ordering::Acquire),
         certificate_authority: application_certificate_authority(app),
     }
 }
@@ -899,6 +917,8 @@ fn apply_runtime_state(workspace: &mut WorkspaceBootstrap, snapshot: RuntimeSnap
     workspace.capture.profile = profile.to_owned();
     workspace.capture.endpoint = endpoint.unwrap_or("Not connected").to_owned();
     workspace.capture.certificate_authority = snapshot.certificate_authority;
+    workspace.compatibility =
+        diagnose_capture_compatibility(&workspace.capture, snapshot.proxy_session_event_count);
 }
 
 fn application_certificate_authority(app: &AppHandle) -> CertificateAuthority {
@@ -1101,6 +1121,7 @@ async fn ensure_proxy(app: &AppHandle, state: &DesktopState) -> Result<(), Strin
     .map_err(|error| error.to_string())?;
     let endpoint = format!("http://{}", process.endpoint());
     let generation = state.next_proxy_generation.fetch_add(1, Ordering::Relaxed);
+    state.proxy_session_event_count.store(0, Ordering::Release);
     let mut next_runtime = ProxyRuntime {
         generation,
         system_proxy: None,
@@ -1111,12 +1132,15 @@ async fn ensure_proxy(app: &AppHandle, state: &DesktopState) -> Result<(), Strin
     activate_system_proxy(app, &mut next_runtime).await?;
     let (shutdown, shutdown_rx) = oneshot::channel();
     tauri::async_runtime::spawn(process_proxy_events(
-        app.clone(),
-        state.store.clone(),
-        state.capture_active.clone(),
-        listener,
-        token,
-        policy,
+        ProxyCaptureContext {
+            app: app.clone(),
+            store: state.store.clone(),
+            capture_active: state.capture_active.clone(),
+            session_event_count: state.proxy_session_event_count.clone(),
+            listener,
+            token,
+            policy,
+        },
         shutdown_rx,
     ));
     next_runtime.shutdown = Some(shutdown);
@@ -1287,36 +1311,30 @@ fn generate_ipc_token() -> Result<String, String> {
     Ok(token)
 }
 
-async fn process_proxy_events(
-    app: AppHandle,
-    store: SharedStore,
-    capture_active: Arc<AtomicBool>,
-    listener: TcpListener,
-    token: String,
-    policy: CapturePolicy,
-    mut shutdown: oneshot::Receiver<()>,
-) {
+async fn process_proxy_events(context: ProxyCaptureContext, mut shutdown: oneshot::Receiver<()>) {
     let adapters = AdapterRegistry::default();
     let mut captures_since_retention = 0_usize;
     loop {
         let result = tokio::select! {
             _ = &mut shutdown => break,
             result = receive_and_persist_proxy_capture(
-                &listener,
-                &token,
-                &policy,
+                &context.listener,
+                &context.token,
+                &context.policy,
                 &adapters,
-                &store,
-                &capture_active,
+                &context.store,
+                &context.capture_active,
             ) => result,
         };
         match result {
             Ok(Some(capture_id)) => {
+                context.session_event_count.fetch_add(1, Ordering::Relaxed);
                 captures_since_retention += 1;
-                emit_capture_updated(&app, capture_id);
+                emit_capture_updated(&context.app, capture_id);
                 if captures_since_retention >= CAPTURES_PER_RETENTION_RUN {
                     captures_since_retention = 0;
-                    let maintenance = store
+                    let maintenance = context
+                        .store
                         .lock()
                         .map_err(|_| ProxyCaptureError::StoreUnavailable)
                         .and_then(|mut store| {
@@ -1328,13 +1346,13 @@ async fn process_proxy_events(
                             .map_err(ProxyCaptureError::Storage)
                         });
                     if let Err(error) = maintenance {
-                        apply_proxy_error_policy(&capture_active, &app, &error);
+                        apply_proxy_error_policy(&context.capture_active, &context.app, &error);
                     }
                 }
             }
             Ok(None) => {}
             Err(error) => {
-                apply_proxy_error_policy(&capture_active, &app, &error);
+                apply_proxy_error_policy(&context.capture_active, &context.app, &error);
                 if matches!(error, ProxyCaptureError::Ingest(_)) {
                     tokio::time::sleep(Duration::from_millis(100)).await;
                 }
@@ -1679,6 +1697,7 @@ mod tests {
                 gateway_endpoint: Some("http://127.0.0.1:8787".to_owned()),
                 proxy_endpoint: None,
                 system_proxy_active: false,
+                proxy_session_event_count: 0,
                 certificate_authority: CertificateAuthority::missing(),
             },
         );
@@ -1689,6 +1708,10 @@ mod tests {
         assert_eq!(workspace.capture.mode, CaptureMode::Gateway);
         assert_eq!(workspace.capture.endpoint, "http://127.0.0.1:8787");
         assert_eq!(workspace.capture.profile, "OpenAI-compatible local gateway");
+        assert_eq!(
+            workspace.compatibility.code,
+            codeischeap_desktop_api::CaptureCompatibilityCode::CapturePaused
+        );
     }
 
     #[test]
@@ -1707,8 +1730,8 @@ mod tests {
             subject: Some("mitmproxy".to_owned()),
             valid_from_unix_ms: Some(1_577_836_800_000),
             valid_until_unix_ms: Some(4_070_908_800_000),
-            private_material: CertificatePrivateMaterial::Unchecked,
-            trust: CertificateTrust::Unchecked,
+            private_material: CertificatePrivateMaterial::Restricted,
+            trust: CertificateTrust::Trusted,
             detail: None,
         };
 
@@ -1721,6 +1744,7 @@ mod tests {
                 gateway_endpoint: Some("http://127.0.0.1:8787".to_owned()),
                 proxy_endpoint: Some("http://127.0.0.1:43125".to_owned()),
                 system_proxy_active: true,
+                proxy_session_event_count: 0,
                 certificate_authority: certificate_authority.clone(),
             },
         );
@@ -1737,6 +1761,28 @@ mod tests {
         assert_eq!(
             workspace.capture.certificate_authority,
             certificate_authority
+        );
+        assert_eq!(
+            workspace.compatibility.code,
+            codeischeap_desktop_api::CaptureCompatibilityCode::ProxyCaptureUnobserved
+        );
+
+        apply_runtime_state(
+            &mut workspace,
+            RuntimeSnapshot {
+                mode: CaptureMode::Proxy,
+                active: true,
+                proxy_available: true,
+                gateway_endpoint: Some("http://127.0.0.1:8787".to_owned()),
+                proxy_endpoint: Some("http://127.0.0.1:43125".to_owned()),
+                system_proxy_active: true,
+                proxy_session_event_count: 1,
+                certificate_authority,
+            },
+        );
+        assert_eq!(
+            workspace.compatibility.code,
+            codeischeap_desktop_api::CaptureCompatibilityCode::ProxyCaptureObserved
         );
     }
 
@@ -1943,6 +1989,7 @@ mod tests {
             })),
             mode: AsyncMutex::new(CaptureMode::Proxy),
             capture_active: Arc::new(AtomicBool::new(true)),
+            proxy_session_event_count: Arc::new(AtomicU64::new(0)),
             next_proxy_generation: AtomicU64::new(8),
             proxy_recovery_checked: AtomicBool::new(true),
             sidecar_bundle: None,

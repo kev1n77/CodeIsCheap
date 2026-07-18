@@ -44,6 +44,7 @@ export function SettingsDialog({ workspace, active, runtimeError, certificateErr
   const [supportSavedPath, setSupportSavedPath] = useState("");
   const closeRef = useRef<HTMLButtonElement>(null);
   const certificate = workspace.capture.certificateAuthority;
+  const compatibility = workspace.compatibility;
   const canTrust = certificate.canManageTrust
     && certificate.state === "ready"
     && certificate.trust === "not_trusted";
@@ -133,7 +134,30 @@ export function SettingsDialog({ workspace, active, runtimeError, certificateErr
           </section>
           <section className="settings-band">
             <div><span>Local certificate authority</span><strong>{certificateLabel(certificate)}</strong><small className={certificateError ? "settings-error" : undefined}>{certificateError || certificate.detail || certificate.fingerprintSha256 || "No local CA material"}</small></div>
-            {(canTrust || canRemoveTrust) && <button className="settings-command" disabled={certificateChanging} onClick={() => onCertificateTrustChange(canTrust)}>{certificateChanging ? <LoaderCircle className="is-spinning" size={14} /> : <ShieldCheck size={14} />}{canTrust ? "Trust CA" : "Remove trust"}</button>}
+            {(canTrust || canRemoveTrust) && compatibility.action !== "trust_certificate" && <button className="settings-command" disabled={certificateChanging} onClick={() => onCertificateTrustChange(canTrust)}>{certificateChanging ? <LoaderCircle className="is-spinning" size={14} /> : <ShieldCheck size={14} />}{canTrust ? "Trust CA" : "Remove trust"}</button>}
+          </section>
+          <section className={`compatibility-diagnostic compatibility-${compatibility.status}`} aria-labelledby="compatibility-title">
+            <header>
+              <div>
+                <span>Compatibility</span>
+                <strong id="compatibility-title">{compatibility.title}</strong>
+              </div>
+              <span className="compatibility-confidence">{compatibility.confidence} confidence</span>
+            </header>
+            <p>{compatibility.summary}</p>
+            <ul aria-label="Compatibility checks">
+              {compatibility.steps.map((step) => <li key={step.id} className={`compatibility-step-${step.status}`}>
+                {step.status === "pass" ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
+                <div><strong>{step.label}</strong><span>{step.detail}</span></div>
+              </li>)}
+            </ul>
+            {compatibility.action !== "none" && <CompatibilityCommand
+              action={compatibility.action}
+              disabled={modeChanging || certificateChanging || (compatibility.action !== "trust_certificate" && !workspace.capture.canControl)}
+              onResume={onToggleCapture}
+              onTrust={() => onCertificateTrustChange(true)}
+              onGateway={() => onModeChange("gateway")}
+            />}
           </section>
           <section className="settings-band recovery-band">
             <div><span>Safe recovery</span><strong>Return traffic to the local Gateway</strong><small>Stops the explicit proxy runtime and restores managed system proxy settings.</small></div>
@@ -151,6 +175,7 @@ export function SettingsDialog({ workspace, active, runtimeError, certificateErr
               <DiagnosticRow label="Proxy bundle" healthy={workspace.capture.proxyAvailable} detail={workspace.capture.proxyAvailable ? "Verified and available" : "Unavailable"} />
               <DiagnosticRow label="Local CA" healthy={certificate.state === "ready"} detail={certificateLabel(certificate)} />
               <DiagnosticRow label="System trust" healthy={certificate.trust === "trusted" || workspace.capture.mode === "gateway"} detail={certificate.trust.replaceAll("_", " ")} />
+              <DiagnosticRow label="Compatibility" healthy={compatibility.status === "ready"} detail={`${compatibility.title} · ${compatibility.confidence} confidence`} />
               <DiagnosticRow label="Stored requests" healthy={true} detail={String(workspace.capture.requestCount)} />
             </tbody>
           </table>
@@ -160,6 +185,22 @@ export function SettingsDialog({ workspace, active, runtimeError, certificateErr
       </section>
     </div>
   );
+}
+
+function CompatibilityCommand({ action, disabled, onResume, onTrust, onGateway }: {
+  action: WorkspaceBootstrap["compatibility"]["action"];
+  disabled: boolean;
+  onResume: () => void;
+  onTrust: () => void;
+  onGateway: () => void;
+}) {
+  if (action === "resume_capture") {
+    return <button className="settings-command compatibility-command" disabled={disabled} onClick={onResume}><Play size={14} />Resume capture</button>;
+  }
+  if (action === "trust_certificate") {
+    return <button className="settings-command compatibility-command" disabled={disabled} onClick={onTrust}><ShieldCheck size={14} />Trust CA</button>;
+  }
+  return <button className="settings-command compatibility-command" disabled={disabled} onClick={onGateway}><RotateCcw size={14} />Use Gateway</button>;
 }
 
 function DiagnosticRow({ label, healthy, detail }: { label: string; healthy: boolean; detail: string }) {

@@ -39,7 +39,7 @@ Rust crate 位于 `crates/prompt-ir`，公开 JSON Schema 位于 `schemas/prompt
 
 加密存储位于 `crates/storage`：使用 SQLCipher、WAL、版本化迁移与 FTS5，数据库 key 由 Windows Credential Manager 或 macOS Keychain 持有，并覆盖错误密钥拒绝、加密备份恢复与落盘明文 canary 测试。
 
-桌面应用位于 `apps/desktop`。Tauri 通过 OS 凭据库打开 SQLCipher，并从加密数据库加载三栏工作台；首次启动会幂等写入一条经过共享 Capture Policy 清洗的演示请求。浏览器开发模式继续使用无凭据 fixture，实时 Gateway 捕获将在后续接入。
+桌面应用位于 `apps/desktop`。Tauri 通过 OS 凭据库打开 SQLCipher，并从加密数据库加载三栏工作台；桌面运行时接入实时 Gateway/Proxy 捕获，浏览器开发模式使用无凭据 fixture。
 
 桌面 command DTO 定义在 `crates/desktop-api`，公开 Schema 位于 `schemas/desktop-api/v0.1.schema.json`，React 使用的 TypeScript 类型由 Rust 生成。契约变更后执行：
 
@@ -54,6 +54,8 @@ cargo run -p codeischeap-desktop-api --bin export-desktop-contract
 sidecar IPC 协议为 `0.2`：仅监听 loopback，使用每次 Proxy 会话重新生成的 256-bit token，认证帧限制为 1 KiB，并要求 `mitmproxy` 来源声明；已接受连接必须在 2 秒内完成认证与数据帧，否则释放连接。sidecar manifest 分别声明 IPC、Envelope 和 Policy 版本，不兼容 bundle 会在启动前被拒绝。
 
 Gateway 和 Proxy 捕获会按显式客户端标签、User-Agent 规则或捕获模式回退生成带置信度的应用归因。Gateway 客户端可设置 `x-codeischeap-client: <application>` 提供高置信度标签；该内部请求头会在持久化和转发上游前删除。当前归因不声明进程 PID，未知客户端会明确显示为低置信度的 `Gateway client` 或 `Proxy client`。
+
+Connection 设置页会按 Proxy bundle、loopback 端点、本地 CA、系统信任和当前会话捕获事件生成兼容诊断。Proxy 全部就绪但仍无事件时，只提示低置信度的代理绕过/证书固定可能性，并提供 Gateway 回退；产品不会尝试绕过证书固定。
 
 系统代理事务与独立恢复 watchdog 位于 `crates/proxy-recovery`；Windows WinINet 与 macOS networksetup backend 均已通过临时 CI runner 的真实强杀恢复实验。
 

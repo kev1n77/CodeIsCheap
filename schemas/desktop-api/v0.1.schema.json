@@ -9,6 +9,9 @@
     "capture": {
       "$ref": "#/$defs/CaptureState"
     },
+    "compatibility": {
+      "$ref": "#/$defs/CaptureCompatibility"
+    },
     "requests": {
       "type": "array",
       "items": {
@@ -23,6 +26,7 @@
     "apiVersion",
     "source",
     "capture",
+    "compatibility",
     "requests"
   ],
   "$defs": {
@@ -109,6 +113,71 @@
         "high",
         "medium",
         "low"
+      ]
+    },
+    "CaptureCompatibility": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/CompatibilityAction"
+        },
+        "code": {
+          "$ref": "#/$defs/CaptureCompatibilityCode"
+        },
+        "confidence": {
+          "$ref": "#/$defs/CompatibilityConfidence"
+        },
+        "recommendedMode": {
+          "$ref": "#/$defs/CaptureMode"
+        },
+        "status": {
+          "$ref": "#/$defs/CaptureCompatibilityStatus"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CompatibilityStep"
+          }
+        },
+        "summary": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "status",
+        "confidence",
+        "title",
+        "summary",
+        "recommendedMode",
+        "action",
+        "steps"
+      ]
+    },
+    "CaptureCompatibilityCode": {
+      "type": "string",
+      "enum": [
+        "gateway_ready",
+        "gateway_unavailable",
+        "proxy_bundle_unavailable",
+        "proxy_unavailable",
+        "certificate_missing",
+        "certificate_invalid",
+        "certificate_trust_required",
+        "capture_paused",
+        "proxy_capture_unobserved",
+        "proxy_capture_observed"
+      ]
+    },
+    "CaptureCompatibilityStatus": {
+      "type": "string",
+      "enum": [
+        "ready",
+        "attention",
+        "blocked"
       ]
     },
     "CaptureMode": {
@@ -370,6 +439,54 @@
         "trusted",
         "not_trusted",
         "unsupported"
+      ]
+    },
+    "CompatibilityAction": {
+      "type": "string",
+      "enum": [
+        "none",
+        "resume_capture",
+        "trust_certificate",
+        "use_gateway"
+      ]
+    },
+    "CompatibilityConfidence": {
+      "type": "string",
+      "enum": [
+        "high",
+        "low"
+      ]
+    },
+    "CompatibilityStep": {
+      "type": "object",
+      "properties": {
+        "detail": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/CompatibilityStepStatus"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "label",
+        "detail"
+      ]
+    },
+    "CompatibilityStepStatus": {
+      "type": "string",
+      "enum": [
+        "pass",
+        "attention",
+        "blocked",
+        "pending"
       ]
     },
     "EvidenceLevel": {
