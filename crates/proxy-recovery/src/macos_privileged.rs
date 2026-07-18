@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use url::Url;
+use url::{Host, Url};
 
 use crate::{
     MACOS_PRIVILEGED_HELPER_PROTOCOL_VERSION, MACOS_PROXY_RECOVERY_JOURNAL_FILENAME,
@@ -352,12 +352,13 @@ fn helper_nonce<'a>(path: &'a Path, prefix: &str, suffix: &str) -> Result<&'a st
 fn helper_proxy_settings(endpoint: &str) -> Result<ProxySettings, RecoveryError> {
     let url = Url::parse(endpoint)
         .map_err(|_| RecoveryError::InvalidProxyEndpoint(endpoint.to_owned()))?;
-    let host = url
-        .host_str()
-        .and_then(|host| host.parse::<std::net::IpAddr>().ok())
-        .filter(std::net::IpAddr::is_loopback);
+    let loopback_host = match url.host() {
+        Some(Host::Ipv4(address)) => address.is_loopback(),
+        Some(Host::Ipv6(address)) => address.is_loopback(),
+        _ => false,
+    };
     if url.scheme() != "http"
-        || host.is_none()
+        || !loopback_host
         || url.port().is_none()
         || !url.username().is_empty()
         || url.password().is_some()
