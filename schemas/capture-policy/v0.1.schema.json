@@ -3,6 +3,99 @@
   "title": "CapturePolicy",
   "type": "object",
   "properties": {
+    "attribution": {
+      "$ref": "#/$defs/AttributionPolicy",
+      "default": {
+        "client_label_header": "x-codeischeap-client",
+        "gateway_fallback": "Gateway client",
+        "max_label_bytes": 64,
+        "proxy_fallback": "Proxy client",
+        "user_agents": [
+          {
+            "application": "Cursor",
+            "contains": [
+              "cursor/",
+              "cursor "
+            ]
+          },
+          {
+            "application": "VS Code",
+            "contains": [
+              "vscode/",
+              "visual studio code"
+            ]
+          },
+          {
+            "application": "Claude Code",
+            "contains": [
+              "claude-code",
+              "claude code"
+            ]
+          },
+          {
+            "application": "Codex CLI",
+            "contains": [
+              "codex-cli",
+              "openai-codex",
+              "codex/"
+            ]
+          },
+          {
+            "application": "JetBrains",
+            "contains": [
+              "jetbrains",
+              "intellij",
+              "pycharm",
+              "webstorm"
+            ]
+          },
+          {
+            "application": "Microsoft Edge",
+            "contains": [
+              "edg/"
+            ]
+          },
+          {
+            "application": "Google Chrome",
+            "contains": [
+              "chrome/"
+            ]
+          },
+          {
+            "application": "Mozilla Firefox",
+            "contains": [
+              "firefox/"
+            ]
+          },
+          {
+            "application": "Apple Safari",
+            "contains": [
+              "safari/"
+            ]
+          },
+          {
+            "application": "curl",
+            "contains": [
+              "curl/"
+            ]
+          },
+          {
+            "application": "Python",
+            "contains": [
+              "python-requests/",
+              "aiohttp/"
+            ]
+          },
+          {
+            "application": "Node.js",
+            "contains": [
+              "node-fetch",
+              "undici"
+            ]
+          }
+        ]
+      }
+    },
     "sensitive_names": {
       "type": "array",
       "items": {
@@ -26,6 +119,39 @@
     "sensitive_names"
   ],
   "$defs": {
+    "AttributionPolicy": {
+      "type": "object",
+      "properties": {
+        "client_label_header": {
+          "type": "string"
+        },
+        "gateway_fallback": {
+          "type": "string"
+        },
+        "max_label_bytes": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "proxy_fallback": {
+          "type": "string"
+        },
+        "user_agents": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/UserAgentRule"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "client_label_header",
+        "max_label_bytes",
+        "user_agents",
+        "gateway_fallback",
+        "proxy_fallback"
+      ]
+    },
     "CaptureTarget": {
       "type": "object",
       "properties": {
@@ -57,6 +183,25 @@
         "hosts",
         "methods",
         "paths"
+      ]
+    },
+    "UserAgentRule": {
+      "type": "object",
+      "properties": {
+        "application": {
+          "type": "string"
+        },
+        "contains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "application",
+        "contains"
       ]
     }
   }

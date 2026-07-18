@@ -1,5 +1,7 @@
 export type { AnatomyItem } from "./generated/desktop-api/AnatomyItem";
 export type { AnatomySection } from "./generated/desktop-api/AnatomySection";
+export type { ApplicationAttributionSource } from "./generated/desktop-api/ApplicationAttributionSource";
+export type { ApplicationConfidence } from "./generated/desktop-api/ApplicationConfidence";
 export type { CapturedRequest } from "./generated/desktop-api/CapturedRequest";
 export type { CaptureMode } from "./generated/desktop-api/CaptureMode";
 export type { CaptureState } from "./generated/desktop-api/CaptureState";

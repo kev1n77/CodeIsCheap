@@ -63,6 +63,23 @@ describe("request workbench", () => {
     expect(screen.getByRole("heading", { name: "gpt-4.1" })).toBeInTheDocument();
   });
 
+  it("shows application attribution confidence and evidence source", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    const listbox = await screen.findByRole("listbox", { name: "Request results" });
+    const requests = within(listbox).getAllByRole("option");
+    expect(within(requests[0]).getByText("high")).toBeInTheDocument();
+    expect(within(requests[1]).getByText("medium")).toBeInTheDocument();
+    expect(within(requests[5]).getByText("low")).toBeInTheDocument();
+
+    await user.click(requests[1]);
+    const inspector = screen.getByRole("region", { name: "Request inspector" });
+    expect(within(inspector).getByText("Chrome")).toBeInTheDocument();
+    expect(within(inspector).getByText("medium")).toBeInTheDocument();
+    expect(within(inspector).getByText("user agent")).toBeInTheDocument();
+  });
+
   it("combines tool and error filters", async () => {
     const user = userEvent.setup();
     render(<App />);

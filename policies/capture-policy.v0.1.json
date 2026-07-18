@@ -47,6 +47,26 @@
       ]
     }
   ],
+  "attribution": {
+    "client_label_header": "x-codeischeap-client",
+    "max_label_bytes": 64,
+    "user_agents": [
+      { "application": "Cursor", "contains": ["cursor/", "cursor "] },
+      { "application": "VS Code", "contains": ["vscode/", "visual studio code"] },
+      { "application": "Claude Code", "contains": ["claude-code", "claude code"] },
+      { "application": "Codex CLI", "contains": ["codex-cli", "openai-codex", "codex/"] },
+      { "application": "JetBrains", "contains": ["jetbrains", "intellij", "pycharm", "webstorm"] },
+      { "application": "Microsoft Edge", "contains": ["edg/"] },
+      { "application": "Google Chrome", "contains": ["chrome/"] },
+      { "application": "Mozilla Firefox", "contains": ["firefox/"] },
+      { "application": "Apple Safari", "contains": ["safari/"] },
+      { "application": "curl", "contains": ["curl/"] },
+      { "application": "Python", "contains": ["python-requests/", "aiohttp/"] },
+      { "application": "Node.js", "contains": ["node-fetch", "undici"] }
+    ],
+    "gateway_fallback": "Gateway client",
+    "proxy_fallback": "Proxy client"
+  },
   "sensitive_names": [
     "authorization",
     "proxy-authorization",

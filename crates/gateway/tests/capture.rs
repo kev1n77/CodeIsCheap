@@ -53,6 +53,10 @@ async fn spawn_gateway(upstream: Url, capture: GatewayCapture) -> TestServer {
 }
 
 async fn fixed_response(request: Request<Body>) -> Response<Body> {
+    assert!(
+        !request.headers().contains_key("x-codeischeap-client"),
+        "internal client labels must not reach the upstream"
+    );
     let body = to_bytes(request.into_body(), usize::MAX)
         .await
         .expect("request body must be readable");
@@ -79,6 +83,7 @@ async fn captures_exact_forwarded_request_and_response_bodies() {
         )
         .header("authorization", "Bearer request-secret")
         .header("content-type", "application/json")
+        .header("x-codeischeap-client", "VS Code")
         .body("captured request")
         .send()
         .await
@@ -108,6 +113,12 @@ async fn captures_exact_forwarded_request_and_response_bodies() {
             .headers
             .iter()
             .any(|(name, value)| { name == "authorization" && value == "Bearer request-secret" })
+    );
+    assert!(
+        request
+            .headers
+            .iter()
+            .any(|(name, value)| name == "x-codeischeap-client" && value == "VS Code")
     );
     assert_eq!(request.body.bytes, "captured request");
     assert!(request.body.complete);

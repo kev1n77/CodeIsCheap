@@ -560,6 +560,7 @@ dependencies = [
  "async-stream",
  "axum",
  "bytes",
+ "codeischeap-capture-ipc",
  "futures-util",
  "http",
  "reqwest 0.12.28",

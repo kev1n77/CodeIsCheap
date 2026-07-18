@@ -19,6 +19,7 @@ pub const CAPTURE_ENVELOPE_VERSION: &str = "0.1";
 pub const IPC_PROTOCOL: &str = "codeischeap.capture-ipc";
 pub const IPC_PROTOCOL_VERSION: &str = "0.2";
 pub const IPC_ORIGIN_MITMPROXY: &str = "mitmproxy";
+pub const CLIENT_LABEL_HEADER: &str = "x-codeischeap-client";
 pub const MAX_AUTH_FRAME_BYTES: usize = 1024;
 pub const MAX_FRAME_BYTES: usize = 4 * 1024 * 1024;
 pub const DEFAULT_CONNECTION_DEADLINE: Duration = Duration::from_secs(2);
@@ -30,6 +31,8 @@ pub struct CaptureEnvelope {
     pub capture_id: String,
     pub observed_at_unix_ms: u64,
     pub source: CaptureSource,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attribution: Option<CaptureAttribution>,
     pub request: CapturedRequest,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outcome: Option<CaptureOutcome>,
@@ -42,6 +45,32 @@ pub struct CaptureEnvelope {
 pub enum CaptureSource {
     Gateway,
     Mitmproxy,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CaptureAttribution {
+    pub application: String,
+    pub source: AttributionSource,
+    pub confidence: AttributionConfidence,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub process_id: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AttributionSource {
+    ClientLabel,
+    UserAgent,
+    CaptureMode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AttributionConfidence {
+    High,
+    Medium,
+    Low,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]

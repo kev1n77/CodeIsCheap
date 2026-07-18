@@ -40,6 +40,14 @@ class FakeHeaders:
                 return value
         return default
 
+    def pop(self, name: str, default: object = None) -> object:
+        lowered = name.lower()
+        for index, (key, value) in enumerate(self.entries):
+            if key.lower() == lowered:
+                self.entries.pop(index)
+                return value
+        return default
+
 
 class FakeRequest:
     method = "POST"
@@ -98,6 +106,37 @@ class AddonTests(unittest.TestCase):
         expected = json.loads(FIXTURE.read_text(encoding="utf-8"))
 
         self.assertEqual(build_envelope(FakeFlow()), expected)
+
+    def test_client_label_attribution_is_high_confidence_and_removed(self) -> None:
+        request = FakeRequest()
+        request.headers = FakeHeaders(
+            [
+                ("content-type", "application/json"),
+                ("user-agent", "curl/8.12.1"),
+                ("x-codeischeap-client", "Cursor"),
+            ]
+        )
+        flow = FakeFlow()
+        flow.request = request
+        flow.metadata = {}
+
+        envelope = build_envelope(flow)
+
+        self.assertEqual(
+            envelope["attribution"],
+            {
+                "application": "Cursor",
+                "source": "client_label",
+                "confidence": "high",
+            },
+        )
+        self.assertEqual(request.headers.get("x-codeischeap-client"), "")
+        self.assertFalse(
+            any(
+                header["name"] == "x-codeischeap-client"
+                for header in envelope["request"]["headers"]
+            )
+        )
 
     def test_credentials_are_removed_before_serialization(self) -> None:
         envelope = build_envelope(FakeFlow())

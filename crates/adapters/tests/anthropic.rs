@@ -424,6 +424,7 @@ fn sanitized_anthropic(capture_id: &str, path: &str, body: CapturedBody) -> Sani
         capture_id: capture_id.to_owned(),
         observed_at_unix_ms: 1_784_072_000_000,
         source: CaptureSource::Gateway,
+        attribution: None,
         request: CapturedRequest {
             method: "POST".to_owned(),
             scheme: "https".to_owned(),

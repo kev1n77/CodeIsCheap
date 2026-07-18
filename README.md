@@ -53,6 +53,8 @@ cargo run -p codeischeap-desktop-api --bin export-desktop-contract
 
 sidecar IPC 协议为 `0.2`：仅监听 loopback，使用每次 Proxy 会话重新生成的 256-bit token，认证帧限制为 1 KiB，并要求 `mitmproxy` 来源声明；已接受连接必须在 2 秒内完成认证与数据帧，否则释放连接。sidecar manifest 分别声明 IPC、Envelope 和 Policy 版本，不兼容 bundle 会在启动前被拒绝。
 
+Gateway 和 Proxy 捕获会按显式客户端标签、User-Agent 规则或捕获模式回退生成带置信度的应用归因。Gateway 客户端可设置 `x-codeischeap-client: <application>` 提供高置信度标签；该内部请求头会在持久化和转发上游前删除。当前归因不声明进程 PID，未知客户端会明确显示为低置信度的 `Gateway client` 或 `Proxy client`。
+
 系统代理事务与独立恢复 watchdog 位于 `crates/proxy-recovery`；Windows WinINet 与 macOS networksetup backend 均已通过临时 CI runner 的真实强杀恢复实验。
 
 启动 Gateway Spike：
@@ -63,4 +65,4 @@ $env:CIC_GATEWAY_LISTEN = "127.0.0.1:3210" # 可选
 cargo run -p codeischeap-gateway --bin gateway-spike
 ```
 
-发送到 `http://127.0.0.1:3210` 的 method、path、query、headers 与 body 会流式转发至上游；Gateway 不记录请求头或请求体。当前 Spike 用于验证技术路径，捕获、脱敏与持久化尚未接入。
+发送到 `http://127.0.0.1:3210` 的 method、path、query、headers 与 body 会流式转发至上游。该独立 Spike 不持久化请求；桌面运行时使用同一 Gateway 转发链路，并额外接入有界捕获、共享 Capture Policy 与本地加密存储。

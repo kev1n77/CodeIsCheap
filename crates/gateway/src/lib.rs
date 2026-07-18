@@ -15,6 +15,7 @@ use axum::http::header::{
     UPGRADE,
 };
 use axum::http::{HeaderMap, HeaderName, Request, Response, StatusCode, Uri};
+use codeischeap_capture_ipc::CLIENT_LABEL_HEADER;
 use futures_util::{StreamExt, TryStreamExt};
 use reqwest::redirect::Policy;
 use tokio::net::TcpListener;
@@ -296,6 +297,7 @@ fn sanitized_headers(headers: &HeaderMap) -> HeaderMap {
         TRANSFER_ENCODING,
         UPGRADE,
         HOST,
+        HeaderName::from_static(CLIENT_LABEL_HEADER),
     ]);
 
     headers

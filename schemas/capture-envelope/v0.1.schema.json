@@ -3,6 +3,16 @@
   "title": "CaptureEnvelope",
   "type": "object",
   "properties": {
+    "attribution": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CaptureAttribution"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "capture_id": {
       "type": "string"
     },
@@ -47,6 +57,50 @@
     "request"
   ],
   "$defs": {
+    "AttributionConfidence": {
+      "type": "string",
+      "enum": [
+        "high",
+        "medium",
+        "low"
+      ]
+    },
+    "AttributionSource": {
+      "type": "string",
+      "enum": [
+        "client_label",
+        "user_agent",
+        "capture_mode"
+      ]
+    },
+    "CaptureAttribution": {
+      "type": "object",
+      "properties": {
+        "application": {
+          "type": "string"
+        },
+        "confidence": {
+          "$ref": "#/$defs/AttributionConfidence"
+        },
+        "process_id": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "source": {
+          "$ref": "#/$defs/AttributionSource"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "application",
+        "source",
+        "confidence"
+      ]
+    },
     "CaptureOutcome": {
       "oneOf": [
         {
