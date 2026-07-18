@@ -25,6 +25,7 @@ fn sanitized_capture(id: &str, observed_at: u64, prompt: &str) -> SanitizedCaptu
         capture_id: id.to_owned(),
         observed_at_unix_ms: observed_at,
         source: CaptureSource::Mitmproxy,
+        attribution: None,
         request: CapturedRequest {
             method: "POST".to_owned(),
             scheme: "https".to_owned(),

@@ -19,6 +19,7 @@ fn sample_envelope() -> CaptureEnvelope {
         capture_id: "flow_test_1".to_owned(),
         observed_at_unix_ms: 1_721_000_000_000,
         source: CaptureSource::Mitmproxy,
+        attribution: None,
         request: CapturedRequest {
             method: "POST".to_owned(),
             scheme: "https".to_owned(),

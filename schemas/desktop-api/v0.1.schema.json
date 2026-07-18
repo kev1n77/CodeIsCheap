@@ -95,6 +95,22 @@
         "items"
       ]
     },
+    "ApplicationAttributionSource": {
+      "type": "string",
+      "enum": [
+        "client_label",
+        "user_agent",
+        "capture_mode"
+      ]
+    },
+    "ApplicationConfidence": {
+      "type": "string",
+      "enum": [
+        "high",
+        "medium",
+        "low"
+      ]
+    },
     "CaptureMode": {
       "type": "string",
       "enum": [
@@ -160,6 +176,20 @@
       "properties": {
         "application": {
           "type": "string"
+        },
+        "applicationConfidence": {
+          "$ref": "#/$defs/ApplicationConfidence"
+        },
+        "applicationProcessId": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "applicationSource": {
+          "$ref": "#/$defs/ApplicationAttributionSource"
         },
         "costSource": {
           "anyOf": [
@@ -250,6 +280,8 @@
         "id",
         "observedAtUnixMs",
         "application",
+        "applicationSource",
+        "applicationConfidence",
         "provider",
         "operation",
         "model",

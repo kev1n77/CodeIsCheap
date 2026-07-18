@@ -4,8 +4,9 @@ use std::collections::HashSet;
 use std::fmt;
 
 use codeischeap_capture_ipc::{
-    CaptureEnvelope, CaptureOutcome, CaptureRedaction, CapturedField, CapturedRequest,
-    RedactionLocation,
+    AttributionConfidence, AttributionSource, CLIENT_LABEL_HEADER, CaptureAttribution,
+    CaptureEnvelope, CaptureOutcome, CaptureRedaction, CaptureSource, CapturedField,
+    CapturedRequest, RedactionLocation,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -19,6 +20,8 @@ pub struct CapturePolicy {
     pub version: String,
     pub targets: Vec<CaptureTarget>,
     pub sensitive_names: Vec<String>,
+    #[serde(default)]
+    pub attribution: AttributionPolicy,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -28,6 +31,51 @@ pub struct CaptureTarget {
     pub hosts: Vec<String>,
     pub methods: Vec<String>,
     pub paths: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AttributionPolicy {
+    pub client_label_header: String,
+    pub max_label_bytes: usize,
+    pub user_agents: Vec<UserAgentRule>,
+    pub gateway_fallback: String,
+    pub proxy_fallback: String,
+}
+
+impl Default for AttributionPolicy {
+    fn default() -> Self {
+        Self {
+            client_label_header: CLIENT_LABEL_HEADER.to_owned(),
+            max_label_bytes: 64,
+            user_agents: vec![
+                user_agent_rule("Cursor", &["cursor/", "cursor "]),
+                user_agent_rule("VS Code", &["vscode/", "visual studio code"]),
+                user_agent_rule("Claude Code", &["claude-code", "claude code"]),
+                user_agent_rule("Codex CLI", &["codex-cli", "openai-codex", "codex/"]),
+                user_agent_rule(
+                    "JetBrains",
+                    &["jetbrains", "intellij", "pycharm", "webstorm"],
+                ),
+                user_agent_rule("Microsoft Edge", &["edg/"]),
+                user_agent_rule("Google Chrome", &["chrome/"]),
+                user_agent_rule("Mozilla Firefox", &["firefox/"]),
+                user_agent_rule("Apple Safari", &["safari/"]),
+                user_agent_rule("curl", &["curl/"]),
+                user_agent_rule("Python", &["python-requests/", "aiohttp/"]),
+                user_agent_rule("Node.js", &["node-fetch", "undici"]),
+            ],
+            gateway_fallback: "Gateway client".to_owned(),
+            proxy_fallback: "Proxy client".to_owned(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UserAgentRule {
+    pub application: String,
+    pub contains: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -68,6 +116,7 @@ pub enum PolicyError {
     DuplicateTarget(String),
     InvalidSensitiveName(String),
     DuplicateSensitiveName(String),
+    InvalidAttribution(String),
     OutOfScope,
 }
 
@@ -86,6 +135,9 @@ impl fmt::Display for PolicyError {
             }
             Self::DuplicateSensitiveName(name) => {
                 write!(formatter, "sensitive field name {name} is duplicated")
+            }
+            Self::InvalidAttribution(detail) => {
+                write!(formatter, "capture attribution policy is invalid: {detail}")
             }
             Self::OutOfScope => write!(formatter, "capture request is outside the active policy"),
         }
@@ -141,6 +193,43 @@ impl CapturePolicy {
                 return Err(PolicyError::DuplicateSensitiveName(name.clone()));
             }
         }
+        self.validate_attribution_policy()?;
+        Ok(())
+    }
+
+    fn validate_attribution_policy(&self) -> Result<(), PolicyError> {
+        let attribution = &self.attribution;
+        if attribution.client_label_header != CLIENT_LABEL_HEADER {
+            return Err(PolicyError::InvalidAttribution(
+                "client label header is unsupported".to_owned(),
+            ));
+        }
+        if attribution.max_label_bytes == 0 || attribution.max_label_bytes > 128 {
+            return Err(PolicyError::InvalidAttribution(
+                "client label size is out of range".to_owned(),
+            ));
+        }
+        if !valid_application_label(&attribution.gateway_fallback, attribution.max_label_bytes)
+            || !valid_application_label(&attribution.proxy_fallback, attribution.max_label_bytes)
+        {
+            return Err(PolicyError::InvalidAttribution(
+                "fallback application label is invalid".to_owned(),
+            ));
+        }
+        for rule in &attribution.user_agents {
+            if !valid_application_label(&rule.application, attribution.max_label_bytes)
+                || rule.contains.is_empty()
+                || rule.contains.iter().any(|pattern| {
+                    pattern.is_empty()
+                        || pattern.len() > 128
+                        || pattern != &pattern.to_ascii_lowercase()
+                })
+            {
+                return Err(PolicyError::InvalidAttribution(
+                    "user-agent rule is invalid".to_owned(),
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -174,6 +263,24 @@ impl CapturePolicy {
             .map(|name| normalize_name(name))
             .collect();
         let mut newly_redacted = 0;
+
+        if let Some(attribution) = envelope.attribution.as_ref() {
+            if !valid_application_label(&attribution.application, self.attribution.max_label_bytes)
+                || attribution.process_id == Some(0)
+            {
+                return Err(PolicyError::InvalidAttribution(
+                    "capture attribution is invalid".to_owned(),
+                ));
+            }
+        } else {
+            envelope.attribution =
+                Some(self.attribution_for(envelope.source, &envelope.request.headers));
+        }
+        envelope.request.headers.retain(|field| {
+            !field
+                .name
+                .eq_ignore_ascii_case(&self.attribution.client_label_header)
+        });
 
         scrub_fields(
             &mut envelope.request.headers,
@@ -230,6 +337,79 @@ impl CapturePolicy {
             .iter()
             .any(|candidate| normalize_name(candidate) == normalized)
     }
+
+    #[must_use]
+    pub fn attribution_for(
+        &self,
+        source: CaptureSource,
+        headers: &[CapturedField],
+    ) -> CaptureAttribution {
+        if let Some(label) = header_value(headers, &self.attribution.client_label_header)
+            .and_then(|value| normalized_application_label(value, self.attribution.max_label_bytes))
+        {
+            return CaptureAttribution {
+                application: label,
+                source: AttributionSource::ClientLabel,
+                confidence: AttributionConfidence::High,
+                process_id: None,
+            };
+        }
+
+        if let Some(user_agent) = header_value(headers, "user-agent") {
+            let normalized = user_agent.to_ascii_lowercase();
+            if let Some(rule) = self.attribution.user_agents.iter().find(|rule| {
+                rule.contains
+                    .iter()
+                    .any(|pattern| normalized.contains(pattern))
+            }) {
+                return CaptureAttribution {
+                    application: rule.application.clone(),
+                    source: AttributionSource::UserAgent,
+                    confidence: AttributionConfidence::Medium,
+                    process_id: None,
+                };
+            }
+        }
+
+        CaptureAttribution {
+            application: match source {
+                CaptureSource::Gateway => self.attribution.gateway_fallback.clone(),
+                CaptureSource::Mitmproxy => self.attribution.proxy_fallback.clone(),
+            },
+            source: AttributionSource::CaptureMode,
+            confidence: AttributionConfidence::Low,
+            process_id: None,
+        }
+    }
+}
+
+fn user_agent_rule(application: &str, contains: &[&str]) -> UserAgentRule {
+    UserAgentRule {
+        application: application.to_owned(),
+        contains: contains
+            .iter()
+            .map(|pattern| (*pattern).to_owned())
+            .collect(),
+    }
+}
+
+fn header_value<'a>(headers: &'a [CapturedField], name: &str) -> Option<&'a str> {
+    headers
+        .iter()
+        .find(|field| field.name.eq_ignore_ascii_case(name))
+        .map(|field| field.value.as_str())
+}
+
+fn normalized_application_label(value: &str, max_bytes: usize) -> Option<String> {
+    let trimmed = value.trim();
+    valid_application_label(trimmed, max_bytes).then(|| trimmed.to_owned())
+}
+
+fn valid_application_label(value: &str, max_bytes: usize) -> bool {
+    !value.is_empty()
+        && value.len() <= max_bytes
+        && value.is_ascii()
+        && value.bytes().all(|byte| (0x20..=0x7e).contains(&byte))
 }
 
 fn scrub_fields(

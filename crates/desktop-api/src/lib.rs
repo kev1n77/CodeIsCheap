@@ -10,7 +10,10 @@ pub use export::{
 
 use std::{fmt, ops::Range};
 
-use codeischeap_capture_ipc::{CaptureOutcome, CapturedBodyState, ResponseCompleteness};
+use codeischeap_capture_ipc::{
+    AttributionConfidence, AttributionSource, CaptureAttribution, CaptureOutcome, CaptureSource,
+    CapturedBodyState, ResponseCompleteness,
+};
 use codeischeap_prompt_ir::{
     Evidence, EvidenceLevel as PromptEvidenceLevel, EvidenceSource, InstructionRole, MessageRole,
     MetricSource as PromptMetricSource, PromptIr, PromptPart, ResponseEvent, ResponseTrace,
@@ -123,6 +126,9 @@ pub struct CapturedRequest {
     pub id: String,
     pub observed_at_unix_ms: u64,
     pub application: String,
+    pub application_source: ApplicationAttributionSource,
+    pub application_confidence: ApplicationConfidence,
+    pub application_process_id: Option<u32>,
     pub provider: String,
     pub operation: String,
     pub model: String,
@@ -137,6 +143,22 @@ pub struct CapturedRequest {
     pub has_tools: bool,
     pub prompt_preview: String,
     pub detail: RequestDetail,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum ApplicationAttributionSource {
+    ClientLabel,
+    UserAgent,
+    CaptureMode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum ApplicationConfidence {
+    High,
+    Medium,
+    Low,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
@@ -331,7 +353,8 @@ fn map_capture(capture: codeischeap_storage::StoredCapture) -> CapturedRequest {
     let has_tools = prompt_ir
         .as_ref()
         .is_some_and(|prompt| !prompt.tools.is_empty());
-    let application = "Unknown app".to_owned();
+    let attribution = capture_attribution(&envelope);
+    let attribution_raw = json!(attribution.clone());
     let metrics = prompt_ir
         .as_ref()
         .and_then(|prompt| prompt.metrics.as_ref());
@@ -360,6 +383,20 @@ fn map_capture(capture: codeischeap_storage::StoredCapture) -> CapturedRequest {
         detail: format!("{} {}", envelope.request.method, envelope.request.path),
         locator: Some(json_pointer_locator("/request")),
     }];
+    timeline.push(TimelineEvent {
+        id: "application_attributed".to_owned(),
+        offset_ms: Some(0),
+        sequence: None,
+        kind: "attribution".to_owned(),
+        title: "Application attributed".to_owned(),
+        detail: format!(
+            "{} · {} · {} confidence",
+            attribution.application,
+            attribution_source_label(attribution.source),
+            attribution_confidence_label(attribution.confidence)
+        ),
+        locator: Some(json_pointer_locator("/attribution")),
+    });
     if redaction_count > 0 {
         timeline.push(TimelineEvent {
             id: "credentials_removed".to_owned(),
@@ -450,7 +487,10 @@ fn map_capture(capture: codeischeap_storage::StoredCapture) -> CapturedRequest {
     CapturedRequest {
         id: envelope.capture_id,
         observed_at_unix_ms: envelope.observed_at_unix_ms,
-        application,
+        application: attribution.application,
+        application_source: map_attribution_source(attribution.source),
+        application_confidence: map_attribution_confidence(attribution.confidence),
+        application_process_id: attribution.process_id,
         provider: provider_label(provider_id),
         operation,
         model,
@@ -478,6 +518,7 @@ fn map_capture(capture: codeischeap_storage::StoredCapture) -> CapturedRequest {
             anatomy,
             timeline,
             raw: json!({
+                "attribution": attribution_raw,
                 "request": {
                     "source": envelope.source,
                     "method": envelope.request.method,
@@ -490,6 +531,53 @@ fn map_capture(capture: codeischeap_storage::StoredCapture) -> CapturedRequest {
                 "promptIr": prompt_ir,
             }),
         },
+    }
+}
+
+fn capture_attribution(envelope: &codeischeap_capture_ipc::CaptureEnvelope) -> CaptureAttribution {
+    envelope
+        .attribution
+        .clone()
+        .unwrap_or_else(|| CaptureAttribution {
+            application: match envelope.source {
+                CaptureSource::Gateway => "Gateway client".to_owned(),
+                CaptureSource::Mitmproxy => "Proxy client".to_owned(),
+            },
+            source: AttributionSource::CaptureMode,
+            confidence: AttributionConfidence::Low,
+            process_id: None,
+        })
+}
+
+const fn map_attribution_source(source: AttributionSource) -> ApplicationAttributionSource {
+    match source {
+        AttributionSource::ClientLabel => ApplicationAttributionSource::ClientLabel,
+        AttributionSource::UserAgent => ApplicationAttributionSource::UserAgent,
+        AttributionSource::CaptureMode => ApplicationAttributionSource::CaptureMode,
+    }
+}
+
+const fn map_attribution_confidence(confidence: AttributionConfidence) -> ApplicationConfidence {
+    match confidence {
+        AttributionConfidence::High => ApplicationConfidence::High,
+        AttributionConfidence::Medium => ApplicationConfidence::Medium,
+        AttributionConfidence::Low => ApplicationConfidence::Low,
+    }
+}
+
+const fn attribution_source_label(source: AttributionSource) -> &'static str {
+    match source {
+        AttributionSource::ClientLabel => "client label",
+        AttributionSource::UserAgent => "user agent",
+        AttributionSource::CaptureMode => "capture mode fallback",
+    }
+}
+
+const fn attribution_confidence_label(confidence: AttributionConfidence) -> &'static str {
+    match confidence {
+        AttributionConfidence::High => "high",
+        AttributionConfidence::Medium => "medium",
+        AttributionConfidence::Low => "low",
     }
 }
 
@@ -1083,6 +1171,12 @@ mod tests {
             capture_id: "desktop_capture_1".to_owned(),
             observed_at_unix_ms: 1_721_000_000_250,
             source: CaptureSource::Mitmproxy,
+            attribution: Some(CaptureAttribution {
+                application: "VS Code".to_owned(),
+                source: AttributionSource::ClientLabel,
+                confidence: AttributionConfidence::High,
+                process_id: None,
+            }),
             request: CapturedRequest {
                 method: "POST".to_owned(),
                 scheme: "https".to_owned(),
@@ -1153,6 +1247,16 @@ mod tests {
         assert_eq!(search.len(), 1);
         assert_eq!(search[0].id, "desktop_capture_1");
         assert_eq!(workspace.requests[0].provider, "OpenAI");
+        assert_eq!(workspace.requests[0].application, "VS Code");
+        assert_eq!(
+            workspace.requests[0].application_source,
+            ApplicationAttributionSource::ClientLabel
+        );
+        assert_eq!(
+            workspace.requests[0].application_confidence,
+            ApplicationConfidence::High
+        );
+        assert_eq!(workspace.requests[0].application_process_id, None);
         assert_eq!(
             workspace.requests[0].prompt_preview,
             "Fix the failing parser test."
@@ -1180,9 +1284,60 @@ mod tests {
                 .iter()
                 .any(|event| event.id == "response_observed")
         );
+        assert!(
+            workspace.requests[0]
+                .detail
+                .timeline
+                .iter()
+                .any(|event| event.id == "application_attributed")
+        );
+        assert_eq!(
+            workspace.requests[0]
+                .detail
+                .raw
+                .pointer("/attribution/application"),
+            Some(&json!("VS Code"))
+        );
         let encoded = serde_json::to_string(&workspace).expect("workspace must encode");
         assert!(!encoded.contains("desktop-api-canary"));
         assert!(encoded.contains("SQLCipher"));
+    }
+
+    #[test]
+    fn historical_capture_attribution_falls_back_to_capture_mode() {
+        let mut envelope = CaptureEnvelope {
+            version: CAPTURE_ENVELOPE_VERSION.to_owned(),
+            capture_id: "historical_capture".to_owned(),
+            observed_at_unix_ms: 0,
+            source: CaptureSource::Gateway,
+            attribution: None,
+            request: CapturedRequest {
+                method: "POST".to_owned(),
+                scheme: "https".to_owned(),
+                host: "api.openai.com".to_owned(),
+                port: 443,
+                path: "/v1/responses".to_owned(),
+                query: Vec::new(),
+                headers: Vec::new(),
+                body: CapturedBody {
+                    state: CapturedBodyState::Empty,
+                    content: None,
+                },
+            },
+            outcome: None,
+            redactions: Vec::new(),
+        };
+
+        let gateway = capture_attribution(&envelope);
+        assert_eq!(gateway.application, "Gateway client");
+        assert_eq!(gateway.source, AttributionSource::CaptureMode);
+        assert_eq!(gateway.confidence, AttributionConfidence::Low);
+
+        envelope.source = CaptureSource::Mitmproxy;
+        let proxy = capture_attribution(&envelope);
+        assert_eq!(proxy.application, "Proxy client");
+        assert_eq!(proxy.source, AttributionSource::CaptureMode);
+        assert_eq!(proxy.confidence, AttributionConfidence::Low);
     }
 
     #[test]

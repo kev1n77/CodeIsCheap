@@ -204,6 +204,7 @@ fn request_envelope(request: GatewayRequestCapture) -> CaptureEnvelope {
         capture_id,
         observed_at_unix_ms,
         source: CaptureSource::Gateway,
+        attribution: None,
         request: CapturedRequest {
             method,
             scheme,
@@ -397,6 +398,7 @@ mod tests {
             capture_id: "core_ingest_test".to_owned(),
             observed_at_unix_ms: 1_721_000_000_000,
             source: CaptureSource::Mitmproxy,
+            attribution: None,
             request: CapturedRequest {
                 method: "POST".to_owned(),
                 scheme: "https".to_owned(),

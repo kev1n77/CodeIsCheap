@@ -562,7 +562,7 @@ function RequestPane({ requests, allRequests, selectedId, query, provider, appli
                 tabIndex={request.id === selectedId ? 0 : -1}
                 onClick={() => onSelect(request.id)}
               >
-                <div className="request-row-top"><span className={`status-mark status-${request.status}`} /><strong>{request.application}</strong>{request.id === compareBaseId && <span className="compare-base-label">Baseline</span>}<time>{clock.format(new Date(request.observedAtUnixMs))}</time></div>
+                <div className="request-row-top"><span className={`status-mark status-${request.status}`} /><div className="request-application" title={attributionTitle(request)}><strong>{request.application}</strong><span className={`attribution-confidence confidence-${request.applicationConfidence}`}>{request.applicationConfidence}</span></div>{request.id === compareBaseId && <span className="compare-base-label">Baseline</span>}<time>{clock.format(new Date(request.observedAtUnixMs))}</time></div>
                 <div className="request-operation"><span>{request.provider}</span><b>{request.operation}</b></div>
                 <p>{request.promptPreview}</p>
                 <div className="request-meta"><span>{request.model}</span><span>{formatTokens(request.tokens, request.tokenSource)}</span><span>{request.durationMs == null ? "Duration unknown" : formatDuration(request.durationMs)}</span>{request.hasTools && <Wrench size={12} aria-label="Uses tools" />}</div>
@@ -594,7 +594,7 @@ function Inspector({ request, tab, comparing, onTab, onExport, onCompare }: { re
   return (
     <section className="inspector" aria-label="Request inspector">
       <header className="inspector-header">
-        <div><div className="inspector-provider"><span className={`provider-mark provider-${request.provider.toLowerCase()}`}>{request.provider[0]}</span><strong>{request.provider}</strong><span>{request.operation}</span></div><h2>{request.model}</h2>{request.semanticFingerprint && <code className="semantic-fingerprint" title={`BLAKE3 semantic fingerprint: ${request.semanticFingerprint}`}>{request.semanticFingerprint.slice(0, 12)}</code>}</div>
+        <div><div className="inspector-provider"><span className={`provider-mark provider-${request.provider.toLowerCase()}`}>{request.provider[0]}</span><strong>{request.provider}</strong><span>{request.operation}</span></div><h2>{request.model}</h2><div className="inspector-attribution" title={attributionTitle(request)}><span className={`attribution-confidence confidence-${request.applicationConfidence}`}>{request.applicationConfidence}</span><strong>{request.application}</strong><code>{formatAttributionSource(request.applicationSource)}</code></div>{request.semanticFingerprint && <code className="semantic-fingerprint" title={`BLAKE3 semantic fingerprint: ${request.semanticFingerprint}`}>{request.semanticFingerprint.slice(0, 12)}</code>}</div>
         <div className="inspector-actions"><div className="inspector-metrics"><span><b>{formatTokens(request.tokens, request.tokenSource)}</b> tokens</span><span title={request.pricingVersion ?? undefined}><b>{formatCost(request.costUsd, request.costSource)}</b> cost</span><span><b>{request.durationMs == null ? "Unknown" : formatDuration(request.durationMs)}</b> duration</span><span className={`request-state state-${request.status}`}>{request.status}</span></div><button className={`icon-button ${comparing ? "is-active" : ""}`} title={comparing ? "Comparison baseline selected" : "Use as comparison baseline (C)"} aria-label="Compare request" aria-pressed={comparing} onClick={onCompare}><GitCompareArrows size={16} /></button><button className="icon-button" title="Export request" aria-label="Export request" onClick={onExport}><Download size={16} /></button></div>
       </header>
       <nav className="inspector-tabs" aria-label="Inspector views">
@@ -771,6 +771,19 @@ function formatCost(cost: number | null, source?: "reported" | "estimated" | nul
 
 function formatDuration(milliseconds: number) {
   return milliseconds >= 1000 ? `${(milliseconds / 1000).toFixed(1)} s` : `${milliseconds} ms`;
+}
+
+function formatAttributionSource(source: CapturedRequest["applicationSource"]) {
+  return {
+    client_label: "client label",
+    user_agent: "user agent",
+    capture_mode: "capture mode fallback",
+  }[source];
+}
+
+function attributionTitle(request: CapturedRequest) {
+  const process = request.applicationProcessId == null ? "" : ` · PID ${request.applicationProcessId}`;
+  return `${request.application} · ${formatAttributionSource(request.applicationSource)} · ${request.applicationConfidence} confidence${process}`;
 }
 
 function certificateSummary(certificate: CertificateAuthority) {

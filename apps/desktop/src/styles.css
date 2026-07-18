@@ -133,6 +133,12 @@ kbd { min-width: 18px; padding: 1px 5px; border: 1px solid var(--border); border
 .request-row.is-compare-base[aria-selected="true"] { box-shadow: inset 3px 0 0 var(--blue), inset 6px 0 0 var(--accent); }
 .request-row-top { display: grid; grid-template-columns: 8px 1fr auto; align-items: center; gap: 7px; }
 .request-row.is-compare-base .request-row-top { grid-template-columns: 8px 1fr auto auto; }
+.request-application { display: flex; min-width: 0; align-items: center; gap: 6px; }
+.request-application strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attribution-confidence { flex: 0 0 auto; padding: 1px 4px; border: 1px solid var(--border); border-radius: 3px; color: var(--text-tertiary); font: 8px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; text-transform: uppercase; }
+.confidence-high { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); color: var(--accent); }
+.confidence-medium { color: var(--text-secondary); }
+.confidence-low { border-color: color-mix(in srgb, var(--amber) 45%, var(--border)); color: var(--amber); }
 .compare-base-label { padding: 2px 5px; border-radius: 3px; background: var(--blue-soft); color: var(--blue) !important; font-size: 9px !important; font-weight: 700; text-transform: uppercase; }
 .request-row-top time { color: var(--text-tertiary); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 10px; }
 .status-mark { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
@@ -154,6 +160,8 @@ kbd { min-width: 18px; padding: 1px 5px; border: 1px solid var(--border); border
 .semantic-fingerprint { display: inline-block; margin-top: 4px; color: var(--text-tertiary); font-size: 9px; }
 .inspector-provider { display: flex; align-items: center; gap: 7px; color: var(--text-secondary); }
 .inspector-provider > span:last-child { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px; }
+.inspector-attribution { display: flex; align-items: center; gap: 7px; margin-top: 6px; color: var(--text-secondary); font-size: 10px; }
+.inspector-attribution code { color: var(--text-tertiary); font-size: 9px; }
 .inspector-actions { display: flex; align-items: center; gap: 12px; }
 .provider-mark { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 4px; background: var(--text); color: var(--surface); font-weight: 800; }
 .provider-openai { background: #16705a; }.provider-anthropic { background: #9b542e; }.provider-gemini, .provider-google { background: #2d65a6; }.provider-ollama { background: #6b4f9e; }.provider-mistral { background: #b56513; }

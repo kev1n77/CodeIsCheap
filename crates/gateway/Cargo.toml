@@ -9,6 +9,7 @@ description = "Streaming local AI gateway for CodeIsCheap"
 async-stream.workspace = true
 axum.workspace = true
 bytes.workspace = true
+codeischeap-capture-ipc = { path = "../capture-ipc" }
 futures-util.workspace = true
 http.workspace = true
 reqwest.workspace = true

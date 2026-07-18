@@ -1,7 +1,7 @@
 use codeischeap_capture_ipc::{
-    CAPTURE_ENVELOPE_VERSION, CaptureEnvelope, CaptureOutcome, CaptureSource, CapturedBody,
-    CapturedBodyState, CapturedField, CapturedRequest, CapturedResponse, RedactionLocation,
-    ResponseCompleteness,
+    AttributionConfidence, AttributionSource, CAPTURE_ENVELOPE_VERSION, CaptureAttribution,
+    CaptureEnvelope, CaptureOutcome, CaptureSource, CapturedBody, CapturedBodyState, CapturedField,
+    CapturedRequest, CapturedResponse, RedactionLocation, ResponseCompleteness,
 };
 use codeischeap_capture_policy::{CapturePolicy, PolicyError};
 use schemars::schema_for;
@@ -33,6 +33,7 @@ fn envelope(request: CapturedRequest) -> CaptureEnvelope {
         capture_id: "capture_policy_test".to_owned(),
         observed_at_unix_ms: 1_721_000_000_000,
         source: CaptureSource::Mitmproxy,
+        attribution: None,
         request,
         outcome: None,
         redactions: Vec::new(),
@@ -134,6 +135,95 @@ fn core_scrubber_removes_canaries_before_persistence() {
     assert!(encoded.contains("preserved prompt"));
     assert!(encoded.contains("request_1"));
     assert!(encoded.contains("trace"));
+}
+
+#[test]
+fn explicit_client_labels_are_high_confidence_and_not_persisted_as_headers() {
+    let policy = CapturePolicy::load_default().expect("default policy must be valid");
+    let mut request = request("api.openai.com", "POST", "/v1/responses");
+    request.headers = vec![
+        CapturedField {
+            name: "x-codeischeap-client".to_owned(),
+            value: "VS Code".to_owned(),
+        },
+        CapturedField {
+            name: "user-agent".to_owned(),
+            value: "curl/8.0".to_owned(),
+        },
+    ];
+
+    let sanitized = policy
+        .sanitize_envelope(envelope(request))
+        .expect("client label must sanitize");
+    let attribution = sanitized
+        .envelope()
+        .attribution
+        .as_ref()
+        .expect("attribution must be present");
+
+    assert_eq!(attribution.application, "VS Code");
+    assert_eq!(attribution.source, AttributionSource::ClientLabel);
+    assert_eq!(attribution.confidence, AttributionConfidence::High);
+    assert!(
+        sanitized
+            .envelope()
+            .request
+            .headers
+            .iter()
+            .all(|field| field.name != "x-codeischeap-client")
+    );
+}
+
+#[test]
+fn user_agents_and_capture_mode_fallbacks_have_explicit_confidence() {
+    let policy = CapturePolicy::load_default().expect("default policy must be valid");
+    let mut known = request("api.openai.com", "POST", "/v1/responses");
+    known.headers.push(CapturedField {
+        name: "user-agent".to_owned(),
+        value: "curl/8.12.1".to_owned(),
+    });
+    let known = policy
+        .sanitize_envelope(envelope(known))
+        .expect("known user agent must sanitize");
+    assert_eq!(
+        known.envelope().attribution,
+        Some(CaptureAttribution {
+            application: "curl".to_owned(),
+            source: AttributionSource::UserAgent,
+            confidence: AttributionConfidence::Medium,
+            process_id: None,
+        })
+    );
+
+    let fallback = policy
+        .sanitize_envelope(envelope(request("api.openai.com", "POST", "/v1/responses")))
+        .expect("fallback attribution must sanitize");
+    assert_eq!(
+        fallback.envelope().attribution,
+        Some(CaptureAttribution {
+            application: "Proxy client".to_owned(),
+            source: AttributionSource::CaptureMode,
+            confidence: AttributionConfidence::Low,
+            process_id: None,
+        })
+    );
+}
+
+#[test]
+fn invalid_sidecar_attribution_is_rejected() {
+    let policy = CapturePolicy::load_default().expect("default policy must be valid");
+    let mut capture = envelope(request("api.openai.com", "POST", "/v1/responses"));
+    capture.attribution = Some(CaptureAttribution {
+        application: "invalid\nlabel".to_owned(),
+        source: AttributionSource::ClientLabel,
+        confidence: AttributionConfidence::High,
+        process_id: None,
+    });
+
+    assert!(matches!(
+        policy.sanitize_envelope(capture),
+        Err(PolicyError::InvalidAttribution(_))
+    ));
 }
 
 #[test]

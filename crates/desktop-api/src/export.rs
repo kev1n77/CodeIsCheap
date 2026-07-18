@@ -305,6 +305,9 @@ fn request_metadata(request: &CapturedRequest) -> Value {
         "id": request.id,
         "observedAtUnixMs": request.observed_at_unix_ms,
         "application": request.application,
+        "applicationSource": request.application_source,
+        "applicationConfidence": request.application_confidence,
+        "applicationProcessId": request.application_process_id,
         "provider": request.provider,
         "operation": request.operation,
         "model": request.model,
@@ -455,8 +458,9 @@ struct CredentialPatternDefinition {
 mod tests {
     use super::*;
     use crate::{
-        AnatomyItem, AnatomySection, CaptureMode, CaptureState, CaptureStatus,
-        CertificateAuthority, EvidenceLevel, RequestDetail, TimelineEvent, WorkspaceBootstrap,
+        AnatomyItem, AnatomySection, ApplicationAttributionSource, ApplicationConfidence,
+        CaptureMode, CaptureState, CaptureStatus, CertificateAuthority, EvidenceLevel,
+        RequestDetail, TimelineEvent, WorkspaceBootstrap,
     };
 
     fn request() -> CapturedRequest {
@@ -464,6 +468,9 @@ mod tests {
             id: "capture/unsafe".to_owned(),
             observed_at_unix_ms: 1_700_000_000_000,
             application: "Terminal".to_owned(),
+            application_source: ApplicationAttributionSource::ClientLabel,
+            application_confidence: ApplicationConfidence::High,
+            application_process_id: None,
             provider: "OpenAI".to_owned(),
             operation: "responses".to_owned(),
             model: "gpt-4.1".to_owned(),

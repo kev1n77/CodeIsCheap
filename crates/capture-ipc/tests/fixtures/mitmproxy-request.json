@@ -3,6 +3,11 @@
   "capture_id": "flow_1",
   "observed_at_unix_ms": 1721000000250,
   "source": "mitmproxy",
+  "attribution": {
+    "application": "Proxy client",
+    "source": "capture_mode",
+    "confidence": "low"
+  },
   "request": {
     "method": "POST",
     "scheme": "https",

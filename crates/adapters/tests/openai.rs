@@ -286,6 +286,7 @@ fn sanitized(capture_id: &str, host: &str, path: &str, body: CapturedBody) -> Sa
         capture_id: capture_id.to_owned(),
         observed_at_unix_ms: 1_784_071_000_000,
         source: CaptureSource::Mitmproxy,
+        attribution: None,
         request: CapturedRequest {
             method: "POST".to_owned(),
             scheme: "https".to_owned(),

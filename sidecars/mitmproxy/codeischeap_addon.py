@@ -21,6 +21,37 @@ IPC_ORIGIN = "mitmproxy"
 CAPTURE_ENVELOPE_VERSION = "0.1"
 CAPTURE_POLICY_VERSION = "0.1"
 CAPTURE_POLICY_FILENAME = "capture-policy.v0.1.json"
+DEFAULT_ATTRIBUTION_POLICY = {
+    "client_label_header": "x-codeischeap-client",
+    "max_label_bytes": 64,
+    "user_agents": [
+        {"application": "Cursor", "contains": ["cursor/", "cursor "]},
+        {"application": "VS Code", "contains": ["vscode/", "visual studio code"]},
+        {"application": "Claude Code", "contains": ["claude-code", "claude code"]},
+        {"application": "Codex CLI", "contains": ["codex-cli", "openai-codex", "codex/"]},
+        {"application": "JetBrains", "contains": ["jetbrains", "intellij", "pycharm", "webstorm"]},
+        {"application": "Microsoft Edge", "contains": ["edg/"]},
+        {"application": "Google Chrome", "contains": ["chrome/"]},
+        {"application": "Mozilla Firefox", "contains": ["firefox/"]},
+        {"application": "Apple Safari", "contains": ["safari/"]},
+        {"application": "curl", "contains": ["curl/"]},
+        {"application": "Python", "contains": ["python-requests/", "aiohttp/"]},
+        {"application": "Node.js", "contains": ["node-fetch", "undici"]},
+    ],
+    "gateway_fallback": "Gateway client",
+    "proxy_fallback": "Proxy client",
+}
+ATTRIBUTION_METADATA_KEY = "codeischeap.attribution"
+
+
+def _valid_application_label(value: Any, max_bytes: int) -> bool:
+    return (
+        isinstance(value, str)
+        and value == value.strip()
+        and 0 < len(value.encode("ascii", errors="ignore")) <= max_bytes
+        and value.isascii()
+        and all(0x20 <= ord(character) <= 0x7E for character in value)
+    )
 
 
 def _policy_path() -> Path:
@@ -48,6 +79,41 @@ def load_policy() -> dict[str, Any]:
         raise ValueError("CodeIsCheap capture policy has no targets")
     if not isinstance(sensitive_names, list) or not sensitive_names:
         raise ValueError("CodeIsCheap capture policy has no sensitive names")
+    attribution = policy.setdefault("attribution", DEFAULT_ATTRIBUTION_POLICY)
+    if not isinstance(attribution, dict):
+        raise ValueError("CodeIsCheap attribution policy is invalid")
+    if (
+        attribution.get("client_label_header") != "x-codeischeap-client"
+        or not isinstance(attribution.get("max_label_bytes"), int)
+        or not 1 <= attribution["max_label_bytes"] <= 128
+        or not _valid_application_label(
+            attribution.get("gateway_fallback"), attribution["max_label_bytes"]
+        )
+        or not _valid_application_label(
+            attribution.get("proxy_fallback"), attribution["max_label_bytes"]
+        )
+    ):
+        raise ValueError("CodeIsCheap attribution policy is invalid")
+    user_agents = attribution.get("user_agents")
+    if not isinstance(user_agents, list):
+        raise ValueError("CodeIsCheap attribution policy is invalid")
+    for rule in user_agents:
+        if (
+            not isinstance(rule, dict)
+            or not _valid_application_label(
+                rule.get("application"), attribution["max_label_bytes"]
+            )
+            or not isinstance(rule.get("contains"), list)
+            or not rule["contains"]
+            or any(
+                not isinstance(pattern, str)
+                or not pattern
+                or len(pattern) > 128
+                or pattern != pattern.lower()
+                for pattern in rule["contains"]
+            )
+        ):
+            raise ValueError("CodeIsCheap attribution policy is invalid")
     target_ids: set[str] = set()
     for target in targets:
         if not isinstance(target, dict):
@@ -85,6 +151,7 @@ def load_policy() -> dict[str, Any]:
 
 
 CAPTURE_POLICY = load_policy()
+ATTRIBUTION_POLICY = CAPTURE_POLICY["attribution"]
 SENSITIVE_NAMES = frozenset(
     "".join(character for character in name.lower() if character.isalnum())
     for name in CAPTURE_POLICY["sensitive_names"]
@@ -128,11 +195,59 @@ def _sanitize_headers(
     captured = []
     redactions = []
     for name, value in _header_items(headers):
+        if name.lower() == ATTRIBUTION_POLICY["client_label_header"]:
+            continue
         if _is_sensitive(name):
             redactions.append(_redaction(location, name))
         else:
             captured.append({"name": name.lower(), "value": value})
     return captured, redactions
+
+
+def _derive_attribution(headers: Any) -> dict[str, Any]:
+    max_bytes = ATTRIBUTION_POLICY["max_label_bytes"]
+    client_label = _header_value(headers, ATTRIBUTION_POLICY["client_label_header"]).strip()
+    if _valid_application_label(client_label, max_bytes):
+        return {
+            "application": client_label,
+            "source": "client_label",
+            "confidence": "high",
+        }
+    user_agent = _header_value(headers, "user-agent").lower()
+    for rule in ATTRIBUTION_POLICY["user_agents"]:
+        if any(pattern in user_agent for pattern in rule["contains"]):
+            return {
+                "application": rule["application"],
+                "source": "user_agent",
+                "confidence": "medium",
+            }
+    return {
+        "application": ATTRIBUTION_POLICY["proxy_fallback"],
+        "source": "capture_mode",
+        "confidence": "low",
+    }
+
+
+def _flow_attribution(flow: Any, headers: Any) -> dict[str, Any]:
+    metadata = getattr(flow, "metadata", None)
+    if isinstance(metadata, dict) and ATTRIBUTION_METADATA_KEY in metadata:
+        return metadata[ATTRIBUTION_METADATA_KEY]
+    attribution = _derive_attribution(headers)
+    if isinstance(metadata, dict):
+        metadata[ATTRIBUTION_METADATA_KEY] = attribution
+    return attribution
+
+
+def _remove_client_label(headers: Any) -> None:
+    name = ATTRIBUTION_POLICY["client_label_header"]
+    try:
+        headers.pop(name, None)
+    except (AttributeError, TypeError):
+        entries = getattr(headers, "entries", None)
+        if isinstance(entries, list):
+            headers.entries = [
+                (key, value) for key, value in entries if key.lower() != name
+            ]
 
 
 def _sanitize_query(query: str) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
@@ -300,6 +415,8 @@ def build_envelope(flow: Any) -> dict[str, Any]:
         getattr(request, "raw_content", None),
         _header_value(request.headers, "content-type"),
     )
+    attribution = _flow_attribution(flow, request.headers)
+    _remove_client_label(request.headers)
     timestamp = getattr(request, "timestamp_start", None) or time.time()
 
     envelope = {
@@ -307,6 +424,7 @@ def build_envelope(flow: Any) -> dict[str, Any]:
         "capture_id": _text(flow.id),
         "observed_at_unix_ms": int(timestamp * 1000),
         "source": "mitmproxy",
+        "attribution": attribution,
         "request": {
             "method": _text(request.method),
             "scheme": _text(request.scheme),
