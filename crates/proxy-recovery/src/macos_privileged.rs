@@ -392,6 +392,7 @@ fn accept_owner(
             Ok((stream, _)) => {
                 let (peer_uid, peer_pid) = peer_identity(&stream)?;
                 if peer_uid == owner_uid && peer_pid == owner_pid {
+                    stream.set_nonblocking(false)?;
                     return Ok(stream);
                 }
             }
