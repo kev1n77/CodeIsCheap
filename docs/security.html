@@ -27,7 +27,7 @@
     </tbody></table></div>
 
     <h2 id="certificate">证书与代理边界</h2>
-    <ul><li>仅在用户选择 HTTPS 代理时生成本地 CA。</li><li>UI 显示证书指纹、信任状态和卸载入口。</li><li>应用使用证书固定时停止 MITM，并建议 Gateway 或浏览器适配器。</li><li>停止、崩溃、升级和卸载都必须恢复原系统代理。</li></ul>
+    <ul><li>仅在用户选择 HTTPS 代理时生成本地 CA。</li><li>UI 显示证书指纹、信任状态和卸载入口。</li><li>诊断树只在 bundle、端点、CA 与信任均正常但当前会话无捕获时，低置信度提示代理绕过或证书固定；不尝试绕过 pinning。</li><li>不兼容应用明确回退 Gateway；停止、崩溃、升级和卸载都必须恢复原系统代理。</li></ul>
 
     <h2 id="export">导出等级</h2>
     <div class="table-wrap"><table><thead><tr><th>等级</th><th>内容</th><th>用途</th></tr></thead><tbody>

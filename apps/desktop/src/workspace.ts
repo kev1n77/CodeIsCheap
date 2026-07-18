@@ -42,11 +42,29 @@ export async function searchWorkspace(query: string): Promise<CapturedRequest[]>
     .filter((request) => requestSearchText(request).includes(normalized));
 }
 
-export async function setCaptureActive(active: boolean): Promise<boolean> {
+export async function setCaptureActive(active: boolean): Promise<WorkspaceBootstrap> {
   if (window.__TAURI_INTERNALS__) {
-    return invoke<boolean>("set_capture_active", { active });
+    return invoke<WorkspaceBootstrap>("set_capture_active", { active });
   }
-  return active;
+  const workspace = structuredClone(fixture) as unknown as WorkspaceBootstrap;
+  workspace.capture.active = active;
+  workspace.compatibility = active
+    ? structuredClone((fixture as unknown as WorkspaceBootstrap).compatibility)
+    : {
+        code: "capture_paused",
+        status: "attention",
+        confidence: "high",
+        title: "Gateway capture paused",
+        summary: "Traffic can still be forwarded, but new requests are not being recorded.",
+        recommendedMode: "gateway",
+        action: "resume_capture",
+        steps: [
+          { id: "gateway_runtime", status: "pass", label: "Local Gateway", detail: workspace.capture.endpoint },
+          { id: "certificate_interception", status: "pass", label: "Certificate interception", detail: "Not required in Gateway mode" },
+          { id: "recording", status: "attention", label: "Recording", detail: "Paused" },
+        ],
+      };
+  return workspace;
 }
 
 export async function setCaptureMode(mode: CaptureMode): Promise<WorkspaceBootstrap> {
@@ -303,6 +321,7 @@ async function fixtureSupportBundlePreview(
         endpointConnected: workspace.capture.endpoint !== "Not connected",
         proxyBundle: workspace.capture.proxyAvailable,
       },
+      compatibility: workspace.compatibility,
       runtimeIssue: scannedIssue.value,
       diagnosticEvents: [],
     },

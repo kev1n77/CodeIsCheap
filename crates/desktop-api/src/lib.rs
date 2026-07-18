@@ -1,6 +1,13 @@
 //! Versioned DTOs shared by the Tauri command layer and React workbench.
 
+mod compatibility;
 mod export;
+
+pub use compatibility::{
+    CaptureCompatibility, CaptureCompatibilityCode, CaptureCompatibilityStatus,
+    CompatibilityAction, CompatibilityConfidence, CompatibilityStep, CompatibilityStepStatus,
+    diagnose_capture_compatibility,
+};
 
 pub use export::{
     DiagnosticEvent, EXPORT_FORMAT_VERSION, EXPORT_POLICY_VERSION, ExportPreview, ExportProfile,
@@ -32,6 +39,7 @@ pub struct WorkspaceBootstrap {
     pub api_version: String,
     pub source: WorkspaceSource,
     pub capture: CaptureState,
+    pub compatibility: CaptureCompatibility,
     pub requests: Vec<CapturedRequest>,
 }
 
@@ -283,20 +291,23 @@ pub fn load_workspace(store: &EncryptedStore) -> Result<WorkspaceBootstrap, Desk
         requests.push(load_request(store, &summary.capture_id)?);
     }
     let cipher_version = store.cipher_version()?;
+    let capture = CaptureState {
+        active: false,
+        can_control: false,
+        proxy_available: false,
+        mode: CaptureMode::Gateway,
+        profile: "Local encrypted workspace".to_owned(),
+        endpoint: "Not connected".to_owned(),
+        storage: format!("SQLCipher {cipher_version} / WAL"),
+        request_count: store.capture_count()?,
+        certificate_authority: CertificateAuthority::missing(),
+    };
+    let compatibility = diagnose_capture_compatibility(&capture, 0);
     Ok(WorkspaceBootstrap {
         api_version: DESKTOP_API_VERSION.to_owned(),
         source: WorkspaceSource::EncryptedLocal,
-        capture: CaptureState {
-            active: false,
-            can_control: false,
-            proxy_available: false,
-            mode: CaptureMode::Gateway,
-            profile: "Local encrypted workspace".to_owned(),
-            endpoint: "Not connected".to_owned(),
-            storage: format!("SQLCipher {cipher_version} / WAL"),
-            request_count: store.capture_count()?,
-            certificate_authority: CertificateAuthority::missing(),
-        },
+        capture,
+        compatibility,
         requests,
     })
 }
@@ -1338,6 +1349,129 @@ mod tests {
         assert_eq!(proxy.application, "Proxy client");
         assert_eq!(proxy.source, AttributionSource::CaptureMode);
         assert_eq!(proxy.confidence, AttributionConfidence::Low);
+    }
+
+    #[test]
+    fn compatibility_diagnostics_degrade_unobserved_proxy_sessions_honestly() {
+        let mut capture = CaptureState {
+            active: true,
+            can_control: true,
+            proxy_available: true,
+            mode: CaptureMode::Gateway,
+            profile: "OpenAI-compatible local gateway".to_owned(),
+            endpoint: "http://127.0.0.1:8787".to_owned(),
+            storage: "SQLCipher 4 / WAL".to_owned(),
+            request_count: 0,
+            certificate_authority: CertificateAuthority::missing(),
+        };
+
+        let gateway = diagnose_capture_compatibility(&capture, 0);
+        assert_eq!(gateway.code, CaptureCompatibilityCode::GatewayReady);
+        assert_eq!(gateway.status, CaptureCompatibilityStatus::Ready);
+        assert_eq!(gateway.action, CompatibilityAction::None);
+
+        capture.mode = CaptureMode::Proxy;
+        capture.profile = "System-managed explicit TLS proxy".to_owned();
+        capture.endpoint = "http://127.0.0.1:43125".to_owned();
+        capture.certificate_authority = CertificateAuthority {
+            state: CertificateAuthorityState::Ready,
+            can_manage_trust: true,
+            fingerprint_sha256: Some("AA:BB:CC:DD".to_owned()),
+            subject: Some("mitmproxy".to_owned()),
+            valid_from_unix_ms: Some(1_577_836_800_000),
+            valid_until_unix_ms: Some(4_070_908_800_000),
+            private_material: CertificatePrivateMaterial::Restricted,
+            trust: CertificateTrust::NotTrusted,
+            detail: None,
+        };
+        let untrusted = diagnose_capture_compatibility(&capture, 0);
+        assert_eq!(
+            untrusted.code,
+            CaptureCompatibilityCode::CertificateTrustRequired
+        );
+        assert_eq!(untrusted.action, CompatibilityAction::TrustCertificate);
+        assert_eq!(untrusted.confidence, CompatibilityConfidence::High);
+
+        capture.certificate_authority.trust = CertificateTrust::Trusted;
+        let unobserved = diagnose_capture_compatibility(&capture, 0);
+        assert_eq!(
+            unobserved.code,
+            CaptureCompatibilityCode::ProxyCaptureUnobserved
+        );
+        assert_eq!(unobserved.status, CaptureCompatibilityStatus::Attention);
+        assert_eq!(unobserved.confidence, CompatibilityConfidence::Low);
+        assert_eq!(unobserved.action, CompatibilityAction::UseGateway);
+        assert!(
+            unobserved
+                .summary
+                .contains("may bypass the proxy or pin certificates")
+        );
+
+        let observed = diagnose_capture_compatibility(&capture, 1);
+        assert_eq!(
+            observed.code,
+            CaptureCompatibilityCode::ProxyCaptureObserved
+        );
+        assert_eq!(observed.status, CaptureCompatibilityStatus::Ready);
+        assert_eq!(observed.confidence, CompatibilityConfidence::High);
+        assert_eq!(observed.action, CompatibilityAction::None);
+    }
+
+    #[test]
+    fn compatibility_diagnostics_prioritize_actionable_proxy_failures() {
+        let mut capture = CaptureState {
+            active: true,
+            can_control: true,
+            proxy_available: false,
+            mode: CaptureMode::Proxy,
+            profile: "Explicit TLS proxy".to_owned(),
+            endpoint: "Not connected".to_owned(),
+            storage: "SQLCipher 4 / WAL".to_owned(),
+            request_count: 0,
+            certificate_authority: CertificateAuthority::missing(),
+        };
+
+        assert_eq!(
+            diagnose_capture_compatibility(&capture, 0).code,
+            CaptureCompatibilityCode::ProxyBundleUnavailable
+        );
+        capture.proxy_available = true;
+        assert_eq!(
+            diagnose_capture_compatibility(&capture, 0).code,
+            CaptureCompatibilityCode::ProxyUnavailable
+        );
+        capture.endpoint = "http://127.0.0.1:43125".to_owned();
+        assert_eq!(
+            diagnose_capture_compatibility(&capture, 0).code,
+            CaptureCompatibilityCode::CertificateMissing
+        );
+        capture.certificate_authority.state = CertificateAuthorityState::Invalid;
+        assert_eq!(
+            diagnose_capture_compatibility(&capture, 0).code,
+            CaptureCompatibilityCode::CertificateInvalid
+        );
+        capture.certificate_authority = CertificateAuthority {
+            state: CertificateAuthorityState::Ready,
+            can_manage_trust: false,
+            fingerprint_sha256: Some("AA:BB:CC:DD".to_owned()),
+            subject: Some("mitmproxy".to_owned()),
+            valid_from_unix_ms: Some(1_577_836_800_000),
+            valid_until_unix_ms: Some(4_070_908_800_000),
+            private_material: CertificatePrivateMaterial::Restricted,
+            trust: CertificateTrust::NotTrusted,
+            detail: None,
+        };
+        let trust = diagnose_capture_compatibility(&capture, 0);
+        assert_eq!(
+            trust.code,
+            CaptureCompatibilityCode::CertificateTrustRequired
+        );
+        assert_eq!(trust.action, CompatibilityAction::UseGateway);
+        capture.certificate_authority.trust = CertificateTrust::Trusted;
+        capture.active = false;
+        let paused = diagnose_capture_compatibility(&capture, 0);
+        assert_eq!(paused.code, CaptureCompatibilityCode::CapturePaused);
+        assert_eq!(paused.action, CompatibilityAction::ResumeCapture);
     }
 
     #[test]

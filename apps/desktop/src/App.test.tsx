@@ -355,7 +355,18 @@ describe("request workbench", () => {
     });
     vi.mocked(invoke).mockImplementation(async (command, args) => {
       if (command === "bootstrap_workspace") return structuredClone(workspace);
-      if (command === "set_capture_active") return Boolean(args?.active);
+      if (command === "set_capture_active") {
+        const next = structuredClone(workspace);
+        next.capture.active = Boolean(args?.active);
+        next.compatibility = {
+          ...next.compatibility,
+          code: "capture_paused",
+          status: "attention",
+          title: "Gateway capture paused",
+          action: "resume_capture",
+        };
+        return next;
+      }
       throw new Error(`Unexpected command: ${command}`);
     });
 
@@ -439,6 +450,77 @@ describe("request workbench", () => {
     expect(screen.getByText("AA:BB:CC:DD")).toBeInTheDocument();
     expect(proxyButton).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText("Healthy").parentElement).toHaveTextContent("Proxy");
+  });
+
+  it("diagnoses an unobserved proxy session without claiming certificate pinning", async () => {
+    const user = userEvent.setup();
+    window.__TAURI_INTERNALS__ = {};
+    const proxy = structuredClone(fixture) as unknown as WorkspaceBootstrap;
+    proxy.capture = {
+      ...proxy.capture,
+      active: true,
+      canControl: true,
+      proxyAvailable: true,
+      mode: "proxy",
+      profile: "System-managed explicit TLS proxy",
+      endpoint: "http://127.0.0.1:43125",
+      certificateAuthority: {
+        state: "ready",
+        canManageTrust: true,
+        fingerprintSha256: "AA:BB:CC:DD",
+        subject: "mitmproxy",
+        validFromUnixMs: 1_577_836_800_000,
+        validUntilUnixMs: 4_070_908_800_000,
+        privateMaterial: "restricted",
+        trust: "trusted",
+        detail: null,
+      },
+    };
+    proxy.compatibility = {
+      code: "proxy_capture_unobserved",
+      status: "attention",
+      confidence: "low",
+      title: "No Proxy capture observed yet",
+      summary: "Send one request from the target application. If it succeeds there but remains absent here, the application may bypass the proxy or pin certificates; use Gateway capture instead.",
+      recommendedMode: "gateway",
+      action: "use_gateway",
+      steps: [
+        { id: "proxy_bundle", status: "pass", label: "Verified Proxy bundle", detail: "Available" },
+        { id: "proxy_runtime", status: "pass", label: "Proxy runtime", detail: "http://127.0.0.1:43125" },
+        { id: "local_ca", status: "pass", label: "Local certificate authority", detail: "Ready · restricted private material" },
+        { id: "system_trust", status: "pass", label: "System trust", detail: "trusted" },
+        { id: "session_capture", status: "pending", label: "Current Proxy session", detail: "No capture event observed yet" },
+      ],
+    };
+    const gateway = structuredClone(fixture) as unknown as WorkspaceBootstrap;
+    gateway.capture = {
+      ...gateway.capture,
+      active: true,
+      canControl: true,
+      proxyAvailable: true,
+      mode: "gateway",
+      profile: "OpenAI-compatible local gateway",
+      endpoint: "http://127.0.0.1:8787",
+    };
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === "bootstrap_workspace") return structuredClone(proxy);
+      if (command === "set_capture_mode" && args?.mode === "gateway") {
+        return structuredClone(gateway);
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    const dialog = screen.getByRole("dialog", { name: "Settings & diagnostics" });
+    expect(within(dialog).getByText("No Proxy capture observed yet")).toBeInTheDocument();
+    expect(within(dialog).getByText("low confidence")).toBeInTheDocument();
+    expect(within(dialog).getByText(/may bypass the proxy or pin certificates/)).toBeInTheDocument();
+    expect(within(dialog).getByText("No capture event observed yet")).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: "Use Gateway" }));
+    expect(invoke).toHaveBeenCalledWith("set_capture_mode", { mode: "gateway" });
+    expect(await screen.findByText("OpenAI-compatible local gateway")).toBeInTheDocument();
   });
 
   it("keeps residual certificate details visible when the proxy bundle is unavailable", async () => {

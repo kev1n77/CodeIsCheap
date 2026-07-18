@@ -28,7 +28,7 @@
     </tbody></table></div>
 
     <h2 id="flows">关键流程</h2>
-    <ol><li><strong>开始捕获：</strong>选择 Gateway 或代理，自动完成连通性检查。</li><li><strong>检查请求：</strong>实时列表选中请求，Anatomy 默认展开关键内容。</li><li><strong>比较：</strong>选择两个请求，先看结构差异，再定位 Raw 证据。</li><li><strong>导出：</strong>选择安全等级，扫描敏感内容，预览后写出文件。</li></ol>
+    <ol><li><strong>开始捕获：</strong>选择 Gateway 或代理，检查 bundle、端点、CA 与信任状态。</li><li><strong>确认兼容：</strong>Proxy 会话出现首个捕获事件后标记 Ready；零事件只低置信度提示绕过代理或证书固定，并可切回 Gateway。</li><li><strong>检查请求：</strong>实时列表选中请求，Anatomy 默认展开关键内容。</li><li><strong>比较：</strong>选择两个请求，先看结构差异，再定位 Raw 证据。</li><li><strong>导出：</strong>选择安全等级，扫描敏感内容，预览后写出文件。</li></ol>
 
     <h2 id="principles">设计原则</h2>
     <ul><li>捕获状态、范围和本地存储状态始终可见。</li><li>推断、截断、未知和未采集不能只靠颜色区分。</li><li>采用稳定三栏与可拖动面板，流式内容不改变布局。</li><li>界面保持密集、克制，少用卡片和装饰。</li><li>键盘可完成选择、比较、定位和导出。</li></ul>

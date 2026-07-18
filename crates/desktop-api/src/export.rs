@@ -183,6 +183,7 @@ pub fn build_support_bundle_preview(
                 "endpointConnected": workspace.capture.endpoint != "Not connected",
                 "proxyBundle": workspace.capture.proxy_available,
             },
+            "compatibility": &workspace.compatibility,
             "runtimeIssue": runtime_issue,
             "diagnosticEvents": diagnostic_events,
         },
@@ -460,7 +461,7 @@ mod tests {
     use crate::{
         AnatomyItem, AnatomySection, ApplicationAttributionSource, ApplicationConfidence,
         CaptureMode, CaptureState, CaptureStatus, CertificateAuthority, EvidenceLevel,
-        RequestDetail, TimelineEvent, WorkspaceBootstrap,
+        RequestDetail, TimelineEvent, WorkspaceBootstrap, diagnose_capture_compatibility,
     };
 
     fn request() -> CapturedRequest {
@@ -644,20 +645,22 @@ mod tests {
 
     #[test]
     fn support_bundles_exclude_requests_and_scan_runtime_issues() {
+        let capture = CaptureState {
+            active: true,
+            can_control: true,
+            proxy_available: false,
+            mode: CaptureMode::Gateway,
+            profile: "Local gateway".to_owned(),
+            endpoint: "127.0.0.1:8787".to_owned(),
+            storage: "SQLCipher 4 / WAL".to_owned(),
+            request_count: 1,
+            certificate_authority: CertificateAuthority::missing(),
+        };
         let workspace = WorkspaceBootstrap {
             api_version: DESKTOP_API_VERSION.to_owned(),
             source: WorkspaceSource::EncryptedLocal,
-            capture: CaptureState {
-                active: true,
-                can_control: true,
-                proxy_available: false,
-                mode: CaptureMode::Gateway,
-                profile: "Local gateway".to_owned(),
-                endpoint: "127.0.0.1:8787".to_owned(),
-                storage: "SQLCipher 4 / WAL".to_owned(),
-                request_count: 1,
-                certificate_authority: CertificateAuthority::missing(),
-            },
+            compatibility: diagnose_capture_compatibility(&capture, 0),
+            capture,
             requests: vec![request()],
         };
 
@@ -678,6 +681,10 @@ mod tests {
         assert_eq!(document["diagnostics"]["capture"]["requestCount"], 1);
         assert_eq!(document["privacy"]["logsIncluded"], true);
         assert_eq!(document["privacy"]["logDetailsIncluded"], false);
+        assert_eq!(
+            document["diagnostics"]["compatibility"]["code"],
+            "gateway_ready"
+        );
         assert_eq!(
             document["diagnostics"]["diagnosticEvents"][0]["code"],
             "gateway_serve_failed"
