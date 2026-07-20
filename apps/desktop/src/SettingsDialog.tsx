@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -20,6 +20,7 @@ import type {
   WorkspaceBootstrap,
 } from "./types";
 import { previewSupportBundle, saveSupportBundle } from "./workspace";
+import { handleTabListKeyDown, useModalDialog } from "./accessibility";
 
 type SettingsTab = "connection" | "diagnostics";
 
@@ -42,27 +43,13 @@ export function SettingsDialog({ workspace, active, runtimeError, certificateErr
   const [supportError, setSupportError] = useState("");
   const [supportSaving, setSupportSaving] = useState(false);
   const [supportSavedPath, setSupportSavedPath] = useState("");
-  const closeRef = useRef<HTMLButtonElement>(null);
+  const { dialogRef, initialFocusRef } = useModalDialog(onClose);
   const certificate = workspace.capture.certificateAuthority;
   const compatibility = workspace.compatibility;
   const canTrust = certificate.canManageTrust
     && certificate.state === "ready"
     && certificate.trust === "not_trusted";
   const canRemoveTrust = certificate.canManageTrust && certificate.trust === "trusted";
-
-  useEffect(() => {
-    const background = document.querySelectorAll(".app-shell > .titlebar, .app-shell > .workspace");
-    background.forEach((element) => element.setAttribute("inert", ""));
-    closeRef.current?.focus();
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      background.forEach((element) => element.removeAttribute("inert"));
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [onClose]);
 
   useEffect(() => {
     if (tab !== "diagnostics") return;
@@ -111,16 +98,16 @@ export function SettingsDialog({ workspace, active, runtimeError, certificateErr
 
   return (
     <div className="dialog-backdrop">
-      <section className="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <section ref={dialogRef} className="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title" tabIndex={-1}>
         <header>
           <div><span className="dialog-eyebrow">Local workspace</span><h2 id="settings-title">Settings & diagnostics</h2></div>
-          <button ref={closeRef} className="icon-button" title="Close settings" aria-label="Close settings" onClick={onClose}><X size={17} /></button>
+          <button ref={initialFocusRef} className="icon-button" title="Close settings" aria-label="Close settings" onClick={onClose}><X size={17} /></button>
         </header>
-        <nav className="settings-tabs" aria-label="Settings views">
-          <button aria-selected={tab === "connection"} onClick={() => setTab("connection")}><Network size={14} />Connection</button>
-          <button aria-selected={tab === "diagnostics"} onClick={() => setTab("diagnostics")}><Stethoscope size={14} />Diagnostics</button>
-        </nav>
-        {tab === "connection" && <div className="settings-content">
+        <div className="settings-tabs" role="tablist" aria-label="Settings views" onKeyDown={handleTabListKeyDown}>
+          <button id="settings-tab-connection" role="tab" aria-controls="settings-panel-connection" aria-selected={tab === "connection"} tabIndex={tab === "connection" ? 0 : -1} onClick={() => setTab("connection")}><Network size={14} />Connection</button>
+          <button id="settings-tab-diagnostics" role="tab" aria-controls="settings-panel-diagnostics" aria-selected={tab === "diagnostics"} tabIndex={tab === "diagnostics" ? 0 : -1} onClick={() => setTab("diagnostics")}><Stethoscope size={14} />Diagnostics</button>
+        </div>
+        {tab === "connection" && <div id="settings-panel-connection" className="settings-content" role="tabpanel" aria-labelledby="settings-tab-connection" tabIndex={0}>
           <section className="settings-band">
             <div><span>Capture mode</span><strong>{workspace.capture.mode === "gateway" ? "Local Gateway" : "Explicit TLS proxy"}</strong><small>{workspace.capture.endpoint}</small></div>
             <div className="segmented-control settings-mode" aria-label="Settings capture mode">
@@ -164,7 +151,7 @@ export function SettingsDialog({ workspace, active, runtimeError, certificateErr
             <button className="settings-command" disabled={!workspace.capture.canControl || workspace.capture.mode === "gateway" || modeChanging} onClick={() => onModeChange("gateway")}><RotateCcw size={14} />Return to Gateway</button>
           </section>
         </div>}
-        {tab === "diagnostics" && <div className="settings-content diagnostics-content">
+        {tab === "diagnostics" && <div id="settings-panel-diagnostics" className="settings-content diagnostics-content" role="tabpanel" aria-labelledby="settings-tab-diagnostics" tabIndex={0}>
           <div className="diagnostics-toolbar"><span>Request content, identifiers, Raw capture, and log details are excluded.</span><div className="diagnostics-actions"><button className="settings-command" disabled={!supportPreview} onClick={copyReport}><Copy size={14} />{copied ? "Copied" : "Copy report"}</button><button className="settings-command" disabled={!supportPreview || supportSaving || Boolean(supportSavedPath)} onClick={saveBundle}>{supportSaving ? <LoaderCircle className="is-spinning" size={14} /> : <Download size={14} />}{supportSavedPath ? "Saved" : "Save support bundle"}</button></div></div>
           {(copyError || supportError) && <span className="settings-error diagnostics-error" role="alert">{copyError || supportError}</span>}
           <table className="diagnostics-table">
