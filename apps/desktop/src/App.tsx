@@ -58,6 +58,7 @@ import {
 } from "./workspace";
 import { formatRawJson, resolveEvidenceLocator, resolveEvidencePointer } from "./raw-evidence";
 import type { ResolvedRawEvidence } from "./raw-evidence";
+import { handleTabListKeyDown, useModalDialog } from "./accessibility";
 
 const number = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
 const clock = new Intl.DateTimeFormat(undefined, {
@@ -67,6 +68,17 @@ const clock = new Intl.DateTimeFormat(undefined, {
   hour12: false,
 });
 const REQUEST_ROW_HEIGHT = 116;
+const SIDEBAR_MIN_WIDTH = 184;
+const SIDEBAR_MAX_WIDTH = 292;
+const REQUEST_LIST_MIN_WIDTH = 320;
+const REQUEST_LIST_MAX_WIDTH = 560;
+const INSPECTOR_MIN_WIDTH = 320;
+const RESIZE_HANDLE_TOTAL_WIDTH = 10;
+
+interface PaneWidths {
+  sidebar: number;
+  requestList: number;
+}
 
 export function App() {
   const [workspace, setWorkspace] = useState<WorkspaceBootstrap | null>(null);
@@ -97,8 +109,11 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [compareBase, setCompareBase] = useState<CapturedRequest | null>(null);
   const [compareMode, setCompareMode] = useState<CompareMode>("structure");
-  const [sidebarWidth, setSidebarWidth] = useState(218);
-  const [listWidth, setListWidth] = useState(390);
+  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
+  const [paneWidths, setPaneWidths] = useState<PaneWidths>(() => fitPaneWidths(
+    { sidebar: 218, requestList: 390 },
+    window.innerWidth,
+  ));
   const searchRef = useRef<HTMLInputElement>(null);
   const closeSettings = useCallback(() => {
     setSettingsOpen(false);
@@ -180,6 +195,15 @@ export function App() {
   }, [theme]);
 
   useEffect(() => {
+    const onResize = () => {
+      setViewportWidth(window.innerWidth);
+      setPaneWidths((current) => fitPaneWidths(current, window.innerWidth));
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  useEffect(() => {
     const normalized = query.trim();
     if (!normalized) {
       setSearchResult(null);
@@ -230,16 +254,29 @@ export function App() {
         setCompareBase(null);
         return;
       }
-      if (!workspace || event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement) {
+      if (
+        !workspace
+        || event.target instanceof HTMLInputElement
+        || event.target instanceof HTMLSelectElement
+        || event.target instanceof HTMLTextAreaElement
+        || (event.target instanceof HTMLElement && event.target.isContentEditable)
+      ) {
         return;
       }
-      if (event.key.toLocaleLowerCase() === "c" && selectedRequest) {
+      const requestRowFocused = event.target instanceof HTMLElement
+        && event.target.classList.contains("request-row");
+      if (
+        event.key.toLocaleLowerCase() === "c"
+        && selectedRequest
+        && (!(event.target instanceof HTMLButtonElement) || requestRowFocused)
+      ) {
         event.preventDefault();
         setCompareBase(selectedRequest);
         setCompareMode("structure");
         return;
       }
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        if (event.target !== document.body && !requestRowFocused) return;
         event.preventDefault();
         const current = Math.max(0, requests.findIndex((request) => request.id === effectiveSelectedId));
         const next = event.key === "ArrowDown" ? Math.min(requests.length - 1, current + 1) : Math.max(0, current - 1);
@@ -321,7 +358,7 @@ export function App() {
       />
       <main
         className="workspace"
-        style={{ gridTemplateColumns: `${sidebarWidth}px 5px ${listWidth}px 5px minmax(430px, 1fr)` }}
+        style={{ gridTemplateColumns: `${paneWidths.sidebar}px 5px ${paneWidths.requestList}px 5px minmax(${INSPECTOR_MIN_WIDTH}px, 1fr)` }}
       >
         <CaptureSidebar
           workspace={workspace}
@@ -340,7 +377,7 @@ export function App() {
           onToolsOnly={setToolsOnly}
           onErrorsOnly={setErrorsOnly}
         />
-        <ResizeHandle label="Resize capture sidebar" onResize={(delta) => setSidebarWidth((width) => clamp(width + delta, 184, 292))} />
+        <ResizeHandle label="Resize capture sidebar" value={paneWidths.sidebar} min={SIDEBAR_MIN_WIDTH} max={paneMaximum("sidebar", paneWidths, viewportWidth)} onResize={(delta) => setPaneWidths((widths) => resizePane("sidebar", widths, delta, viewportWidth))} />
         <RequestPane
           requests={requests}
           allRequests={knownRequests}
@@ -359,7 +396,7 @@ export function App() {
           onCancelCompare={() => setCompareBase(null)}
           onExportVisible={() => setExportSelection({ requests, batch: true })}
         />
-        <ResizeHandle label="Resize request list" onResize={(delta) => setListWidth((width) => clamp(width + delta, 320, 560))} />
+        <ResizeHandle label="Resize request list" value={paneWidths.requestList} min={REQUEST_LIST_MIN_WIDTH} max={paneMaximum("requestList", paneWidths, viewportWidth)} onResize={(delta) => setPaneWidths((widths) => resizePane("requestList", widths, delta, viewportWidth))} />
         {compareBase && compareTarget ? <CompareView
           left={compareBase}
           right={compareTarget}
@@ -594,12 +631,12 @@ function Inspector({ request, tab, comparing, onTab, onExport, onCompare }: { re
         <div><div className="inspector-provider"><span className={`provider-mark provider-${request.provider.toLowerCase()}`}>{request.provider[0]}</span><strong>{request.provider}</strong><span>{request.operation}</span></div><h2>{request.model}</h2><div className="inspector-attribution" title={attributionTitle(request)}><span className={`attribution-confidence confidence-${request.applicationConfidence}`}>{request.applicationConfidence}</span><strong>{request.application}</strong><code>{formatAttributionSource(request.applicationSource)}</code>{request.applicationProcessId != null && <code className="attribution-process">PID {request.applicationProcessId}</code>}</div>{request.semanticFingerprint && <code className="semantic-fingerprint" title={`BLAKE3 semantic fingerprint: ${request.semanticFingerprint}`}>{request.semanticFingerprint.slice(0, 12)}</code>}</div>
         <div className="inspector-actions"><div className="inspector-metrics"><span><b>{formatTokens(request.tokens, request.tokenSource)}</b> tokens</span><span title={request.pricingVersion ?? undefined}><b>{formatCost(request.costUsd, request.costSource)}</b> cost</span><span><b>{request.durationMs == null ? "Unknown" : formatDuration(request.durationMs)}</b> duration</span><span className={`request-state state-${request.status}`}>{request.status}</span></div><button className={`icon-button ${comparing ? "is-active" : ""}`} title={comparing ? "Comparison baseline selected" : "Use as comparison baseline (C)"} aria-label="Compare request" aria-pressed={comparing} onClick={onCompare}><GitCompareArrows size={16} /></button><button className="icon-button" title="Export request" aria-label="Export request" onClick={onExport}><Download size={16} /></button></div>
       </header>
-      <nav className="inspector-tabs" aria-label="Inspector views">
-        <button aria-selected={tab === "anatomy"} onClick={() => onTab("anatomy")}><Braces size={14} />Anatomy</button>
-        <button aria-selected={tab === "timeline"} onClick={() => onTab("timeline")}><Activity size={14} />Timeline</button>
-        <button aria-selected={tab === "raw"} onClick={() => onTab("raw")}><TerminalSquare size={14} />Raw</button>
-      </nav>
-      <div className="inspector-content">
+      <div className="inspector-tabs" role="tablist" aria-label="Inspector views" onKeyDown={handleTabListKeyDown}>
+        <button id="inspector-tab-anatomy" role="tab" aria-controls="inspector-panel" aria-selected={tab === "anatomy"} tabIndex={tab === "anatomy" ? 0 : -1} onClick={() => onTab("anatomy")}><Braces size={14} />Anatomy</button>
+        <button id="inspector-tab-timeline" role="tab" aria-controls="inspector-panel" aria-selected={tab === "timeline"} tabIndex={tab === "timeline" ? 0 : -1} onClick={() => onTab("timeline")}><Activity size={14} />Timeline</button>
+        <button id="inspector-tab-raw" role="tab" aria-controls="inspector-panel" aria-selected={tab === "raw"} tabIndex={tab === "raw" ? 0 : -1} onClick={() => onTab("raw")}><TerminalSquare size={14} />Raw</button>
+      </div>
+      <div id="inspector-panel" className="inspector-content" role="tabpanel" aria-labelledby={`inspector-tab-${tab}`} tabIndex={0}>
         {tab === "anatomy" && <AnatomyView sections={request.detail.anatomy} raw={request.detail.raw} onLocate={locateRawEvidence} />}
         {tab === "timeline" && <TimelineView request={request} onLocate={locateTimelineEvidence} />}
         {tab === "raw" && <RawView request={request} evidence={rawEvidence} />}
@@ -609,7 +646,6 @@ function Inspector({ request, tab, comparing, onTab, onExport, onCompare }: { re
 }
 
 function ExportDialog({ requests, batch, onClose }: { requests: CapturedRequest[]; batch: boolean; onClose: () => void }) {
-  const closeRef = useRef<HTMLButtonElement>(null);
   const captureIds = useMemo(() => requests.map((request) => request.id), [requests]);
   const request = requests[0];
   const [profile, setProfile] = useState<ExportProfile>("minimal");
@@ -617,13 +653,7 @@ function ExportDialog({ requests, batch, onClose }: { requests: CapturedRequest[
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [savedPath, setSavedPath] = useState("");
-
-  useEffect(() => {
-    const background = document.querySelectorAll(".app-shell > .titlebar, .app-shell > .workspace");
-    background.forEach((element) => element.setAttribute("inert", ""));
-    closeRef.current?.focus();
-    return () => background.forEach((element) => element.removeAttribute("inert"));
-  }, []);
+  const { dialogRef, initialFocusRef } = useModalDialog(onClose, saving);
 
   useEffect(() => {
     let cancelled = false;
@@ -641,14 +671,6 @@ function ExportDialog({ requests, batch, onClose }: { requests: CapturedRequest[
     return () => { cancelled = true; };
   }, [batch, captureIds, profile, request.id]);
 
-  useEffect(() => {
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !saving) onClose();
-    };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [onClose, saving]);
-
   const savePreview = () => {
     if (!preview || saving) return;
     setSaving(true);
@@ -665,8 +687,8 @@ function ExportDialog({ requests, batch, onClose }: { requests: CapturedRequest[
   };
 
   return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) onClose(); }}>
-    <section className="export-dialog" role="dialog" aria-modal="true" aria-labelledby="export-title">
-      <header><div><span className="dialog-eyebrow">{batch ? `Batch · ${requests.length} requests` : `${request.provider} · ${request.operation}`}</span><h2 id="export-title">{batch ? "Export visible requests" : "Export request"}</h2></div><button ref={closeRef} className="icon-button" title="Close" aria-label="Close export" disabled={saving} onClick={onClose}><X size={17} /></button></header>
+    <section ref={dialogRef} className="export-dialog" role="dialog" aria-modal="true" aria-labelledby="export-title" aria-busy={saving} tabIndex={-1}>
+      <header><div><span className="dialog-eyebrow">{batch ? `Batch · ${requests.length} requests` : `${request.provider} · ${request.operation}`}</span><h2 id="export-title">{batch ? "Export visible requests" : "Export request"}</h2></div><button ref={initialFocusRef} className="icon-button" title="Close" aria-label="Close export" disabled={saving} onClick={onClose}><X size={17} /></button></header>
       <div className="export-toolbar">
         <div className="export-profiles" aria-label="Export profile">
           {(["minimal", "reproducible", "forensic"] as ExportProfile[]).map((value) => <button key={value} aria-pressed={profile === value} onClick={() => setProfile(value)}>{value}</button>)}
@@ -727,7 +749,7 @@ function EvidenceBadge({ level }: { level: AnatomySection["evidence"] }) {
   return <span className={`evidence-badge evidence-${level}`}>{level}</span>;
 }
 
-function ResizeHandle({ label, onResize }: { label: string; onResize: (delta: number) => void }) {
+function ResizeHandle({ label, value, min, max, onResize }: { label: string; value: number; min: number; max: number; onResize: (delta: number) => void }) {
   const start = (event: React.PointerEvent) => {
     event.currentTarget.setPointerCapture(event.pointerId);
     let x = event.clientX;
@@ -736,7 +758,79 @@ function ResizeHandle({ label, onResize }: { label: string; onResize: (delta: nu
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", stop);
   };
-  return <div className="resize-handle" role="separator" aria-label={label} aria-orientation="vertical" onPointerDown={start} />;
+  const onKeyDown = (event: React.KeyboardEvent) => {
+    const delta = event.key === "ArrowLeft"
+      ? -12
+      : event.key === "ArrowRight"
+        ? 12
+        : event.key === "Home"
+          ? min - value
+          : event.key === "End"
+            ? max - value
+            : null;
+    if (delta == null) return;
+    event.preventDefault();
+    onResize(delta);
+  };
+  return <div className="resize-handle" role="separator" aria-label={label} aria-orientation="vertical" aria-valuemin={min} aria-valuemax={max} aria-valuenow={value} aria-valuetext={`${value} pixels`} tabIndex={0} onKeyDown={onKeyDown} onPointerDown={start} />;
+}
+
+function paneBudget(viewportWidth: number) {
+  return Math.max(
+    SIDEBAR_MIN_WIDTH + REQUEST_LIST_MIN_WIDTH,
+    viewportWidth - INSPECTOR_MIN_WIDTH - RESIZE_HANDLE_TOTAL_WIDTH,
+  );
+}
+
+function paneMaximum(pane: keyof PaneWidths, widths: PaneWidths, viewportWidth: number) {
+  const budget = paneBudget(viewportWidth);
+  return pane === "sidebar"
+    ? Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, budget - widths.requestList))
+    : Math.max(REQUEST_LIST_MIN_WIDTH, Math.min(REQUEST_LIST_MAX_WIDTH, budget - widths.sidebar));
+}
+
+function resizePane(
+  pane: keyof PaneWidths,
+  widths: PaneWidths,
+  delta: number,
+  viewportWidth: number,
+): PaneWidths {
+  if (pane === "sidebar") {
+    return {
+      ...widths,
+      sidebar: clamp(
+        widths.sidebar + delta,
+        SIDEBAR_MIN_WIDTH,
+        paneMaximum("sidebar", widths, viewportWidth),
+      ),
+    };
+  }
+  return {
+    ...widths,
+    requestList: clamp(
+      widths.requestList + delta,
+      REQUEST_LIST_MIN_WIDTH,
+      paneMaximum("requestList", widths, viewportWidth),
+    ),
+  };
+}
+
+function fitPaneWidths(widths: PaneWidths, viewportWidth: number): PaneWidths {
+  const budget = paneBudget(viewportWidth);
+  const sidebar = clamp(widths.sidebar, SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH);
+  const requestList = clamp(
+    widths.requestList,
+    REQUEST_LIST_MIN_WIDTH,
+    Math.max(REQUEST_LIST_MIN_WIDTH, Math.min(REQUEST_LIST_MAX_WIDTH, budget - sidebar)),
+  );
+  return {
+    sidebar: clamp(
+      sidebar,
+      SIDEBAR_MIN_WIDTH,
+      Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, budget - requestList)),
+    ),
+    requestList,
+  };
 }
 
 function EmptyInspector() {

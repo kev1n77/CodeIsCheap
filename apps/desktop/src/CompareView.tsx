@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { ArrowLeftRight, Braces, X } from "lucide-react";
 import type { CapturedRequest } from "./types";
 import { comparePromptText, compareStructure } from "./compare";
+import { handleTabListKeyDown } from "./accessibility";
 
 export type CompareMode = "structure" | "text";
 
@@ -43,11 +44,11 @@ export function CompareView({ left, right, mode, onMode, onSwap, onClose }: {
         <span><b>{structure.counts.removed}</b> removed</span>
         <span><b>{structure.counts.same}</b> unchanged</span>
       </div>
-      <nav className="inspector-tabs" aria-label="Comparison views">
-        <button aria-selected={mode === "structure"} onClick={() => onMode("structure")}><Braces size={14} />Structure</button>
-        <button aria-label="Text" aria-selected={mode === "text"} onClick={() => onMode("text")}><span className="text-diff-icon" aria-hidden="true">Aa</span>Text</button>
-      </nav>
-      <div className="inspector-content compare-content">
+      <div className="inspector-tabs" role="tablist" aria-label="Comparison views" onKeyDown={handleTabListKeyDown}>
+        <button id="compare-tab-structure" role="tab" aria-controls="compare-panel" aria-selected={mode === "structure"} tabIndex={mode === "structure" ? 0 : -1} onClick={() => onMode("structure")}><Braces size={14} />Structure</button>
+        <button id="compare-tab-text" role="tab" aria-controls="compare-panel" aria-selected={mode === "text"} tabIndex={mode === "text" ? 0 : -1} onClick={() => onMode("text")}><span className="text-diff-icon" aria-hidden="true">Aa</span>Text</button>
+      </div>
+      <div id="compare-panel" className="inspector-content compare-content" role="tabpanel" aria-labelledby={`compare-tab-${mode}`} tabIndex={0}>
         {mode === "structure" && <>
           <label className="compare-unchanged"><input type="checkbox" checked={showUnchanged} onChange={(event) => setShowUnchanged(event.target.checked)} />Show unchanged</label>
           {rows.length > 0 ? <table className="compare-table">

@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { save } from "@tauri-apps/plugin-dialog";
+import axe from "axe-core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import fixture from "./data/workspace.json";
@@ -38,6 +39,7 @@ function workspacePrompt(workspace: WorkspaceBootstrap) {
 describe("request workbench", () => {
   beforeEach(() => {
     localStorage.clear();
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1024 });
     delete window.__TAURI_INTERNALS__;
     vi.mocked(invoke).mockReset();
     vi.mocked(listen).mockReset();
@@ -107,11 +109,22 @@ describe("request workbench", () => {
     render(<App />);
     await screen.findByText("Requests");
 
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    const settingsButton = screen.getByRole("button", { name: "Settings" });
+    await user.click(settingsButton);
     const dialog = screen.getByRole("dialog", { name: "Settings & diagnostics" });
-    expect(within(dialog).getByRole("button", { name: "Connection" }))
+    const close = within(dialog).getByRole("button", { name: "Close settings" });
+    expect(close).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(dialog).toContainElement(document.activeElement as HTMLElement);
+    await user.tab();
+    expect(close).toHaveFocus();
+    const connectionTab = within(dialog).getByRole("tab", { name: "Connection" });
+    expect(connectionTab)
       .toHaveAttribute("aria-selected", "true");
-    await user.click(within(dialog).getByRole("button", { name: "Diagnostics" }));
+    connectionTab.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(within(dialog).getByRole("tab", { name: "Diagnostics" }))
+      .toHaveAttribute("aria-selected", "true");
     const preview = within(dialog).getByLabelText("Diagnostic report preview");
     await waitFor(() => expect(preview).toHaveTextContent("requestCount"));
     expect(preview).not.toHaveTextContent(workspacePrompt(fixture as unknown as WorkspaceBootstrap));
@@ -120,6 +133,78 @@ describe("request workbench", () => {
     expect(within(dialog).getByRole("button", { name: "Copied" })).toBeInTheDocument();
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: "Settings & diagnostics" })).not.toBeInTheDocument();
+    expect(settingsButton).toHaveFocus();
+  });
+
+  it("passes automated accessibility checks for the workspace and dialogs", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<App />);
+    await screen.findByText("Requests");
+    const options = { rules: { "color-contrast": { enabled: false } } };
+
+    const workspaceResults = await axe.run(container, options);
+    expect(workspaceResults.violations.map((violation) => violation.id)).toEqual([]);
+
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    const settings = screen.getByRole("dialog", { name: "Settings & diagnostics" });
+    const settingsResults = await axe.run(settings, options);
+    expect(settingsResults.violations.map((violation) => violation.id)).toEqual([]);
+    await user.keyboard("{Escape}");
+
+    await user.click(screen.getByRole("button", { name: "Export request" }));
+    const exportDialog = await screen.findByRole("dialog", { name: "Export request" });
+    await within(exportDialog).findByText(/credential.*replaced/);
+    const exportResults = await axe.run(exportDialog, options);
+    expect(exportResults.violations.map((violation) => violation.id)).toEqual([]);
+  });
+
+  it("supports keyboard tabs and resizes both workspace panes", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByText("Requests");
+
+    const anatomy = screen.getByRole("tab", { name: "Anatomy" });
+    anatomy.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(screen.getByRole("tab", { name: "Timeline" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+
+    const sidebar = screen.getByRole("separator", { name: "Resize capture sidebar" });
+    expect(sidebar).toHaveAttribute("aria-valuenow", "218");
+    sidebar.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(sidebar).toHaveAttribute("aria-valuenow", "230");
+    await user.keyboard("{End}");
+    expect(sidebar).toHaveAttribute("aria-valuenow", "292");
+
+    const requestList = screen.getByRole("separator", { name: "Resize request list" });
+    requestList.focus();
+    await user.keyboard("{Home}");
+    expect(requestList).toHaveAttribute("aria-valuenow", "320");
+  });
+
+  it("preserves the inspector width budget at the minimum desktop viewport", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByText("Requests");
+
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 960 });
+    act(() => window.dispatchEvent(new Event("resize")));
+
+    const sidebar = screen.getByRole("separator", { name: "Resize capture sidebar" });
+    const requestList = screen.getByRole("separator", { name: "Resize request list" });
+    expect(sidebar).toHaveAttribute("aria-valuemax", "240");
+    expect(requestList).toHaveAttribute("aria-valuemax", "412");
+
+    sidebar.focus();
+    await user.keyboard("{End}");
+    expect(sidebar).toHaveAttribute("aria-valuenow", "240");
+    expect(requestList).toHaveAttribute("aria-valuemax", "390");
+    expect(screen.getByRole("main")).toHaveStyle({
+      gridTemplateColumns: "240px 5px 390px 5px minmax(320px, 1fr)",
+    });
   });
 
   it("previews and saves a scanned support bundle", async () => {
@@ -149,7 +234,7 @@ describe("request workbench", () => {
     render(<App />);
     await user.click(await screen.findByRole("button", { name: "Settings" }));
     const dialog = screen.getByRole("dialog", { name: "Settings & diagnostics" });
-    await user.click(within(dialog).getByRole("button", { name: "Diagnostics" }));
+    await user.click(within(dialog).getByRole("tab", { name: "Diagnostics" }));
     expect(await within(dialog).findByText(/requestContentIncluded/)).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Save support bundle" }));
 
@@ -180,7 +265,7 @@ describe("request workbench", () => {
 
     const dialog = await screen.findByRole("dialog", { name: "Settings & diagnostics" });
     expect(within(dialog).getByText("Waiting for the first request")).toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: "Connection" }))
+    expect(within(dialog).getByRole("tab", { name: "Connection" }))
       .toHaveAttribute("aria-selected", "true");
   });
 
@@ -229,9 +314,9 @@ describe("request workbench", () => {
     const comparison = screen.getByRole("region", { name: "Request comparison" });
     expect(within(comparison).getAllByText("Baseline")).not.toHaveLength(0);
     expect(within(comparison).getAllByText("Target")).not.toHaveLength(0);
-    expect(within(comparison).getByRole("button", { name: "Structure" }))
+    expect(within(comparison).getByRole("tab", { name: "Structure" }))
       .toHaveAttribute("aria-selected", "true");
-    await user.click(within(comparison).getByRole("button", { name: "Text" }));
+    await user.click(within(comparison).getByRole("tab", { name: "Text" }));
     expect(within(comparison).getByLabelText("Prompt text difference")).toBeInTheDocument();
     await user.click(within(comparison).getByRole("button", { name: "Close comparison" }));
     expect(screen.queryByRole("region", { name: "Request comparison" })).not.toBeInTheDocument();
@@ -288,11 +373,11 @@ describe("request workbench", () => {
     render(<App />);
     await screen.findByRole("heading", { name: "claude-sonnet" });
 
-    await user.click(screen.getByRole("button", { name: /Timeline/ }));
+    await user.click(screen.getByRole("tab", { name: /Timeline/ }));
     expect(screen.getByText("Credentials removed")).toBeInTheDocument();
     expect(screen.getByText("#0")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /Raw/ }));
+    await user.click(screen.getByRole("tab", { name: /Raw/ }));
     expect(screen.getByText(/Authorization, cookies/)).toBeInTheDocument();
     expect(screen.getByText(/credentials_persisted/)).toBeInTheDocument();
   });
@@ -304,7 +389,7 @@ describe("request workbench", () => {
 
     await user.click(screen.getByRole("button", { name: "Show raw evidence for User" }));
 
-    expect(screen.getByRole("button", { name: "Raw" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Raw" })).toHaveAttribute("aria-selected", "true");
     expect(within(screen.getByRole("status")).getByText("/request/body/messages/0/content")).toBeInTheDocument();
     const highlighted = container.querySelector('.raw-line.is-highlighted');
     expect(highlighted).toHaveAttribute("data-pointer", "/request/body/messages/0/content");
@@ -315,11 +400,11 @@ describe("request workbench", () => {
     const user = userEvent.setup();
     const { container } = render(<App />);
     await screen.findByRole("heading", { name: "claude-sonnet" });
-    await user.click(screen.getByRole("button", { name: "Timeline" }));
+    await user.click(screen.getByRole("tab", { name: "Timeline" }));
 
     await user.click(screen.getByRole("button", { name: "Show raw evidence for First response event" }));
 
-    expect(screen.getByRole("button", { name: "Raw" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Raw" })).toHaveAttribute("aria-selected", "true");
     const status = screen.getByRole("status");
     expect(within(status).getByText("/outcome/result/body/content")).toBeInTheDocument();
     expect(within(status).getByText("bytes 0..52")).toBeInTheDocument();
