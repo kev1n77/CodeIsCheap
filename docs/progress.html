@@ -16,13 +16,13 @@
       <p class="lead">本页是项目状态的单一入口。开发计划定义“应该做什么”，本页只记录“当前做到哪里、是否健康、下一步是什么”。</p>
 
       <div class="meta-grid">
-        <div class="meta-item"><span>工程进度</span><strong>78%</strong></div>
+        <div class="meta-item"><span>工程进度</span><strong>79%</strong></div>
         <div class="meta-item"><span>当前阶段</span><strong>恢复、安全与协议扩展</strong></div>
         <div class="meta-item"><span>当前迭代</span><strong>S5 · 进行中 / S6 · 完成</strong></div>
-        <div class="meta-item"><span>最后更新</span><strong>2026-07-18</strong></div>
+        <div class="meta-item"><span>最后更新</span><strong>2026-07-19</strong></div>
       </div>
 
-      <div class="decision"><strong>当前结论</strong>四厂商 Prompt IR、搜索、Compare 与安全导出已闭环；共享 secret corpus 已覆盖 Capture、sidecar、导出和浏览器 fallback。下一步推进日志/临时文件 canary 与 macOS helper。</div>
+      <div class="decision"><strong>当前结论</strong>四厂商 Prompt IR、搜索、Compare 与安全导出已闭环；macOS 特权代理 helper 已接入授权启动、桌面生命周期和启动恢复。下一步完成真实管理员交互与强杀矩阵，并推进 OS socket ACL。</div>
 
       <h2 id="usage">1. 更新规则</h2>
       <ol>
@@ -48,7 +48,7 @@
         <tr><td class="task-id">M0</td><td>Discovery 与技术验证</td><td>5%</td><td><div class="progress-track"><div class="progress-value" style="width:95%"></div></div> 95%</td><td><span class="status active">In progress</span></td><td>W2</td><td>TBD</td></tr>
         <tr><td class="task-id">M1</td><td>基础设施与加密数据链路</td><td>15%</td><td><div class="progress-track"><div class="progress-value" style="width:95%"></div></div> 95%</td><td><span class="status active">In progress</span></td><td>W4</td><td>Codex / TBD</td></tr>
         <tr><td class="task-id">M2</td><td>Gateway 与双厂商闭环</td><td>20%</td><td><div class="progress-track"><div class="progress-value" style="width:100%"></div></div> 100%</td><td><span class="status done">Done</span></td><td>W8</td><td>Codex / TBD</td></tr>
-        <tr><td class="task-id">M3</td><td>显式代理、安全与恢复</td><td>20%</td><td><div class="progress-track"><div class="progress-value" style="width:70%"></div></div> 70%</td><td><span class="status active">In progress</span></td><td>W12</td><td>Codex / TBD</td></tr>
+        <tr><td class="task-id">M3</td><td>显式代理、安全与恢复</td><td>20%</td><td><div class="progress-track"><div class="progress-value" style="width:75%"></div></div> 75%</td><td><span class="status active">In progress</span></td><td>W12</td><td>Codex / TBD</td></tr>
         <tr><td class="task-id">M4</td><td>四厂商、Compare 与搜索</td><td>15%</td><td><div class="progress-track"><div class="progress-value" style="width:100%"></div></div> 100%</td><td><span class="status done">Done</span></td><td>W14</td><td>Codex / TBD</td></tr>
         <tr><td class="task-id">M5</td><td>Public Beta 稳定性</td><td>15%</td><td><div class="progress-track"><div class="progress-value" style="width:0%"></div></div> 0%</td><td><span class="status">Not started</span></td><td>W18</td><td>TBD</td></tr>
         <tr><td class="task-id">M6</td><td>GA 发布</td><td>10%</td><td><div class="progress-track"><div class="progress-value" style="width:0%"></div></div> 0%</td><td><span class="status">Not started</span></td><td>W20</td><td>TBD</td></tr>
@@ -59,7 +59,7 @@
       <div class="table-wrap"><table><thead><tr><th>工作流</th><th>任务范围</th><th>进度</th><th>状态</th><th>Owner</th><th>本周重点</th></tr></thead><tbody>
         <tr><td>架构与工程基础</td><td>ARC-001~004</td><td>100%</td><td><span class="status done">Done</span></td><td>Codex / TBD</td><td>保持 schema、事件与 command 契约同步</td></tr>
         <tr><td>Desktop / Frontend</td><td>APP-001~006</td><td>94%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>采集首次捕获耗时并完成真实运行验收</td></tr>
-        <tr><td>Capture / Network</td><td>CAP-001~007</td><td>85%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>补齐 macOS 特权代理 helper；生产签名随发布凭据补齐</td></tr>
+        <tr><td>Capture / Network</td><td>CAP-001~007</td><td>88%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>完成 macOS helper 真实故障矩阵；生产签名随发布凭据补齐</td></tr>
         <tr><td>Prompt / Adapters</td><td>PAR-001~007</td><td>100%</td><td><span class="status done">Done</span></td><td>Codex / TBD</td><td>保持价格目录与 provider usage 映射可追溯</td></tr>
         <tr><td>Data / Security</td><td>DAT-001~002、SEC-001~004</td><td>75%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>继续 OS 级 IPC ACL、WASI 权限、供应链控制与独立安全评审</td></tr>
         <tr><td>Test / Release</td><td>TST-001~004、REL-001~003</td><td>55%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>继续 TST-002 完整协议一致性与支持处理流程</td></tr>
@@ -83,7 +83,7 @@
         <tr><td class="task-id">CAP-003</td><td>打包 mitmproxy sidecar 与最小 addon</td><td><span class="status active">In progress</span></td><td>96%</td><td>Codex / Release Owner TBD</td><td>2026-08-25</td><td>三平台 bundle、manifest、SBOM、原子安装、Tauri 资源、运行时校验、最小环境、独立 readiness token 与 Windows Job Object/Unix 进程组清理完成；正式 Authenticode/Developer ID 制品待发布凭据</td></tr>
         <tr><td class="task-id">CAP-004</td><td>显式代理与 TLS flow</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>桌面 sidecar、认证 IPC、模式与暂停控制、进程树清理、非目标 TLS 直通、gzip/brotli、SSE/NDJSON/JSON-seq 脱敏完成；真实 TLS+ALPN HTTP/2 客户端/服务端证明代理请求响应与直连基线一致</td></tr>
         <tr><td class="task-id">CAP-005</td><td>证书生命周期</td><td><span class="status active">In progress</span></td><td>85%</td><td>Codex / TBD</td><td>2026-08-25</td><td>跨平台 CA 元数据、私钥权限与系统信任可核验；Windows CurrentUser ROOT 与 macOS User domain 均支持严格校验后的幂等安装/卸载，卸载前自动退出 Proxy；Admin/System 只读，真实交互验收待完成</td></tr>
-        <tr><td class="task-id">CAP-006</td><td>系统代理快照与 watchdog</td><td><span class="status active">In progress</span></td><td>85%</td><td>Codex / TBD</td><td>2026-08-25</td><td>Windows 桌面 Proxy 模式已接入 CurrentUser WinINet 事务、私有 journal、同一签名可执行文件 watchdog、活 owner 防误恢复和启动修复；sidecar 独立退出会按运行时代际安全回退 Gateway 并恢复代理；macOS helper 核心已限制为 loopback 端点、私有目录、0600 Unix socket、UID/PID 唯一 owner 与 root watchdog，授权启动和桌面接入待完成</td></tr>
+        <tr><td class="task-id">CAP-006</td><td>系统代理快照与 watchdog</td><td><span class="status active">In progress</span></td><td>92%</td><td>Codex / TBD</td><td>2026-08-25</td><td>Windows 桌面 Proxy 模式已接入 CurrentUser WinINet 事务、私有 journal、同一签名可执行文件 watchdog、活 owner 防误恢复和启动修复；sidecar 独立退出会按运行时代际安全回退 Gateway 并恢复代理；macOS 以静态逐参数 quote 的授权命令启动同一受校验可执行文件，持久 UID/PID 绑定控制连接覆盖正常退出与 owner 断连，root watchdog 覆盖 helper 崩溃，armed journal 在下次启动经单次授权恢复；真实管理员交互与强杀矩阵待验收</td></tr>
         <tr><td class="task-id">CAP-007</td><td>进程/应用归因与兼容诊断</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-18</td><td>应用标签/User-Agent/捕获模式归因及兼容诊断树完成；Windows/macOS/Linux Gateway 与 Proxy 均通过操作系统 TCP 连接精确匹配 PID，失败不推断，sidecar PID 不受信且临时端点不进入 Envelope、持久化或导出</td></tr>
         <tr><td class="task-id">DAT-001</td><td>SQLCipher、迁移、WAL 与 OS 凭据库</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>schema v2 可从 v0/v1 升级，响应类型、状态码和耗时可查询；备份恢复、DB/WAL canary 与 OS 凭据库均通过</td></tr>
         <tr><td class="task-id">DAT-002</td><td>写入、查询、保留与磁盘压力</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>批量写入原子提交；默认保留 30 天/50,000 条并以 500 条事务清理；低于 256 MiB 或 SQLITE_FULL 时暂停记录但保持 Gateway 转发</td></tr>
@@ -99,7 +99,7 @@
         <tr><td class="task-id">PAR-007</td><td>token、成本和语义指纹</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-17</td><td>四厂商 reported usage 归一化、显式 estimated 估算、版本化价格匹配、未知价格留空与 BLAKE3-256 语义指纹完成</td></tr>
         <tr><td class="task-id">TST-001</td><td>协议 fixture 与 golden tests</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-17</td><td>版本化能力矩阵覆盖 OpenAI、Anthropic、Gemini 与 Ollama 的请求、响应、流式、工具、多模态、错误和 Raw fallback；声明均由 fixture 与 golden 验证</td></tr>
         <tr><td class="task-id">TST-002</td><td>Gateway/Proxy 集成测试</td><td><span class="status active">In progress</span></td><td>82%</td><td>Codex / TBD</td><td>2026-08-25</td><td>认证 IPC、暂停丢弃、真实模式切换与进程树清理、压缩、流式脱敏、非目标 TLS、HTTP/2 基线一致性及 Windows CA 精确增删通过；真实 sidecar 在客户端取消后保持存活，IPC 停止消费且 72 个事件超过容量 64 时，36 个目标响应仍在 15 秒内完成；真实 ROOT 往返和其余协议一致性待扩展</td></tr>
-        <tr><td class="task-id">TST-003</td><td>平台故障注入</td><td><span class="status active">In progress</span></td><td>75%</td><td>Codex / TBD</td><td>2026-08-25</td><td>Windows/macOS 强杀恢复、活 owner 防误恢复、sidecar 独立退出回退和端口冲突拒绝已通过；PAC 原状态下应用与同步回滚双重失败会交由独立 watchdog 恢复；macOS 用户拒绝 CA 信任时清理本次新增证书，清理失败返回双重错误，桌面保持 not trusted 并允许重试；macOS helper 故障矩阵待完成</td></tr>
+        <tr><td class="task-id">TST-003</td><td>平台故障注入</td><td><span class="status active">In progress</span></td><td>80%</td><td>Codex / TBD</td><td>2026-08-25</td><td>Windows/macOS 强杀恢复、活 owner 防误恢复、sidecar 独立退出回退和端口冲突拒绝已通过；PAC 原状态下应用与同步回滚双重失败会交由独立 watchdog 恢复；macOS CA 拒绝恢复及 helper 协议、权限、命令转义和恢复文件校验已覆盖；授权桌面 helper 的真实故障矩阵待完成</td></tr>
         <tr><td class="task-id">REL-002</td><td>诊断与支持包</td><td><span class="status active">In progress</span></td><td>75%</td><td>Codex / Support Owner TBD</td><td>2026-09-22</td><td>版本化 JSON 支持包可预览、复制和保存，包含不带请求标识的兼容诊断树；256 KiB code-only journal 与最近 100 条事件接入，排除 Prompt、Raw 和日志详情；支持处理流程待完成</td></tr>
         <tr><td class="task-id">SPIKE-001</td><td>Gateway 流式透明转发验证</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-14</td><td>双向流式、取消传递、头清理与稳定 502 集成测试通过</td></tr>
         <tr><td class="task-id">SPIKE-002</td><td>mitmproxy sidecar IPC/打包验证</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-14</td><td><a href="spikes/mitmproxy-sidecar.html">凭据清理、IPC、打包与真实转发通过</a></td></tr>
@@ -123,7 +123,7 @@
         <tr><td>S2</td><td>CAP-001/002、PAR-002/003、APP-003</td><td><span class="status done">Done</span></td><td>Gateway、OpenAI 解析与千条实时工作台全部通过验收</td></tr>
         <tr><td>S3</td><td>PAR-004、APP-004、TST-001、DAT-002</td><td><span class="status done">Done</span></td><td>双厂商 Inspector、能力矩阵与数据生命周期全部通过验收</td></tr>
         <tr><td>S4</td><td>CAP-003~005、TST-002</td><td><span class="status active">In progress</span></td><td>sidecar bundle、桌面运行时、协议矩阵、Proxy 取消/背压、跨平台 CA 状态及两平台用户级信任生命周期已实现；签名、其余协议一致性与交互式验收待推进</td></tr>
-        <tr><td>S5</td><td>CAP-006/007、SEC-002/003、APP-006、TST-003</td><td><span class="status active">In progress</span></td><td>SEC-002、CAP-007 完成，IPC 抗阻塞、双模式 OS PID 归因、readiness 身份校验、PAC/CA 拒绝恢复和兼容诊断树已接入；继续 macOS helper 与 OS socket ACL</td></tr>
+        <tr><td>S5</td><td>CAP-006/007、SEC-002/003、APP-006、TST-003</td><td><span class="status active">In progress</span></td><td>SEC-002、CAP-007 完成，IPC 抗阻塞、双模式 OS PID 归因、readiness 身份校验、PAC/CA 拒绝恢复、macOS 授权 helper 和兼容诊断树已接入；继续真实故障验收与 OS socket ACL</td></tr>
         <tr><td>S6</td><td>PAR-005~007、APP-005</td><td><span class="status done">Done</span></td><td>四厂商适配器、token/成本/指纹、全文搜索和结构/文本 Compare 全部完成</td></tr>
         <tr><td>S7</td><td>TST-004、性能、可访问性、诊断与保留</td><td><span class="status">Not started</span></td><td>功能冻结</td></tr>
         <tr><td>S8</td><td>SEC-004、REL-001/002、安全评审</td><td><span class="status active">In progress</span></td><td>code-only 诊断与支持包已接入；签名更新、安装回滚、支持流程与安全评审待推进</td></tr>
@@ -224,6 +224,7 @@
         <tr><td>2026-07-18</td><td>Recovery / Fault injection</td><td>TST-003 PAC 双重失败恢复完成</td><td>代理应用部分写入且进程内回滚失败时不再删除 armed journal；owner 主动关闭控制通道并等待独立 watchdog 按预加载 PAC 快照恢复，独立恢复也失败时保留 journal 并返回完整三段错误</td><td>Codex</td></tr>
         <tr><td>2026-07-18</td><td>Certificate / Fault injection</td><td>TST-003 CA 拒绝恢复完成</td><td>macOS 用户拒绝信任时删除本次刚加入登录钥匙串的证书；删除也失败时同时报告拒绝与残留清理错误；桌面保持 not trusted、显示原因并允许用户再次触发系统信任流程</td><td>Codex</td></tr>
         <tr><td>2026-07-18</td><td>Recovery / macOS</td><td>CAP-006 特权 helper 协议核心完成</td><td>helper 只接受无凭据 loopback HTTP 端点和固定恢复文件；控制 socket 为 0600 并同时核对请求 UID 与 PID，只允许单 owner 长连接；正常命令、owner 断连和 helper 崩溃分别由显式恢复、会话 Drop 与独立 root watchdog 恢复原快照</td><td>Codex</td></tr>
+        <tr><td>2026-07-19</td><td>Desktop / Recovery</td><td>CAP-006 macOS 授权 helper 桌面接入</td><td>静态 AppleScript 对可执行文件、journal、status、socket、endpoint、PID 与 UID 逐项 shell-quote；桌面在受信任 CA 下建立持久特权会话，切换模式、sidecar 退出或 owner 断连均触发恢复；armed journal 下次启动通过严格单次 root 命令恢复，CLI 拒绝缺失、乱序和多余参数</td><td>Codex</td></tr>
         <tr><td colspan="5">后续范围、架构、日期或资源变化均在此追加，并链接对应 ADR/会议结论。</td></tr>
       </tbody></table></div>
 

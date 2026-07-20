@@ -31,7 +31,12 @@ use codeischeap_desktop_api::{
 };
 use codeischeap_gateway::{Gateway, GatewayCapture, GatewayCaptureEvent};
 use codeischeap_process_attribution::resolve_loopback_client_pid;
+#[cfg(not(target_os = "macos"))]
 use codeischeap_proxy_recovery::recover_from_journal;
+#[cfg(target_os = "macos")]
+use codeischeap_proxy_recovery::{
+    MacOsPrivilegedProxySession, recover_macos_proxy_journal_with_authorization,
+};
 #[cfg(windows)]
 use codeischeap_proxy_recovery::{ProxySession, ProxySettings, WindowsProxyBackend};
 use codeischeap_sidecar_runtime::{
@@ -193,6 +198,8 @@ impl Drop for ProxyRuntime {
 enum PlatformProxySession {
     #[cfg(windows)]
     Windows(ProxySession<WindowsProxyBackend>),
+    #[cfg(target_os = "macos")]
+    MacOs(MacOsPrivilegedProxySession),
 }
 
 impl PlatformProxySession {
@@ -200,6 +207,8 @@ impl PlatformProxySession {
         match self {
             #[cfg(windows)]
             Self::Windows(session) => session.restore().map_err(|error| error.to_string()),
+            #[cfg(target_os = "macos")]
+            Self::MacOs(session) => session.restore().map_err(|error| error.to_string()),
         }
     }
 }
@@ -1038,12 +1047,26 @@ async fn ensure_proxy_recovery(app: &AppHandle, state: &DesktopState) -> Result<
         return Ok(());
     }
     let journal = application_proxy_recovery_journal(app)?;
-    tauri::async_runtime::spawn_blocking(move || recover_from_journal(&journal))
+    tauri::async_runtime::spawn_blocking(move || recover_platform_proxy_journal(&journal))
         .await
         .map_err(|error| format!("proxy recovery task failed: {error}"))?
         .map_err(|error| error.to_string())?;
     state.proxy_recovery_checked.store(true, Ordering::Release);
     Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn recover_platform_proxy_journal(
+    journal: &Path,
+) -> Result<bool, codeischeap_proxy_recovery::RecoveryError> {
+    recover_from_journal(journal)
+}
+
+#[cfg(target_os = "macos")]
+fn recover_platform_proxy_journal(
+    journal: &Path,
+) -> Result<bool, codeischeap_proxy_recovery::RecoveryError> {
+    recover_macos_proxy_journal_with_authorization(std::env::current_exe()?, journal)
 }
 
 async fn ensure_gateway(app: &AppHandle, state: &DesktopState) -> Result<(), String> {
@@ -1294,7 +1317,7 @@ async fn take_failed_proxy_runtime(state: &DesktopState, generation: u64) -> Opt
     runtime
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 async fn activate_system_proxy(app: &AppHandle, runtime: &mut ProxyRuntime) -> Result<(), String> {
     if runtime.system_proxy.is_some() {
         return Ok(());
@@ -1305,12 +1328,12 @@ async fn activate_system_proxy(app: &AppHandle, runtime: &mut ProxyRuntime) -> R
     {
         return Ok(());
     }
-    let desired = system_proxy_settings(&runtime.endpoint);
+    let endpoint = runtime.endpoint.clone();
     let journal = application_proxy_recovery_journal(app)?;
-    let watchdog = std::env::current_exe()
-        .map_err(|error| format!("proxy watchdog executable is unavailable: {error}"))?;
+    let executable = std::env::current_exe()
+        .map_err(|error| format!("proxy helper executable is unavailable: {error}"))?;
     let session = tauri::async_runtime::spawn_blocking(move || {
-        begin_platform_proxy_session(desired, journal, watchdog)
+        begin_platform_proxy_session(endpoint, journal, executable)
     })
     .await
     .map_err(|error| format!("system proxy task failed: {error}"))??;
@@ -1318,7 +1341,7 @@ async fn activate_system_proxy(app: &AppHandle, runtime: &mut ProxyRuntime) -> R
     Ok(())
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 async fn activate_system_proxy(
     _app: &AppHandle,
     _runtime: &mut ProxyRuntime,
@@ -1347,12 +1370,28 @@ fn system_proxy_bypass() -> Vec<String> {
 
 #[cfg(windows)]
 fn begin_platform_proxy_session(
-    desired: ProxySettings,
+    endpoint: String,
     journal: PathBuf,
-    watchdog: PathBuf,
+    executable: PathBuf,
 ) -> Result<PlatformProxySession, String> {
-    ProxySession::begin(WindowsProxyBackend::system(), desired, journal, watchdog)
-        .map(PlatformProxySession::Windows)
+    ProxySession::begin(
+        WindowsProxyBackend::system(),
+        system_proxy_settings(&endpoint),
+        journal,
+        executable,
+    )
+    .map(PlatformProxySession::Windows)
+    .map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn begin_platform_proxy_session(
+    endpoint: String,
+    journal: PathBuf,
+    executable: PathBuf,
+) -> Result<PlatformProxySession, String> {
+    MacOsPrivilegedProxySession::begin(executable, journal, &endpoint, Duration::from_secs(15))
+        .map(PlatformProxySession::MacOs)
         .map_err(|error| error.to_string())
 }
 

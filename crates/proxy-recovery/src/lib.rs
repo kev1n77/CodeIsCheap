@@ -31,7 +31,9 @@ pub use windows::WindowsProxyBackend;
 pub use macos::MacOsProxyBackend;
 #[cfg(target_os = "macos")]
 pub use macos_privileged::{
-    MacOsPrivilegedProxySession, run_macos_privileged_proxy_helper, run_macos_proxy_helper_session,
+    MacOsPrivilegedProxySession, recover_macos_proxy_journal_with_authorization,
+    run_macos_privileged_proxy_helper, run_macos_privileged_proxy_recovery,
+    run_macos_proxy_helper_session,
 };
 
 pub const RECOVERY_JOURNAL_VERSION: &str = "0.1";

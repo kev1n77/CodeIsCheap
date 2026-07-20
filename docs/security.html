@@ -23,7 +23,7 @@
       <tr><td>CA 私钥泄露</td><td>每设备独立生成、不可同步、最小文件权限、一键卸载</td></tr>
       <tr><td>导出泄密</td><td>强制预览、秘密扫描、稳定占位符、策略版本记录</td></tr>
       <tr><td>诊断泄密</td><td>持久化日志仅含时间戳和受限事件代码；不记录错误详情、Prompt、Raw 或请求标识</td></tr>
-      <tr><td>代理残留</td><td>设置快照、独立 watchdog、启动修复和卸载恢复</td></tr>
+      <tr><td>代理残留</td><td>设置快照、独立 watchdog、启动修复和卸载恢复；macOS 仅通过静态且逐参数 shell-quote 的授权命令启动同一受校验可执行文件，私有目录、0600 Unix socket 与 UID/PID 绑定限制 helper 控制面</td></tr>
     </tbody></table></div>
 
     <h2 id="certificate">证书与代理边界</h2>
