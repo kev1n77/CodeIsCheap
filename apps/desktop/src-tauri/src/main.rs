@@ -162,8 +162,8 @@ fn ensure_finished(arguments: &mut impl Iterator<Item = OsString>) -> Result<(),
 mod tests {
     use super::*;
 
-    fn arguments(values: &[&str]) -> impl Iterator<Item = OsString> + '_ {
-        values.iter().map(|value| OsString::from(*value))
+    fn arguments(values: &[&str]) -> Vec<OsString> {
+        values.iter().map(|value| OsString::from(*value)).collect()
     }
 
     #[test]
