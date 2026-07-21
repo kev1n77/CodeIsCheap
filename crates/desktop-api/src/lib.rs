@@ -2,6 +2,7 @@
 
 mod compatibility;
 mod export;
+mod update;
 
 pub use compatibility::{
     CaptureCompatibility, CaptureCompatibilityCode, CaptureCompatibilityStatus,
@@ -14,6 +15,7 @@ pub use export::{
     ExportReceipt, ExportRedaction, SUPPORT_BUNDLE_FORMAT_VERSION, SupportBundlePreview,
     build_batch_export_preview, build_export_preview, build_support_bundle_preview,
 };
+pub use update::UpdateStatus;
 
 use std::{fmt, ops::Range};
 
@@ -1555,6 +1557,7 @@ mod tests {
         ExportReceipt::export_all(&config).expect("export receipt binding must export");
         SupportBundlePreview::export_all(&config)
             .expect("support bundle preview binding must export");
+        UpdateStatus::export_all(&config).expect("update status binding must export");
         let checked_in = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../apps/desktop/src/generated/desktop-api");
 

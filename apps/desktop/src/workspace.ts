@@ -10,6 +10,7 @@ import type {
   ExportProfile,
   ExportReceipt,
   SupportBundlePreview,
+  UpdateStatus,
   WorkspaceBootstrap,
 } from "./types";
 import { requestSearchText } from "./compare";
@@ -21,6 +22,12 @@ export interface CaptureUpdated {
 export interface CaptureRuntimeError {
   code: string;
   detail: string;
+}
+
+export interface UpdateDownloadProgress {
+  downloadedBytes: number;
+  totalBytes: number | null;
+  finished: boolean;
 }
 
 const MAX_BATCH_EXPORT_REQUESTS = 200;
@@ -232,6 +239,35 @@ export async function saveSupportBundle(
     });
   }
   return downloadJsonDocument(preview);
+}
+
+export async function checkForUpdate(): Promise<UpdateStatus> {
+  if (window.__TAURI_INTERNALS__) {
+    return invoke<UpdateStatus>("check_for_update");
+  }
+  return {
+    configured: false,
+    currentVersion: "0.1.0",
+    availableVersion: null,
+    notes: null,
+    publishedAt: null,
+  };
+}
+
+export async function installUpdate(expectedVersion: string): Promise<void> {
+  if (!window.__TAURI_INTERNALS__) {
+    throw new Error("Signed updates are available only in the installed desktop application.");
+  }
+  await invoke("install_update", { expectedVersion });
+}
+
+export async function subscribeToUpdateProgress(
+  onProgress: (progress: UpdateDownloadProgress) => void,
+): Promise<() => void> {
+  if (!window.__TAURI_INTERNALS__) return () => {};
+  return listen<UpdateDownloadProgress>("update-download-progress", ({ payload }) => {
+    onProgress(payload);
+  });
 }
 
 export async function subscribeToCaptureEvents(handlers: {

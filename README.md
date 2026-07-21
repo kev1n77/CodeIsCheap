@@ -65,6 +65,21 @@ Gateway 和 Proxy 捕获会按显式客户端标签、User-Agent 规则或捕获
 
 Connection 设置页会按 Proxy bundle、loopback 端点、本地 CA、系统信任和当前会话捕获事件生成兼容诊断。Proxy 全部就绪但仍无事件时，只提示低置信度的代理绕过/证书固定可能性，并提供 Gateway 回退；产品不会尝试绕过证书固定。
 
+## 签名更新
+
+桌面设置页通过 Tauri updater 检查固定的 GitHub Release `latest.json`。安装命令会重新核对版本、切回 Gateway、恢复受管系统代理，并在应用数据目录写入 SQLCipher 备份和版本化恢复 journal 后才下载签名制品。未配置可信公钥的构建会明确禁用更新。
+
+正式 bundle 构建必须在环境中提供：
+
+```powershell
+$env:CODEISCHEAP_UPDATER_PUBLIC_KEY = "Tauri minisign public key content"
+$env:TAURI_SIGNING_PRIVATE_KEY = "Path or content of the matching private key"
+$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = "Private key password" # 私钥无密码时可留空
+npm run desktop:tauri -- build
+```
+
+私钥和密码不得写入仓库、`.env`、构建日志或支持包。发布流程还必须上传 Tauri 生成的 updater artifact、`.sig` 和静态 `latest.json` 到同一 GitHub Release。
+
 系统代理事务与独立恢复 watchdog 位于 `crates/proxy-recovery`；Windows WinINet 与 macOS networksetup backend 均已通过临时 CI runner 的真实强杀恢复实验。
 
 启动 Gateway Spike：

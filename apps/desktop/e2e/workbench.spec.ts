@@ -97,4 +97,24 @@ test.describe("desktop workbench quality baseline", () => {
       });
     }
   });
+
+  test("keeps signed update controls usable at minimum size", async ({ page }) => {
+    await page.setViewportSize(MINIMUM_VIEWPORT);
+    await page.goto("/");
+    await page.getByRole("button", { name: "Settings" }).click();
+    const dialog = page.getByRole("dialog", { name: "Settings & diagnostics" });
+    await dialog.getByRole("tab", { name: "Updates" }).click();
+    await dialog.getByRole("button", { name: "Check" }).click();
+
+    await expect(dialog.getByText("Not configured")).toBeVisible();
+    await expect(dialog.getByText(/trusted update public key/)).toBeVisible();
+    const layout = await dialog.evaluate((element) => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+    }));
+    expect(layout.scrollWidth).toBe(layout.clientWidth);
+    expect(layout.scrollHeight).toBeLessThanOrEqual(layout.clientHeight);
+  });
 });

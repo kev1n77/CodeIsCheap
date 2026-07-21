@@ -26,6 +26,7 @@ export type { ExportRedaction } from "./generated/desktop-api/ExportRedaction";
 export type { RequestDetail } from "./generated/desktop-api/RequestDetail";
 export type { SupportBundlePreview } from "./generated/desktop-api/SupportBundlePreview";
 export type { TimelineEvent } from "./generated/desktop-api/TimelineEvent";
+export type { UpdateStatus } from "./generated/desktop-api/UpdateStatus";
 export type { WorkspaceBootstrap } from "./generated/desktop-api/WorkspaceBootstrap";
 export type { WorkspaceSource } from "./generated/desktop-api/WorkspaceSource";
 

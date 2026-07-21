@@ -136,6 +136,39 @@ describe("request workbench", () => {
     expect(settingsButton).toHaveFocus();
   });
 
+  it("checks and installs only the version returned by the signed update channel", async () => {
+    const user = userEvent.setup();
+    window.__TAURI_INTERNALS__ = {};
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === "bootstrap_workspace") {
+        return structuredClone(fixture) as unknown as WorkspaceBootstrap;
+      }
+      if (command === "check_for_update") {
+        return {
+          configured: true,
+          currentVersion: "0.1.0",
+          availableVersion: "0.2.0",
+          notes: "Security and recovery fixes",
+          publishedAt: "2026-07-21T00:00:00Z",
+        };
+      }
+      if (command === "install_update") return undefined;
+      throw new Error(`Unexpected command: ${command}`);
+    });
+    render(<App />);
+    await screen.findByText("Requests");
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    const dialog = screen.getByRole("dialog", { name: "Settings & diagnostics" });
+    await user.click(within(dialog).getByRole("tab", { name: "Updates" }));
+    await user.click(within(dialog).getByRole("button", { name: "Check" }));
+
+    expect(await within(dialog).findByText("Version 0.2.0")).toBeInTheDocument();
+    expect(within(dialog).getByText("Security and recovery fixes")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Install & restart" }));
+    expect(invoke).toHaveBeenCalledWith("install_update", { expectedVersion: "0.2.0" });
+    expect(within(dialog).getByText(/managed system proxy settings have been restored/)).toBeInTheDocument();
+  });
+
   it("passes automated accessibility checks for the workspace and dialogs", async () => {
     const user = userEvent.setup();
     const { container } = render(<App />);
