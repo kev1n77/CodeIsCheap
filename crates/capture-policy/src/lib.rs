@@ -2,6 +2,7 @@
 
 use std::collections::HashSet;
 use std::fmt;
+use std::net::IpAddr;
 
 use codeischeap_capture_ipc::{
     AttributionConfidence, AttributionSource, CLIENT_LABEL_HEADER, CaptureAttribution,
@@ -13,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 pub const CAPTURE_POLICY_VERSION: &str = "0.1";
 pub const DEFAULT_POLICY_JSON: &str = include_str!("../../../policies/capture-policy.v0.1.json");
+pub const MAX_ADDITIONAL_TARGET_HOSTS: usize = 16;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -116,6 +118,9 @@ pub enum PolicyError {
     DuplicateTarget(String),
     InvalidSensitiveName(String),
     DuplicateSensitiveName(String),
+    TooManyAdditionalHosts,
+    InvalidAdditionalHost(String),
+    DuplicateAdditionalHost(String),
     InvalidAttribution(String),
     OutOfScope,
 }
@@ -135,6 +140,16 @@ impl fmt::Display for PolicyError {
             }
             Self::DuplicateSensitiveName(name) => {
                 write!(formatter, "sensitive field name {name} is duplicated")
+            }
+            Self::TooManyAdditionalHosts => write!(
+                formatter,
+                "capture policy accepts at most {MAX_ADDITIONAL_TARGET_HOSTS} additional hosts"
+            ),
+            Self::InvalidAdditionalHost(host) => {
+                write!(formatter, "additional capture host {host} is invalid")
+            }
+            Self::DuplicateAdditionalHost(host) => {
+                write!(formatter, "additional capture host {host} is duplicated")
             }
             Self::InvalidAttribution(detail) => {
                 write!(formatter, "capture attribution policy is invalid: {detail}")
@@ -195,6 +210,19 @@ impl CapturePolicy {
         }
         self.validate_attribution_policy()?;
         Ok(())
+    }
+
+    pub fn with_additional_hosts(mut self, hosts: &[String]) -> Result<Self, PolicyError> {
+        let hosts = normalize_additional_hosts(hosts)?;
+        for target in &mut self.targets {
+            for host in &hosts {
+                if !target.hosts.contains(host) {
+                    target.hosts.push(host.clone());
+                }
+            }
+        }
+        self.validate()?;
+        Ok(self)
     }
 
     fn validate_attribution_policy(&self) -> Result<(), PolicyError> {
@@ -383,6 +411,26 @@ impl CapturePolicy {
     }
 }
 
+pub fn normalize_additional_hosts(hosts: &[String]) -> Result<Vec<String>, PolicyError> {
+    if hosts.len() > MAX_ADDITIONAL_TARGET_HOSTS {
+        return Err(PolicyError::TooManyAdditionalHosts);
+    }
+    let mut normalized_hosts = Vec::with_capacity(hosts.len());
+    let mut unique_hosts = HashSet::with_capacity(hosts.len());
+    for host in hosts {
+        let normalized = normalize_host(host);
+        if !valid_additional_host(&normalized) {
+            return Err(PolicyError::InvalidAdditionalHost(host.clone()));
+        }
+        if !unique_hosts.insert(normalized.clone()) {
+            return Err(PolicyError::DuplicateAdditionalHost(normalized));
+        }
+        normalized_hosts.push(normalized);
+    }
+    normalized_hosts.sort();
+    Ok(normalized_hosts)
+}
+
 fn user_agent_rule(application: &str, contains: &[&str]) -> UserAgentRule {
     UserAgentRule {
         application: application.to_owned(),
@@ -469,6 +517,34 @@ fn valid_host(host: &str) -> bool {
     !host.is_empty()
         && host == normalize_host(host)
         && !host.contains(['/', '*', ' ', '\t', '\r', '\n'])
+}
+
+fn valid_additional_host(host: &str) -> bool {
+    if host.is_empty()
+        || host.len() > 253
+        || host.contains(',')
+        || host.chars().any(char::is_whitespace)
+    {
+        return false;
+    }
+    if host.parse::<IpAddr>().is_ok() {
+        return true;
+    }
+    host.split('.').all(|label| {
+        !label.is_empty()
+            && label.len() <= 63
+            && label
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+            && label
+                .as_bytes()
+                .first()
+                .is_some_and(u8::is_ascii_alphanumeric)
+            && label
+                .as_bytes()
+                .last()
+                .is_some_and(u8::is_ascii_alphanumeric)
+    })
 }
 
 fn valid_method(method: &str) -> bool {

@@ -1,4 +1,4 @@
-//! SQLCipher-backed persistence for sanitized CodeIsCheap captures.
+//! SQLCipher-backed persistence for sanitized CodeIsCheap captures and local settings.
 
 mod key;
 mod migrations;
@@ -17,7 +17,7 @@ pub use model::{
     DEFAULT_MAX_CAPTURES, DEFAULT_MINIMUM_FREE_SPACE_BYTES, DEFAULT_RETENTION_BATCH_SIZE,
     RetentionPolicy, RetentionReport, StorageOptions, StoredCapture,
 };
-pub use store::{EncryptedStore, MAX_PAGE_SIZE};
+pub use store::{EncryptedStore, MAX_PAGE_SIZE, MAX_SETTING_JSON_BYTES, MAX_SETTING_KEY_BYTES};
 
 #[derive(Debug)]
 pub enum StorageError {
@@ -36,6 +36,8 @@ pub enum StorageError {
     InvalidBackupTarget,
     ReadOnly,
     InvalidRetentionPolicy,
+    InvalidSettingKey,
+    InvalidSettingValue,
     DiskPressure {
         available_bytes: u64,
         required_bytes: u64,
@@ -77,6 +79,13 @@ impl fmt::Display for StorageError {
             ),
             Self::InvalidRetentionPolicy => {
                 write!(formatter, "capture retention policy is invalid")
+            }
+            Self::InvalidSettingKey => write!(formatter, "application setting key is invalid"),
+            Self::InvalidSettingValue => {
+                write!(
+                    formatter,
+                    "application setting value must be bounded valid JSON"
+                )
             }
             Self::DiskPressure {
                 available_bytes,

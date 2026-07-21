@@ -10,13 +10,14 @@ use codeischeap_capture_policy::{CapturePolicy, SanitizedCapture};
 use codeischeap_prompt_ir::{Evidence, MessageRole, PromptIr, PromptPart, ResponseTrace};
 use codeischeap_storage::{
     CaptureCursor, CaptureWrite, DatabaseKey, DatabaseKeyStore, EncryptedStore, KeyStoreError,
-    RetentionPolicy, SCHEMA_VERSION, StorageError, StorageOptions,
+    MAX_SETTING_JSON_BYTES, RetentionPolicy, SCHEMA_VERSION, StorageError, StorageOptions,
 };
 use tempfile::tempdir;
 
 const KEY_BYTES: [u8; 32] = [0x42; 32];
 const SECRET_CANARY: &str = "storage-secret-canary";
 const PROMPT_CANARY: &str = "encrypted-prompt-canary migration plan";
+const SETTING_CANARY: &str = "capture-profile-setting-canary";
 
 struct ExistingRecoveryKeyStore;
 
@@ -112,6 +113,70 @@ fn sqlcipher_wal_fts_and_round_trip_keep_plaintext_off_disk() {
     assert_files_do_not_contain(directory.path(), PROMPT_CANARY.as_bytes());
     let header = fs::read(&database_path).expect("database must be readable");
     assert!(!header.starts_with(b"SQLite format 3\0"));
+}
+
+#[test]
+fn encrypted_application_settings_validate_and_upsert_json() {
+    let directory = tempdir().expect("temp directory must be created");
+    let database_path = directory.path().join("captures.db");
+    let mut store = EncryptedStore::open(&database_path, DatabaseKey::from_bytes(KEY_BYTES))
+        .expect("encrypted store must open");
+
+    assert_eq!(
+        store
+            .get_setting_json("capture.profile")
+            .expect("missing setting must query"),
+        None
+    );
+    store
+        .set_setting_json(
+            "capture.profile",
+            r#"{"name":"Local development"}"#,
+            1_784_000_000_000,
+        )
+        .expect("setting must persist");
+    store
+        .set_setting_json(
+            "capture.profile",
+            &format!(r#"{{"name":"Private endpoint","marker":"{SETTING_CANARY}"}}"#),
+            1_784_000_000_001,
+        )
+        .expect("setting must update atomically");
+    let expected_setting = format!(r#"{{"name":"Private endpoint","marker":"{SETTING_CANARY}"}}"#);
+    assert_eq!(
+        store
+            .get_setting_json("capture.profile")
+            .expect("setting must query")
+            .as_deref(),
+        Some(expected_setting.as_str())
+    );
+
+    for key in ["", "Capture.Profile", "capture profile", "capture/profile"] {
+        assert!(matches!(
+            store.get_setting_json(key),
+            Err(StorageError::InvalidSettingKey)
+        ));
+    }
+    for value in ["", "not-json"] {
+        assert!(matches!(
+            store.set_setting_json("capture.profile", value, 1),
+            Err(StorageError::InvalidSettingValue)
+        ));
+    }
+    assert!(matches!(
+        store.set_setting_json(
+            "capture.profile",
+            &format!("\"{}\"", "x".repeat(MAX_SETTING_JSON_BYTES)),
+            1,
+        ),
+        Err(StorageError::InvalidSettingValue)
+    ));
+    assert!(matches!(
+        store.set_setting_json("capture.profile", "{}", 0),
+        Err(StorageError::NumericOutOfRange)
+    ));
+    store.integrity_check().expect("settings must preserve DB");
+    assert_files_do_not_contain(directory.path(), SETTING_CANARY.as_bytes());
 }
 
 #[test]
@@ -366,6 +431,16 @@ fn encrypted_backup_opens_read_only_and_rejects_every_store_mutation() {
     ));
     assert!(matches!(
         recovery.enforce_retention(&RetentionPolicy::default(), 100),
+        Err(StorageError::ReadOnly)
+    ));
+    assert_eq!(
+        recovery
+            .get_setting_json("capture.profile")
+            .expect("read-only settings must remain queryable"),
+        None
+    );
+    assert!(matches!(
+        recovery.set_setting_json("capture.profile", "{}", 1),
         Err(StorageError::ReadOnly)
     ));
     assert!(matches!(recovery.checkpoint(), Err(StorageError::ReadOnly)));

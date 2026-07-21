@@ -3,7 +3,9 @@ use codeischeap_capture_ipc::{
     CaptureEnvelope, CaptureOutcome, CaptureSource, CapturedBody, CapturedBodyState, CapturedField,
     CapturedRequest, CapturedResponse, RedactionLocation, ResponseCompleteness,
 };
-use codeischeap_capture_policy::{CapturePolicy, PolicyError};
+use codeischeap_capture_policy::{
+    CapturePolicy, MAX_ADDITIONAL_TARGET_HOSTS, PolicyError, normalize_additional_hosts,
+};
 use schemars::schema_for;
 
 const CHECKED_IN_SCHEMA: &str = include_str!("../../../schemas/capture-policy/v0.1.schema.json");
@@ -89,6 +91,70 @@ fn policy_rejects_host_suffix_unlisted_path_and_method() {
             Err(PolicyError::OutOfScope)
         );
     }
+}
+
+#[test]
+fn additional_hosts_are_normalized_without_expanding_methods_or_paths() {
+    let hosts =
+        normalize_additional_hosts(&[" Localhost. ".to_owned(), "gateway.example.test".to_owned()])
+            .expect("additional hosts must normalize");
+    assert_eq!(hosts, ["gateway.example.test", "localhost"]);
+
+    let policy = CapturePolicy::load_default()
+        .expect("default policy must load")
+        .with_additional_hosts(&hosts)
+        .expect("additional hosts must apply");
+
+    assert_eq!(
+        policy
+            .matching_target(&request(
+                "gateway.example.test",
+                "POST",
+                "/v1/chat/completions"
+            ))
+            .map(|target| target.id.as_str()),
+        Some("openai")
+    );
+    for denied in [
+        request("gateway.example.test", "GET", "/v1/chat/completions"),
+        request("gateway.example.test", "POST", "/admin"),
+        request(
+            "gateway.example.test.attacker.invalid",
+            "POST",
+            "/v1/chat/completions",
+        ),
+    ] {
+        assert!(policy.matching_target(&denied).is_none());
+    }
+}
+
+#[test]
+fn additional_hosts_reject_duplicates_invalid_names_and_excessive_scope() {
+    assert_eq!(
+        normalize_additional_hosts(&["EXAMPLE.test".to_owned(), "example.test.".to_owned()]),
+        Err(PolicyError::DuplicateAdditionalHost(
+            "example.test".to_owned()
+        ))
+    );
+    for invalid in [
+        "bad host",
+        "*.example.test",
+        "example.test/path",
+        "-bad.test",
+    ] {
+        assert!(matches!(
+            normalize_additional_hosts(&[invalid.to_owned()]),
+            Err(PolicyError::InvalidAdditionalHost(_))
+        ));
+    }
+    assert_eq!(
+        normalize_additional_hosts(
+            &(0..=MAX_ADDITIONAL_TARGET_HOSTS)
+                .map(|index| format!("host-{index}.example.test"))
+                .collect::<Vec<_>>()
+        ),
+        Err(PolicyError::TooManyAdditionalHosts)
+    );
 }
 
 #[test]
