@@ -11,13 +11,17 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, pa
 
 use crate::StorageError;
 use crate::key::{DatabaseKey, DatabaseKeyStore};
-use crate::migrations::{migrate, validate_schema};
+use crate::migrations::{
+    SETTINGS_SCHEMA_VERSION, migrate, validate_readable_schema, validate_schema,
+};
 use crate::model::{
     CaptureCursor, CaptureMetrics, CaptureSummary, CaptureWrite, RetentionPolicy, RetentionReport,
     StorageOptions, StoredCapture,
 };
 
 pub const MAX_PAGE_SIZE: usize = 200;
+pub const MAX_SETTING_KEY_BYTES: usize = 64;
+pub const MAX_SETTING_JSON_BYTES: usize = 64 * 1024;
 const MAX_RETENTION_BATCH_SIZE: usize = 10_000;
 
 pub struct EncryptedStore {
@@ -55,7 +59,7 @@ impl EncryptedStore {
     pub fn open_readonly(path: impl AsRef<Path>, key: DatabaseKey) -> Result<Self, StorageError> {
         let path = path.as_ref().to_path_buf();
         let connection = open_readonly_connection(&path, &key)?;
-        validate_schema(&connection)?;
+        validate_readable_schema(&connection)?;
         integrity_check(&connection)?;
         Ok(Self {
             connection,
@@ -118,6 +122,46 @@ impl EncryptedStore {
 
     pub fn integrity_check(&self) -> Result<(), StorageError> {
         integrity_check(&self.connection)
+    }
+
+    pub fn get_setting_json(&self, key: &str) -> Result<Option<String>, StorageError> {
+        validate_setting_key(key)?;
+        if self.schema_version()? < SETTINGS_SCHEMA_VERSION {
+            return Ok(None);
+        }
+        self.connection
+            .query_row(
+                "SELECT value_json FROM app_settings WHERE key = ?1",
+                [key],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    pub fn set_setting_json(
+        &mut self,
+        key: &str,
+        value_json: &str,
+        updated_at_unix_ms: u64,
+    ) -> Result<(), StorageError> {
+        self.ensure_writable()?;
+        validate_setting_key(key)?;
+        validate_setting_json(value_json)?;
+        let updated_at_unix_ms =
+            i64::try_from(updated_at_unix_ms).map_err(|_| StorageError::NumericOutOfRange)?;
+        if updated_at_unix_ms == 0 {
+            return Err(StorageError::NumericOutOfRange);
+        }
+        self.connection.execute(
+            "INSERT INTO app_settings (key, value_json, updated_at_unix_ms)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(key) DO UPDATE SET
+                value_json = excluded.value_json,
+                updated_at_unix_ms = excluded.updated_at_unix_ms",
+            params![key, value_json, updated_at_unix_ms],
+        )?;
+        Ok(())
     }
 
     pub fn upsert_capture(
@@ -434,7 +478,7 @@ impl EncryptedStore {
             return Err(StorageError::InvalidBackupTarget);
         }
         let source = open_readonly_connection(backup_path, &key)?;
-        validate_schema(&source)?;
+        validate_readable_schema(&source)?;
         integrity_check(&source)?;
         prepare_parent(&destination_path)?;
         remove_database_family(&destination_path)?;
@@ -443,6 +487,7 @@ impl EncryptedStore {
             let backup = Backup::new(&source, &mut destination)?;
             backup.run_to_completion(128, Duration::from_millis(5), None)?;
         }
+        migrate(&mut destination)?;
         validate_schema(&destination)?;
         integrity_check(&destination)?;
         destination.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
@@ -463,6 +508,28 @@ impl EncryptedStore {
             Ok(())
         }
     }
+}
+
+fn validate_setting_key(key: &str) -> Result<(), StorageError> {
+    if key.is_empty()
+        || key.len() > MAX_SETTING_KEY_BYTES
+        || !key.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"._-".contains(&byte)
+        })
+    {
+        return Err(StorageError::InvalidSettingKey);
+    }
+    Ok(())
+}
+
+fn validate_setting_json(value_json: &str) -> Result<(), StorageError> {
+    if value_json.is_empty()
+        || value_json.len() > MAX_SETTING_JSON_BYTES
+        || serde_json::from_str::<serde_json::Value>(value_json).is_err()
+    {
+        return Err(StorageError::InvalidSettingValue);
+    }
+    Ok(())
 }
 
 struct PreparedCapture {

@@ -3,7 +3,7 @@ name = "codeischeap-storage"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
-description = "Encrypted SQLCipher persistence for CodeIsCheap"
+description = "Encrypted SQLCipher capture and settings persistence for CodeIsCheap"
 
 [dependencies]
 codeischeap-capture-ipc = { path = "../capture-ipc" }

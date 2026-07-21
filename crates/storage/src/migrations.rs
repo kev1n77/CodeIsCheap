@@ -2,7 +2,9 @@ use rusqlite::{Connection, TransactionBehavior};
 
 use crate::StorageError;
 
-pub const SCHEMA_VERSION: i32 = 2;
+pub const SCHEMA_VERSION: i32 = 3;
+pub(crate) const MIN_READABLE_SCHEMA_VERSION: i32 = 2;
+pub(crate) const SETTINGS_SCHEMA_VERSION: i32 = 3;
 
 pub(crate) fn migrate(connection: &mut Connection) -> Result<(), StorageError> {
     let mut version = schema_version(connection)?;
@@ -13,6 +15,7 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<(), StorageError> {
         match version {
             0 => migrate_v1(connection)?,
             1 => migrate_v2(connection)?,
+            2 => migrate_v3(connection)?,
             _ => return Err(StorageError::UnsupportedSchemaVersion(version)),
         }
         version = schema_version(connection)?;
@@ -102,9 +105,35 @@ fn migrate_v2(connection: &mut Connection) -> Result<(), StorageError> {
     Ok(())
 }
 
+fn migrate_v3(connection: &mut Connection) -> Result<(), StorageError> {
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    transaction.execute_batch(
+        "
+        CREATE TABLE app_settings (
+            key TEXT PRIMARY KEY,
+            value_json TEXT NOT NULL,
+            updated_at_unix_ms INTEGER NOT NULL CHECK (updated_at_unix_ms > 0)
+        ) STRICT;
+        INSERT INTO schema_migrations (version, applied_at_unix_s)
+        VALUES (3, unixepoch());
+        ",
+    )?;
+    transaction.pragma_update(None, "user_version", 3)?;
+    transaction.commit()?;
+    Ok(())
+}
+
 pub(crate) fn validate_schema(connection: &Connection) -> Result<(), StorageError> {
     let version = schema_version(connection)?;
     if version != SCHEMA_VERSION {
+        return Err(StorageError::UnsupportedSchemaVersion(version));
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_readable_schema(connection: &Connection) -> Result<(), StorageError> {
+    let version = schema_version(connection)?;
+    if !(MIN_READABLE_SCHEMA_VERSION..=SCHEMA_VERSION).contains(&version) {
         return Err(StorageError::UnsupportedSchemaVersion(version));
     }
     Ok(())
@@ -124,9 +153,10 @@ mod tests {
 
         migrate(&mut connection).expect("all migrations must apply");
 
-        assert_eq!(schema_version(&connection).expect("version must load"), 2);
+        assert_eq!(schema_version(&connection).expect("version must load"), 3);
         assert!(capture_columns(&connection).contains(&"outcome_kind".to_owned()));
-        assert_eq!(migration_versions(&connection), vec![1, 2]);
+        assert!(table_names(&connection).contains(&"app_settings".to_owned()));
+        assert_eq!(migration_versions(&connection), vec![1, 2, 3]);
     }
 
     #[test]
@@ -146,7 +176,7 @@ mod tests {
 
         migrate(&mut connection).expect("v1 database must upgrade");
 
-        assert_eq!(schema_version(&connection).expect("version must load"), 2);
+        assert_eq!(schema_version(&connection).expect("version must load"), 3);
         assert_eq!(
             connection
                 .query_row("SELECT count(*) FROM captures", [], |row| row
@@ -154,7 +184,52 @@ mod tests {
                 .expect("capture count must load"),
             1
         );
-        assert_eq!(migration_versions(&connection), vec![1, 2]);
+        assert_eq!(migration_versions(&connection), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn version_two_databases_gain_settings_without_losing_captures() {
+        let mut connection = Connection::open_in_memory().expect("database must open");
+        migrate_v1(&mut connection).expect("v1 must apply");
+        migrate_v2(&mut connection).expect("v2 must apply");
+        connection
+            .execute(
+                "INSERT INTO captures (
+                    capture_id, observed_at_unix_ms, target_id, source, method, scheme,
+                    host, port, path, request_json, redaction_count, policy_version
+                 ) VALUES ('v2-capture', 1, 'openai', 'gateway', 'POST', 'https',
+                    'api.openai.com', 443, '/v1/responses', '{}', 0, '0.1')",
+                [],
+            )
+            .expect("v2 capture must insert");
+
+        migrate(&mut connection).expect("v2 database must upgrade");
+
+        assert_eq!(schema_version(&connection).expect("version must load"), 3);
+        assert_eq!(
+            connection
+                .query_row("SELECT count(*) FROM captures", [], |row| row
+                    .get::<_, i64>(0))
+                .expect("capture count must load"),
+            1
+        );
+        assert!(table_names(&connection).contains(&"app_settings".to_owned()));
+        assert_eq!(migration_versions(&connection), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn read_only_recovery_accepts_the_previous_schema_but_not_older_layouts() {
+        let mut version_two = Connection::open_in_memory().expect("database must open");
+        migrate_v1(&mut version_two).expect("v1 must apply");
+        migrate_v2(&mut version_two).expect("v2 must apply");
+        validate_readable_schema(&version_two).expect("v2 recovery must remain readable");
+
+        let mut version_one = Connection::open_in_memory().expect("database must open");
+        migrate_v1(&mut version_one).expect("v1 must apply");
+        assert!(matches!(
+            validate_readable_schema(&version_one),
+            Err(StorageError::UnsupportedSchemaVersion(1))
+        ));
     }
 
     fn capture_columns(connection: &Connection) -> Vec<String> {
@@ -177,5 +252,16 @@ mod tests {
             .expect("migrations must query")
             .collect::<Result<Vec<_>, _>>()
             .expect("migrations must load")
+    }
+
+    fn table_names(connection: &Connection) -> Vec<String> {
+        let mut statement = connection
+            .prepare("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
+            .expect("table query must prepare");
+        statement
+            .query_map([], |row| row.get(0))
+            .expect("tables must query")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("tables must load")
     }
 }
