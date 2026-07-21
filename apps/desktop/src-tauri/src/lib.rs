@@ -40,13 +40,13 @@ use codeischeap_core::{
     process_gateway_event,
 };
 use codeischeap_desktop_api::{
-    BetaMetricsPreview, BetaMetricsSnapshot, CaptureMode, CapturedRequest, CertificateAuthority,
-    CertificateAuthorityState, CertificatePrivateMaterial, CertificateTrust, DesktopApiError,
-    DiagnosticEvent, ExportPreview, ExportProfile, ExportReceipt, SupportBundlePreview,
-    UpdateStatus, WorkspaceBootstrap, WorkspaceSource, build_batch_export_preview,
-    build_beta_metrics_preview, build_export_preview, build_support_bundle_preview,
-    diagnose_capture_compatibility, load_request, load_workspace, recovery_read_only_compatibility,
-    search_requests,
+    BetaMetricsPreview, BetaMetricsSnapshot, CaptureMode, CaptureProfile, CapturedRequest,
+    CertificateAuthority, CertificateAuthorityState, CertificatePrivateMaterial, CertificateTrust,
+    DesktopApiError, DiagnosticEvent, ExportPreview, ExportProfile, ExportReceipt,
+    SupportBundlePreview, UpdateStatus, WorkspaceBootstrap, WorkspaceSource,
+    build_batch_export_preview, build_beta_metrics_preview, build_export_preview,
+    build_support_bundle_preview, diagnose_capture_compatibility, load_request, load_workspace,
+    recovery_read_only_compatibility, search_requests,
 };
 use codeischeap_gateway::{Gateway, GatewayCapture, GatewayCaptureEvent};
 use codeischeap_process_attribution::resolve_loopback_client_pid;
@@ -87,7 +87,7 @@ const LEGACY_DEMO_CAPTURE_ID: &str = "demo_openai_parser";
 const KEY_SERVICE: &str = "com.codeischeap.desktop";
 const KEY_ACCOUNT: &str = "capture-database-v1";
 const DEFAULT_GATEWAY_ADDRESS: &str = "127.0.0.1:8787";
-const DEFAULT_OPENAI_UPSTREAM: &str = "https://api.openai.com";
+const CAPTURE_PROFILE_SETTING_KEY: &str = "capture.profile";
 const CAPTURE_UPDATED_EVENT: &str = "capture-updated";
 const CAPTURE_RUNTIME_ERROR_EVENT: &str = "capture-runtime-error";
 const UPDATE_DOWNLOAD_PROGRESS_EVENT: &str = "update-download-progress";
@@ -118,6 +118,7 @@ struct DesktopState {
     beta_metrics_error: Mutex<Option<String>>,
     beta_metrics_initialized: AtomicBool,
     beta_first_capture_eligible: bool,
+    capture_profile: Mutex<CaptureProfile>,
     gateway: AsyncMutex<Option<GatewayRuntime>>,
     proxy: AsyncMutex<Option<ProxyRuntime>>,
     mode: AsyncMutex<CaptureMode>,
@@ -280,6 +281,7 @@ impl PlatformProxySession {
 struct RuntimeSnapshot {
     mode: CaptureMode,
     active: bool,
+    capture_profile: CaptureProfile,
     proxy_available: bool,
     gateway_endpoint: Option<String>,
     proxy_endpoint: Option<String>,
@@ -428,6 +430,39 @@ async fn set_capture_mode(
     ensure_store_writable(&state.store)?;
     ensure_gateway(&app, &state).await?;
     switch_capture_mode(&app, &state, mode).await?;
+    load_runtime_workspace(&app, &state).await
+}
+
+#[tauri::command]
+async fn update_capture_profile(
+    profile: CaptureProfile,
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+) -> Result<WorkspaceBootstrap, String> {
+    initialize_store(&app, &state)?;
+    ensure_store_writable(&state.store)?;
+    let profile = profile.validated().map_err(|error| error.to_string())?;
+    if state.capture_active.load(Ordering::Acquire) {
+        return Err("pause capture before changing the active Profile".to_owned());
+    }
+    if *state.mode.lock().await != CaptureMode::Gateway {
+        return Err("return capture to Gateway mode before changing the active Profile".to_owned());
+    }
+    let previous = active_capture_profile(&state)?;
+    if previous == profile {
+        return load_runtime_workspace(&app, &state).await;
+    }
+
+    stop_gateway(&state).await?;
+    replace_capture_profile(&state, profile.clone())?;
+    if let Err(error) = ensure_gateway(&app, &state).await {
+        let rollback = restore_capture_profile(&app, &state, previous).await;
+        return Err(combine_profile_update_error(error, rollback));
+    }
+    if let Err(error) = persist_capture_profile(&state.store, &profile) {
+        let rollback = restore_capture_profile(&app, &state, previous).await;
+        return Err(combine_profile_update_error(error, rollback));
+    }
     load_runtime_workspace(&app, &state).await
 }
 
@@ -760,6 +795,7 @@ pub fn run() {
                 beta_metrics_error: Mutex::new(beta_metrics_error.clone()),
                 beta_metrics_initialized: AtomicBool::new(false),
                 beta_first_capture_eligible,
+                capture_profile: Mutex::new(CaptureProfile::default()),
                 gateway: AsyncMutex::new(None),
                 proxy: AsyncMutex::new(None),
                 mode: AsyncMutex::new(CaptureMode::Gateway),
@@ -821,6 +857,7 @@ pub fn run() {
             search_workspace,
             set_capture_active,
             set_capture_mode,
+            update_capture_profile,
             uninstall_certificate_authority_trust,
             write_batch_capture_export,
             write_beta_metrics,
@@ -1079,6 +1116,14 @@ fn initialize_store(app: &AppHandle, state: &DesktopState) -> Result<(), String>
                     recovery
                 }
             };
+            let capture_profile = match load_capture_profile(&initialized) {
+                Ok(profile) => profile,
+                Err(error) => {
+                    emit_runtime_error(app, "capture_profile_invalid", error);
+                    CaptureProfile::default()
+                }
+            };
+            replace_capture_profile(state, capture_profile)?;
             *store = Some(initialized);
         }
         if state.beta_metrics_initialized.load(Ordering::Acquire) {
@@ -1097,6 +1142,43 @@ fn initialize_store(app: &AppHandle, state: &DesktopState) -> Result<(), String>
         Some(Err(error)) => record_beta_metrics_failure(app, state, error.to_string()),
         None => {}
     }
+    Ok(())
+}
+
+fn load_capture_profile(store: &EncryptedStore) -> Result<CaptureProfile, String> {
+    match store
+        .get_setting_json(CAPTURE_PROFILE_SETTING_KEY)
+        .map_err(|error| error.to_string())?
+    {
+        Some(encoded) => CaptureProfile::from_json(&encoded).map_err(|error| error.to_string()),
+        None => Ok(CaptureProfile::default()),
+    }
+}
+
+fn persist_capture_profile(store: &SharedStore, profile: &CaptureProfile) -> Result<(), String> {
+    let encoded = serde_json::to_string(profile).map_err(|error| error.to_string())?;
+    store
+        .lock()
+        .map_err(|_| "encrypted workspace is temporarily unavailable".to_owned())?
+        .as_mut()
+        .ok_or_else(|| "encrypted workspace has not initialized".to_owned())?
+        .set_setting_json(CAPTURE_PROFILE_SETTING_KEY, &encoded, current_unix_ms()?)
+        .map_err(|error| error.to_string())
+}
+
+fn active_capture_profile(state: &DesktopState) -> Result<CaptureProfile, String> {
+    state
+        .capture_profile
+        .lock()
+        .map_err(|_| "capture Profile is temporarily unavailable".to_owned())
+        .map(|profile| profile.clone())
+}
+
+fn replace_capture_profile(state: &DesktopState, profile: CaptureProfile) -> Result<(), String> {
+    *state
+        .capture_profile
+        .lock()
+        .map_err(|_| "capture Profile is temporarily unavailable".to_owned())? = profile;
     Ok(())
 }
 
@@ -1588,6 +1670,7 @@ async fn runtime_snapshot(app: &AppHandle, state: &DesktopState) -> RuntimeSnaps
     RuntimeSnapshot {
         mode,
         active: state.capture_active.load(Ordering::Acquire),
+        capture_profile: active_capture_profile(state).unwrap_or_default(),
         proxy_available: state.sidecar_bundle.is_some(),
         gateway_endpoint,
         proxy_endpoint,
@@ -1599,6 +1682,7 @@ async fn runtime_snapshot(app: &AppHandle, state: &DesktopState) -> RuntimeSnaps
 }
 
 fn apply_runtime_state(workspace: &mut WorkspaceBootstrap, snapshot: RuntimeSnapshot) {
+    workspace.capture_profile = snapshot.capture_profile.clone();
     if snapshot.read_only_recovery {
         workspace.source = WorkspaceSource::RecoveryBackup;
         workspace.capture.active = false;
@@ -1615,14 +1699,14 @@ fn apply_runtime_state(workspace: &mut WorkspaceBootstrap, snapshot: RuntimeSnap
     }
     let (profile, endpoint) = match snapshot.mode {
         CaptureMode::Gateway => (
-            "OpenAI-compatible local gateway",
+            format!("{} · Local Gateway", snapshot.capture_profile.name),
             snapshot.gateway_endpoint.as_deref(),
         ),
         CaptureMode::Proxy => (
             if snapshot.system_proxy_active {
-                "System-managed explicit TLS proxy"
+                format!("{} · System-managed proxy", snapshot.capture_profile.name)
             } else {
-                "Manual explicit TLS proxy"
+                format!("{} · Manual proxy", snapshot.capture_profile.name)
             },
             snapshot.proxy_endpoint.as_deref(),
         ),
@@ -1631,7 +1715,7 @@ fn apply_runtime_state(workspace: &mut WorkspaceBootstrap, snapshot: RuntimeSnap
     workspace.capture.can_control = endpoint.is_some();
     workspace.capture.proxy_available = snapshot.proxy_available;
     workspace.capture.mode = snapshot.mode;
-    workspace.capture.profile = profile.to_owned();
+    workspace.capture.profile = profile;
     workspace.capture.endpoint = endpoint.unwrap_or("Not connected").to_owned();
     workspace.capture.certificate_authority = snapshot.certificate_authority;
     workspace.compatibility =
@@ -1741,8 +1825,11 @@ async fn ensure_gateway(app: &AppHandle, state: &DesktopState) -> Result<(), Str
     let address = listener
         .local_addr()
         .map_err(|error| format!("local AI gateway address is unavailable: {error}"))?;
-    let upstream = Url::parse(DEFAULT_OPENAI_UPSTREAM)
-        .map_err(|error| format!("default OpenAI upstream is invalid: {error}"))?;
+    let profile = active_capture_profile(state)?;
+    let upstream = profile.gateway_url().map_err(|error| error.to_string())?;
+    let policy = profile
+        .capture_policy()
+        .map_err(|error| error.to_string())?;
     let (capture, receiver, _) = GatewayCapture::defaults();
     capture.set_enabled(capture_enabled);
     let gateway = Gateway::new(upstream).map_err(|error| error.to_string())?;
@@ -1765,6 +1852,7 @@ async fn ensure_gateway(app: &AppHandle, state: &DesktopState) -> Result<(), Str
         capture.clone(),
         state.capture_active.clone(),
         address,
+        policy,
         receiver,
     ));
 
@@ -1774,6 +1862,52 @@ async fn ensure_gateway(app: &AppHandle, state: &DesktopState) -> Result<(), Str
         shutdown: Some(shutdown),
     });
     Ok(())
+}
+
+async fn stop_gateway(state: &DesktopState) -> Result<(), String> {
+    let runtime = state.gateway.lock().await.take();
+    if runtime.is_none() {
+        return Ok(());
+    }
+    drop(runtime);
+    for _ in 0..80 {
+        match TcpListener::bind(DEFAULT_GATEWAY_ADDRESS).await {
+            Ok(listener) => {
+                drop(listener);
+                return Ok(());
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => {
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+            Err(error) => {
+                return Err(format!(
+                    "local AI gateway release check failed for {DEFAULT_GATEWAY_ADDRESS}: {error}"
+                ));
+            }
+        }
+    }
+    Err(format!(
+        "local AI gateway did not release {DEFAULT_GATEWAY_ADDRESS} after shutdown"
+    ))
+}
+
+async fn restore_capture_profile(
+    app: &AppHandle,
+    state: &DesktopState,
+    profile: CaptureProfile,
+) -> Result<(), String> {
+    let _ = stop_gateway(state).await;
+    replace_capture_profile(state, profile)?;
+    ensure_gateway(app, state).await
+}
+
+fn combine_profile_update_error(error: String, rollback: Result<(), String>) -> String {
+    match rollback {
+        Ok(()) => format!("capture Profile was not changed: {error}"),
+        Err(rollback_error) => format!(
+            "capture Profile update failed: {error}; previous Profile could not restart: {rollback_error}"
+        ),
+    }
 }
 
 async fn switch_capture_mode(
@@ -1822,7 +1956,9 @@ async fn ensure_proxy(app: &AppHandle, state: &DesktopState) -> Result<(), Strin
         .sidecar_bundle
         .clone()
         .ok_or_else(|| "verified explicit proxy bundle is unavailable".to_owned())?;
-    let policy = CapturePolicy::load_default().map_err(|error| error.to_string())?;
+    let policy = active_capture_profile(state)?
+        .capture_policy()
+        .map_err(|error| error.to_string())?;
     let target_hosts = policy
         .targets
         .iter()
@@ -2428,15 +2564,9 @@ async fn process_capture_events(
     capture: GatewayCapture,
     capture_active: Arc<AtomicBool>,
     gateway_address: SocketAddr,
+    policy: CapturePolicy,
     mut receiver: mpsc::Receiver<GatewayCaptureEvent>,
 ) {
-    let policy = match CapturePolicy::load_default() {
-        Ok(policy) => policy,
-        Err(error) => {
-            emit_runtime_error(&app, "capture_policy_invalid", error.to_string());
-            return;
-        }
-    };
     let adapters = AdapterRegistry::default();
     let mut pending = HashMap::<String, GatewayCaptureEvent>::new();
     let mut captures_since_retention = 0_usize;
@@ -2715,6 +2845,40 @@ mod tests {
     }
 
     #[test]
+    fn capture_profiles_round_trip_through_encrypted_workspace_settings() {
+        const PROFILE_CANARY: &str = "profile-runtime-canary.example.test";
+        let directory = tempdir().expect("temp directory must be created");
+        let store = Arc::new(Mutex::new(Some(
+            EncryptedStore::open(
+                directory.path().join("captures.db"),
+                DatabaseKey::from_bytes([0x73; 32]),
+            )
+            .expect("encrypted store must open"),
+        )));
+        let profile = CaptureProfile {
+            version: codeischeap_desktop_api::CAPTURE_PROFILE_VERSION.to_owned(),
+            name: "Private lab".to_owned(),
+            gateway_upstream: format!("https://{PROFILE_CANARY}"),
+            additional_hosts: vec!["proxy.profile.test".to_owned()],
+        }
+        .validated()
+        .expect("profile must validate");
+
+        persist_capture_profile(&store, &profile).expect("profile must persist");
+        let loaded = load_capture_profile(
+            store
+                .lock()
+                .expect("store lock")
+                .as_ref()
+                .expect("store must exist"),
+        )
+        .expect("profile must load");
+
+        assert_eq!(loaded, profile);
+        assert!(!files_contain(directory.path(), PROFILE_CANARY.as_bytes()));
+    }
+
+    #[test]
     fn updater_configuration_rejects_missing_public_keys() {
         assert_eq!(updater_public_key(None), None);
         assert_eq!(updater_public_key(Some("   ")), None);
@@ -2862,6 +3026,7 @@ mod tests {
             RuntimeSnapshot {
                 mode: CaptureMode::Gateway,
                 active: false,
+                capture_profile: CaptureProfile::default(),
                 proxy_available: true,
                 gateway_endpoint: Some("http://127.0.0.1:8787".to_owned()),
                 proxy_endpoint: None,
@@ -2877,7 +3042,7 @@ mod tests {
         assert!(workspace.capture.proxy_available);
         assert_eq!(workspace.capture.mode, CaptureMode::Gateway);
         assert_eq!(workspace.capture.endpoint, "http://127.0.0.1:8787");
-        assert_eq!(workspace.capture.profile, "OpenAI-compatible local gateway");
+        assert_eq!(workspace.capture.profile, "OpenAI default · Local Gateway");
         assert_eq!(
             workspace.compatibility.code,
             codeischeap_desktop_api::CaptureCompatibilityCode::CapturePaused
@@ -2901,6 +3066,7 @@ mod tests {
             RuntimeSnapshot {
                 mode: CaptureMode::Proxy,
                 active: true,
+                capture_profile: CaptureProfile::default(),
                 proxy_available: true,
                 gateway_endpoint: Some("http://127.0.0.1:8787".to_owned()),
                 proxy_endpoint: Some("http://127.0.0.1:43125".to_owned()),
@@ -2955,6 +3121,7 @@ mod tests {
             RuntimeSnapshot {
                 mode: CaptureMode::Proxy,
                 active: true,
+                capture_profile: CaptureProfile::default(),
                 proxy_available: true,
                 gateway_endpoint: Some("http://127.0.0.1:8787".to_owned()),
                 proxy_endpoint: Some("http://127.0.0.1:43125".to_owned()),
@@ -2972,7 +3139,7 @@ mod tests {
         assert_eq!(workspace.capture.endpoint, "http://127.0.0.1:43125");
         assert_eq!(
             workspace.capture.profile,
-            "System-managed explicit TLS proxy"
+            "OpenAI default · System-managed proxy"
         );
         assert_eq!(
             workspace.capture.certificate_authority,
@@ -2988,6 +3155,7 @@ mod tests {
             RuntimeSnapshot {
                 mode: CaptureMode::Proxy,
                 active: true,
+                capture_profile: CaptureProfile::default(),
                 proxy_available: true,
                 gateway_endpoint: Some("http://127.0.0.1:8787".to_owned()),
                 proxy_endpoint: Some("http://127.0.0.1:43125".to_owned()),
@@ -3533,6 +3701,7 @@ mod tests {
             beta_metrics_error: Mutex::new(None),
             beta_metrics_initialized: AtomicBool::new(true),
             beta_first_capture_eligible: false,
+            capture_profile: Mutex::new(CaptureProfile::default()),
             gateway: AsyncMutex::new(Some(GatewayRuntime {
                 capture: capture.clone(),
                 endpoint: "http://127.0.0.1:8787".to_owned(),

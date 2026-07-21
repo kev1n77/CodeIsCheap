@@ -661,6 +661,7 @@ mod tests {
         let workspace = WorkspaceBootstrap {
             api_version: DESKTOP_API_VERSION.to_owned(),
             source: WorkspaceSource::EncryptedLocal,
+            capture_profile: crate::CaptureProfile::default(),
             compatibility: diagnose_capture_compatibility(&capture, 0),
             capture,
             requests: vec![request()],

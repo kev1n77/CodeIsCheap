@@ -9,6 +9,9 @@
     "capture": {
       "$ref": "#/$defs/CaptureState"
     },
+    "captureProfile": {
+      "$ref": "#/$defs/CaptureProfile"
+    },
     "compatibility": {
       "$ref": "#/$defs/CaptureCompatibility"
     },
@@ -25,6 +28,7 @@
   "required": [
     "apiVersion",
     "source",
+    "captureProfile",
     "capture",
     "compatibility",
     "requests"
@@ -186,6 +190,33 @@
       "enum": [
         "gateway",
         "proxy"
+      ]
+    },
+    "CaptureProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "additionalHosts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "gatewayUpstream": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "name",
+        "gatewayUpstream",
+        "additionalHosts"
       ]
     },
     "CaptureState": {
