@@ -1557,6 +1557,7 @@ mod tests {
         ExportReceipt::export_all(&config).expect("export receipt binding must export");
         SupportBundlePreview::export_all(&config)
             .expect("support bundle preview binding must export");
+        UpdateStatus::export_all(&config).expect("update status binding must export");
         let checked_in = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../apps/desktop/src/generated/desktop-api");
 
