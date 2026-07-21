@@ -190,6 +190,14 @@ pub enum RecoveryError {
     PlatformOutputInvalid(String),
     AuthenticatedProxyUnsupported(String),
     PrivilegedHelper(String),
+    OperationFailed {
+        operation: &'static str,
+        source: Box<RecoveryError>,
+    },
+    RestoreRetryFailed {
+        first: Box<RecoveryError>,
+        retry: Box<RecoveryError>,
+    },
     RollbackRecoveryFailed {
         apply: Box<RecoveryError>,
         rollback: Box<RecoveryError>,
@@ -243,6 +251,18 @@ impl fmt::Display for RecoveryError {
             Self::PrivilegedHelper(detail) => {
                 write!(formatter, "privileged proxy helper failed: {detail}")
             }
+            Self::OperationFailed { operation, source } => {
+                write!(
+                    formatter,
+                    "proxy recovery failed while {operation}: {source}"
+                )
+            }
+            Self::RestoreRetryFailed { first, retry } => {
+                write!(
+                    formatter,
+                    "proxy recovery failed, then its idempotent retry also failed ({first}; retry: {retry})"
+                )
+            }
             Self::RollbackRecoveryFailed {
                 apply,
                 rollback,
@@ -262,6 +282,8 @@ impl std::error::Error for RecoveryError {
         match self {
             Self::Io(error) => Some(error),
             Self::Json(error) => Some(error),
+            Self::OperationFailed { source, .. } => Some(source.as_ref()),
+            Self::RestoreRetryFailed { retry, .. } => Some(retry.as_ref()),
             Self::RollbackRecoveryFailed { apply, .. } => Some(apply.as_ref()),
             _ => None,
         }
@@ -271,6 +293,15 @@ impl std::error::Error for RecoveryError {
 impl From<io::Error> for RecoveryError {
     fn from(error: io::Error) -> Self {
         Self::Io(error)
+    }
+}
+
+impl RecoveryError {
+    fn while_doing(self, operation: &'static str) -> Self {
+        Self::OperationFailed {
+            operation,
+            source: Box::new(self),
+        }
     }
 }
 
@@ -339,19 +370,35 @@ impl<B: ProxyBackend> ProxySession<B> {
     }
 
     pub fn restore(mut self) -> Result<(), RecoveryError> {
+        let first = match self.restore_inner() {
+            Ok(()) => return Ok(()),
+            Err(error) => error,
+        };
         self.restore_inner()
+            .map_err(|retry| RecoveryError::RestoreRetryFailed {
+                first: Box::new(first),
+                retry: Box::new(retry),
+            })
     }
 
     fn restore_inner(&mut self) -> Result<(), RecoveryError> {
         if self.restored {
             return Ok(());
         }
-        self.backend.restore(&self.original)?;
-        mark_restored(&self.journal_path)?;
-        if let Some(mut watchdog) = self.watchdog.take() {
-            watchdog.disarm()?;
+        self.backend
+            .restore(&self.original)
+            .map_err(|error| error.while_doing("restoring the original proxy snapshot"))?;
+        mark_restored(&self.journal_path)
+            .map_err(|error| error.while_doing("marking the recovery journal restored"))?;
+        if let Some(watchdog) = self.watchdog.as_mut() {
+            watchdog
+                .disarm()
+                .map_err(|error| error.while_doing("disarming the proxy watchdog"))?;
         }
-        remove_if_exists(&self.journal_path)?;
+        self.watchdog = None;
+        remove_if_exists(&self.journal_path)
+            .map_err(RecoveryError::Io)
+            .map_err(|error| error.while_doing("removing the restored recovery journal"))?;
         self.restored = true;
         Ok(())
     }

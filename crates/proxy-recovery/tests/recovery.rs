@@ -2,7 +2,8 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -30,6 +31,35 @@ fn desired_settings() -> ProxySettings {
 #[derive(Debug, Clone)]
 struct ApplyAndRollbackFailureBackend {
     inner: FileProxyBackend,
+}
+
+#[derive(Debug, Clone)]
+struct FailOnceRestoreBackend {
+    inner: FileProxyBackend,
+    restore_attempts: Arc<AtomicUsize>,
+}
+
+impl ProxyBackend for FailOnceRestoreBackend {
+    fn descriptor(&self) -> codeischeap_proxy_recovery::BackendDescriptor {
+        self.inner.descriptor()
+    }
+
+    fn snapshot(&self) -> Result<ProxySnapshot, RecoveryError> {
+        self.inner.snapshot()
+    }
+
+    fn apply(&self, settings: &ProxySettings) -> Result<(), RecoveryError> {
+        self.inner.apply(settings)
+    }
+
+    fn restore(&self, snapshot: &ProxySnapshot) -> Result<(), RecoveryError> {
+        if self.restore_attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+            return Err(RecoveryError::PlatformCommandFailed(
+                "fault-injected transient restore".to_owned(),
+            ));
+        }
+        self.inner.restore(snapshot)
+    }
 }
 
 impl ProxyBackend for ApplyAndRollbackFailureBackend {
@@ -101,6 +131,41 @@ fn normal_restore_returns_to_the_exact_snapshot() {
     session.restore().expect("session must restore");
 
     assert_eq!(file_settings(&backend), original_settings());
+    assert!(!journal.exists());
+    fs::remove_dir_all(root).expect("test directory must clean up");
+}
+
+#[test]
+fn transient_restore_failure_is_retried_before_disarming_the_watchdog() {
+    let _lock = PROCESS_TEST_LOCK
+        .lock()
+        .expect("process test lock must work");
+    let root = test_directory("restore-retry");
+    let state = root.join("proxy-state.json");
+    let journal = root.join("recovery.json");
+    let inner = FileProxyBackend::new(&state);
+    inner
+        .apply(&original_settings())
+        .expect("original state must write");
+    let restore_attempts = Arc::new(AtomicUsize::new(0));
+    let backend = FailOnceRestoreBackend {
+        inner: inner.clone(),
+        restore_attempts: restore_attempts.clone(),
+    };
+
+    let session = ProxySession::begin(
+        backend,
+        desired_settings(),
+        &journal,
+        env!("CARGO_BIN_EXE_proxy-watchdog"),
+    )
+    .expect("session must begin");
+    session
+        .restore()
+        .expect("the idempotent retry must restore the session");
+
+    assert_eq!(restore_attempts.load(Ordering::SeqCst), 2);
+    assert_eq!(file_settings(&inner), original_settings());
     assert!(!journal.exists());
     fs::remove_dir_all(root).expect("test directory must clean up");
 }
