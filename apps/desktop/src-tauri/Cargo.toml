@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "CodeIsCheap local AI request inspector"
 authors = ["CodeIsCheap contributors"]
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 
 [lib]
 name = "codeischeap_desktop_lib"
