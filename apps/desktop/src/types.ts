@@ -2,6 +2,8 @@ export type { AnatomyItem } from "./generated/desktop-api/AnatomyItem";
 export type { AnatomySection } from "./generated/desktop-api/AnatomySection";
 export type { ApplicationAttributionSource } from "./generated/desktop-api/ApplicationAttributionSource";
 export type { ApplicationConfidence } from "./generated/desktop-api/ApplicationConfidence";
+export type { BetaMetricsPreview } from "./generated/desktop-api/BetaMetricsPreview";
+export type { BetaMetricsSnapshot } from "./generated/desktop-api/BetaMetricsSnapshot";
 export type { CapturedRequest } from "./generated/desktop-api/CapturedRequest";
 export type { CaptureCompatibility } from "./generated/desktop-api/CaptureCompatibility";
 export type { CaptureCompatibilityCode } from "./generated/desktop-api/CaptureCompatibilityCode";

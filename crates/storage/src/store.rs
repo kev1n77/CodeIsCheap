@@ -13,8 +13,8 @@ use crate::StorageError;
 use crate::key::{DatabaseKey, DatabaseKeyStore};
 use crate::migrations::{migrate, validate_schema};
 use crate::model::{
-    CaptureCursor, CaptureSummary, CaptureWrite, RetentionPolicy, RetentionReport, StorageOptions,
-    StoredCapture,
+    CaptureCursor, CaptureMetrics, CaptureSummary, CaptureWrite, RetentionPolicy, RetentionReport,
+    StorageOptions, StoredCapture,
 };
 
 pub const MAX_PAGE_SIZE: usize = 200;
@@ -293,6 +293,55 @@ impl EncryptedStore {
             .query_row("SELECT count(*) FROM captures", [], |row| row.get(0))
             .map_err(StorageError::from)?;
         u64::try_from(count).map_err(|_| StorageError::NumericOutOfRange)
+    }
+
+    pub fn capture_metrics(&self) -> Result<CaptureMetrics, StorageError> {
+        let (earliest, supported, parsed): (Option<i64>, Option<i64>, Option<i64>) =
+            self.connection.query_row(
+                "
+                SELECT
+                    MIN(observed_at_unix_ms),
+                    SUM(CASE WHEN
+                        (target_id = 'openai' AND path IN (
+                            '/v1/responses', '/v1/chat/completions', '/v1/completions'
+                        )) OR
+                        (target_id = 'anthropic' AND path IN ('/v1/messages', '/v1/complete')) OR
+                        (target_id = 'gemini' AND (
+                            path GLOB '/v1beta/models/*:generateContent' OR
+                            path GLOB '/v1beta/models/*:streamGenerateContent' OR
+                            path GLOB '/v1/models/*:generateContent' OR
+                            path GLOB '/v1/models/*:streamGenerateContent'
+                        )) OR
+                        (target_id = 'ollama' AND path IN ('/api/chat', '/api/generate'))
+                    THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN prompt_ir_json IS NOT NULL AND (
+                        (target_id = 'openai' AND path IN (
+                            '/v1/responses', '/v1/chat/completions', '/v1/completions'
+                        )) OR
+                        (target_id = 'anthropic' AND path IN ('/v1/messages', '/v1/complete')) OR
+                        (target_id = 'gemini' AND (
+                            path GLOB '/v1beta/models/*:generateContent' OR
+                            path GLOB '/v1beta/models/*:streamGenerateContent' OR
+                            path GLOB '/v1/models/*:generateContent' OR
+                            path GLOB '/v1/models/*:streamGenerateContent'
+                        )) OR
+                        (target_id = 'ollama' AND path IN ('/api/chat', '/api/generate'))
+                    ) THEN 1 ELSE 0 END)
+                FROM captures
+                ",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )?;
+        Ok(CaptureMetrics {
+            earliest_capture_at_unix_ms: earliest
+                .map(u64::try_from)
+                .transpose()
+                .map_err(|_| StorageError::NumericOutOfRange)?,
+            supported_capture_count: u64::try_from(supported.unwrap_or(0))
+                .map_err(|_| StorageError::NumericOutOfRange)?,
+            parsed_capture_count: u64::try_from(parsed.unwrap_or(0))
+                .map_err(|_| StorageError::NumericOutOfRange)?,
+        })
     }
 
     pub fn enforce_retention(

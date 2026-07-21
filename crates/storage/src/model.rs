@@ -83,6 +83,13 @@ pub struct CaptureSummary {
     pub duration_ms: Option<u64>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CaptureMetrics {
+    pub earliest_capture_at_unix_ms: Option<u64>,
+    pub supported_capture_count: u64,
+    pub parsed_capture_count: u64,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct StoredCapture {
     pub target_id: String,
