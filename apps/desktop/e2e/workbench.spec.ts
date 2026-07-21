@@ -117,4 +117,33 @@ test.describe("desktop workbench quality baseline", () => {
     expect(layout.scrollWidth).toBe(layout.clientWidth);
     expect(layout.scrollHeight).toBeLessThanOrEqual(layout.clientHeight);
   });
+
+  test("keeps validated update recovery read-only and exportable", async ({ page }) => {
+    await page.setViewportSize(MINIMUM_VIEWPORT);
+    await page.goto("/?recoveryMode=1");
+
+    await expect(page.getByRole("status", { name: "Read-only update recovery mode" }))
+      .toBeVisible();
+    await expect(page.getByRole("button", { name: "Resume capture" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Gateway" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Proxy" })).toBeDisabled();
+
+    await page.getByRole("button", { name: "Export request" }).click();
+    await expect(page.getByRole("dialog", { name: "Export request" })).toBeVisible();
+    await page.getByRole("button", { name: "Close export" }).click();
+    await page.getByRole("button", { name: "Settings" }).click();
+    const dialog = page.getByRole("dialog", { name: "Settings & diagnostics" });
+    await dialog.getByRole("tab", { name: "Updates" }).click();
+    await expect(dialog.getByText("Updates are disabled")).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Check" })).toBeDisabled();
+
+    const layout = await page.evaluate(() => ({
+      clientWidth: document.documentElement.clientWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+      clientHeight: document.documentElement.clientHeight,
+      scrollHeight: document.documentElement.scrollHeight,
+    }));
+    expect(layout.scrollWidth).toBe(layout.clientWidth);
+    expect(layout.scrollHeight).toBe(layout.clientHeight);
+  });
 });

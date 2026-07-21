@@ -7,7 +7,7 @@ mod update;
 pub use compatibility::{
     CaptureCompatibility, CaptureCompatibilityCode, CaptureCompatibilityStatus,
     CompatibilityAction, CompatibilityConfidence, CompatibilityStep, CompatibilityStepStatus,
-    diagnose_capture_compatibility,
+    diagnose_capture_compatibility, recovery_read_only_compatibility,
 };
 
 pub use export::{
@@ -49,6 +49,7 @@ pub struct WorkspaceBootstrap {
 #[serde(rename_all = "snake_case")]
 pub enum WorkspaceSource {
     EncryptedLocal,
+    RecoveryBackup,
     SyntheticFixture,
 }
 

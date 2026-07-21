@@ -169,6 +169,59 @@ describe("request workbench", () => {
     expect(within(dialog).getByText(/managed system proxy settings have been restored/)).toBeInTheDocument();
   });
 
+  it("keeps recovery history searchable and exportable while disabling mutations", async () => {
+    const user = userEvent.setup();
+    window.__TAURI_INTERNALS__ = {};
+    const workspace = structuredClone(fixture) as unknown as WorkspaceBootstrap;
+    workspace.source = "recovery_backup";
+    workspace.capture = {
+      ...workspace.capture,
+      active: false,
+      canControl: false,
+      proxyAvailable: false,
+      endpoint: "Capture disabled",
+      storage: `${workspace.capture.storage} / read-only recovery`,
+    };
+    const preview: ExportPreview = {
+      profile: "minimal",
+      suggestedFilename: "codeischeap-recovery-request.json",
+      content: "{\"recovery\":true}\n",
+      byteCount: 18,
+      contentSha256: "d".repeat(64),
+      exportedAtUnixMs: 1_700_000_000_200,
+      redactions: [],
+      policyVersion: "0.1",
+    };
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === "bootstrap_workspace") return structuredClone(workspace);
+      if (command === "preview_capture_export") return preview;
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    const { container } = render(<App />);
+    expect(await screen.findByRole("status", { name: "Read-only update recovery mode" }))
+      .toHaveTextContent("searchable and exportable");
+    expect(screen.getByText("Read-only", { selector: ".capture-indicator" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Resume capture" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Gateway" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Proxy" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Export request" }));
+    expect(await screen.findByRole("dialog", { name: "Export request" })).toBeInTheDocument();
+    expect(invoke).toHaveBeenCalledWith("preview_capture_export", {
+      captureId: workspace.requests[0].id,
+      profile: "minimal",
+    });
+    await user.click(screen.getByRole("button", { name: "Close export" }));
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    const settings = screen.getByRole("dialog", { name: "Settings & diagnostics" });
+    await user.click(within(settings).getByRole("tab", { name: "Updates" }));
+    expect(within(settings).getByText("Updates are disabled")).toBeInTheDocument();
+    expect(within(settings).getByRole("button", { name: "Check" })).toBeDisabled();
+    expect((await axe.run(container, { rules: { "color-contrast": { enabled: false } } })).violations)
+      .toEqual([]);
+  });
+
   it("passes automated accessibility checks for the workspace and dialogs", async () => {
     const user = userEvent.setup();
     const { container } = render(<App />);

@@ -40,6 +40,7 @@ pub enum KeyStoreError {
     InvalidIdentifier,
     UnsupportedPlatform,
     RandomUnavailable,
+    MissingStoredKey,
     InvalidStoredKey,
     Backend(String),
 }
@@ -57,6 +58,7 @@ impl fmt::Display for KeyStoreError {
             Self::RandomUnavailable => {
                 write!(formatter, "cryptographic randomness is unavailable")
             }
+            Self::MissingStoredKey => write!(formatter, "stored database key is unavailable"),
             Self::InvalidStoredKey => write!(formatter, "stored database key is invalid"),
             Self::Backend(_) => write!(formatter, "OS credential storage operation failed"),
         }
@@ -66,6 +68,7 @@ impl fmt::Display for KeyStoreError {
 impl std::error::Error for KeyStoreError {}
 
 pub trait DatabaseKeyStore {
+    fn load(&self) -> Result<DatabaseKey, KeyStoreError>;
     fn load_or_create(&self) -> Result<DatabaseKey, KeyStoreError>;
     fn delete(&self) -> Result<(), KeyStoreError>;
 }
@@ -98,7 +101,7 @@ impl OsKeyStore {
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 impl DatabaseKeyStore for OsKeyStore {
-    fn load_or_create(&self) -> Result<DatabaseKey, KeyStoreError> {
+    fn load(&self) -> Result<DatabaseKey, KeyStoreError> {
         let entry = self.entry()?;
         match entry.get_secret() {
             Ok(mut stored) => {
@@ -111,14 +114,22 @@ impl DatabaseKeyStore for OsKeyStore {
                 stored.zeroize();
                 Ok(DatabaseKey::from_bytes(bytes))
             }
-            Err(keyring::Error::NoEntry) => {
+            Err(keyring::Error::NoEntry) => Err(KeyStoreError::MissingStoredKey),
+            Err(error) => Err(KeyStoreError::Backend(error.to_string())),
+        }
+    }
+
+    fn load_or_create(&self) -> Result<DatabaseKey, KeyStoreError> {
+        match self.load() {
+            Ok(key) => Ok(key),
+            Err(KeyStoreError::MissingStoredKey) => {
                 let key = DatabaseKey::generate()?;
-                entry
+                self.entry()?
                     .set_secret(key.expose())
                     .map_err(|error| KeyStoreError::Backend(error.to_string()))?;
                 Ok(key)
             }
-            Err(error) => Err(KeyStoreError::Backend(error.to_string())),
+            Err(error) => Err(error),
         }
     }
 
@@ -132,6 +143,10 @@ impl DatabaseKeyStore for OsKeyStore {
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
 impl DatabaseKeyStore for OsKeyStore {
+    fn load(&self) -> Result<DatabaseKey, KeyStoreError> {
+        Err(KeyStoreError::UnsupportedPlatform)
+    }
+
     fn load_or_create(&self) -> Result<DatabaseKey, KeyStoreError> {
         Err(KeyStoreError::UnsupportedPlatform)
     }

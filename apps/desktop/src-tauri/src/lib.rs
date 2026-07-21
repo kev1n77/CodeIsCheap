@@ -39,8 +39,9 @@ use codeischeap_desktop_api::{
     CaptureMode, CapturedRequest, CertificateAuthority, CertificateAuthorityState,
     CertificatePrivateMaterial, CertificateTrust, DesktopApiError, DiagnosticEvent, ExportPreview,
     ExportProfile, ExportReceipt, SupportBundlePreview, UpdateStatus, WorkspaceBootstrap,
-    build_batch_export_preview, build_export_preview, build_support_bundle_preview,
-    diagnose_capture_compatibility, load_request, load_workspace, search_requests,
+    WorkspaceSource, build_batch_export_preview, build_export_preview,
+    build_support_bundle_preview, diagnose_capture_compatibility, load_request, load_workspace,
+    recovery_read_only_compatibility, search_requests,
 };
 use codeischeap_gateway::{Gateway, GatewayCapture, GatewayCaptureEvent};
 use codeischeap_process_attribution::resolve_loopback_client_pid;
@@ -62,9 +63,9 @@ use codeischeap_sidecar_runtime::{
     uninstall_certificate_authority as uninstall_ca_trust,
 };
 use codeischeap_storage::{
-    EncryptedStore, OsKeyStore, RetentionPolicy, RetentionReport, StorageError,
+    DatabaseKeyStore, EncryptedStore, OsKeyStore, RetentionPolicy, RetentionReport, StorageError,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
@@ -100,6 +101,7 @@ const UPDATE_CHECK_TIMEOUT: Duration = Duration::from_secs(30);
 const UPDATE_RECOVERY_DIRECTORY: &str = "update-recovery";
 const UPDATE_RECOVERY_BACKUP_FILENAME: &str = "captures.pre-update.db";
 const UPDATE_RECOVERY_JOURNAL_FILENAME: &str = "pending.v0.1.json";
+const MAX_UPDATE_RECOVERY_JOURNAL_BYTES: u64 = 16 * 1024;
 
 type SharedStore = Arc<Mutex<Option<EncryptedStore>>>;
 
@@ -273,6 +275,7 @@ struct RuntimeSnapshot {
     system_proxy_active: bool,
     proxy_session_event_count: u64,
     certificate_authority: CertificateAuthority,
+    read_only_recovery: bool,
 }
 
 #[derive(Debug)]
@@ -331,13 +334,13 @@ struct UpdateDownloadProgress {
     finished: bool,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct UpdateRecoveryJournal {
-    schema_version: &'static str,
+    schema_version: String,
     source_version: String,
     target_version: String,
-    backup_file: &'static str,
+    backup_file: String,
     backup_bytes: u64,
     created_at_unix_ms: u64,
 }
@@ -348,8 +351,10 @@ async fn bootstrap_workspace(
     state: State<'_, DesktopState>,
 ) -> Result<WorkspaceBootstrap, String> {
     ensure_proxy_recovery(&app, &state).await?;
-    initialize_store(&app, &state.store)?;
-    ensure_gateway(&app, &state).await?;
+    initialize_store(&app, &state)?;
+    if !store_is_read_only(&state.store)? {
+        ensure_gateway(&app, &state).await?;
+    }
     let workspace = load_runtime_workspace(&app, &state).await?;
     emit_sidecar_error_once(&app, &state);
     Ok(workspace)
@@ -361,7 +366,7 @@ async fn search_workspace(
     app: AppHandle,
     state: State<'_, DesktopState>,
 ) -> Result<Vec<CapturedRequest>, String> {
-    initialize_store(&app, &state.store)?;
+    initialize_store(&app, &state)?;
     let store = state
         .store
         .lock()
@@ -381,6 +386,8 @@ async fn set_capture_active(
     app: AppHandle,
     state: State<'_, DesktopState>,
 ) -> Result<WorkspaceBootstrap, String> {
+    initialize_store(&app, &state)?;
+    ensure_store_writable(&state.store)?;
     let mode = *state.mode.lock().await;
     match mode {
         CaptureMode::Gateway => {
@@ -406,7 +413,8 @@ async fn set_capture_mode(
     app: AppHandle,
     state: State<'_, DesktopState>,
 ) -> Result<WorkspaceBootstrap, String> {
-    initialize_store(&app, &state.store)?;
+    initialize_store(&app, &state)?;
+    ensure_store_writable(&state.store)?;
     ensure_gateway(&app, &state).await?;
     switch_capture_mode(&app, &state, mode).await?;
     load_runtime_workspace(&app, &state).await
@@ -417,7 +425,8 @@ async fn install_certificate_authority_trust(
     app: AppHandle,
     state: State<'_, DesktopState>,
 ) -> Result<WorkspaceBootstrap, String> {
-    initialize_store(&app, &state.store)?;
+    initialize_store(&app, &state)?;
+    ensure_store_writable(&state.store)?;
     let confdir = application_certificate_confdir(&app)?;
     tokio::task::spawn_blocking(move || install_ca_trust(confdir))
         .await
@@ -437,7 +446,8 @@ async fn uninstall_certificate_authority_trust(
     app: AppHandle,
     state: State<'_, DesktopState>,
 ) -> Result<WorkspaceBootstrap, String> {
-    initialize_store(&app, &state.store)?;
+    initialize_store(&app, &state)?;
+    ensure_store_writable(&state.store)?;
     if *state.mode.lock().await == CaptureMode::Proxy {
         switch_capture_mode(&app, &state, CaptureMode::Gateway).await?;
     }
@@ -456,7 +466,7 @@ async fn preview_capture_export(
     app: AppHandle,
     state: State<'_, DesktopState>,
 ) -> Result<ExportPreview, String> {
-    initialize_store(&app, &state.store)?;
+    initialize_store(&app, &state)?;
     let store = state.store.clone();
     tauri::async_runtime::spawn_blocking(move || {
         build_capture_export(&store, &capture_id, profile, current_unix_ms()?)
@@ -472,7 +482,7 @@ async fn preview_batch_capture_export(
     app: AppHandle,
     state: State<'_, DesktopState>,
 ) -> Result<ExportPreview, String> {
-    initialize_store(&app, &state.store)?;
+    initialize_store(&app, &state)?;
     let store = state.store.clone();
     tauri::async_runtime::spawn_blocking(move || {
         build_batch_capture_export(&store, &capture_ids, profile, current_unix_ms()?)
@@ -491,7 +501,7 @@ async fn write_capture_export(
     app: AppHandle,
     state: State<'_, DesktopState>,
 ) -> Result<ExportReceipt, String> {
-    initialize_store(&app, &state.store)?;
+    initialize_store(&app, &state)?;
     let store = state.store.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let preview = build_capture_export(&store, &capture_id, profile, exported_at_unix_ms)?;
@@ -519,7 +529,7 @@ async fn write_batch_capture_export(
     app: AppHandle,
     state: State<'_, DesktopState>,
 ) -> Result<ExportReceipt, String> {
-    initialize_store(&app, &state.store)?;
+    initialize_store(&app, &state)?;
     let store = state.store.clone();
     tauri::async_runtime::spawn_blocking(move || {
         write_batch_capture_export_file(
@@ -541,7 +551,7 @@ async fn preview_support_bundle(
     app: AppHandle,
     state: State<'_, DesktopState>,
 ) -> Result<SupportBundlePreview, String> {
-    initialize_store(&app, &state.store)?;
+    initialize_store(&app, &state)?;
     let workspace = load_runtime_workspace(&app, &state).await?;
     let diagnostic_events = load_application_diagnostic_events(&app);
     build_support_bundle_preview(
@@ -562,7 +572,7 @@ async fn write_support_bundle(
     app: AppHandle,
     state: State<'_, DesktopState>,
 ) -> Result<ExportReceipt, String> {
-    initialize_store(&app, &state.store)?;
+    initialize_store(&app, &state)?;
     let workspace = load_runtime_workspace(&app, &state).await?;
     let diagnostic_events = load_application_diagnostic_events(&app);
     tauri::async_runtime::spawn_blocking(move || {
@@ -621,9 +631,10 @@ async fn install_update(
     }
 
     ensure_proxy_recovery(&app, &state).await?;
+    initialize_store(&app, &state)?;
+    ensure_store_writable(&state.store)?;
     ensure_gateway(&app, &state).await?;
     switch_capture_mode(&app, &state, CaptureMode::Gateway).await?;
-    initialize_store(&app, &state.store)?;
     prepare_update_recovery_snapshot(&app, &state.store, &update.version).await?;
 
     let progress_app = app.clone();
@@ -739,10 +750,72 @@ pub fn run() {
 fn open_application_store(app: &AppHandle) -> Result<EncryptedStore, Box<dyn Error>> {
     let database_path = app.path().app_data_dir()?.join("captures.db");
     let key_store = OsKeyStore::new(KEY_SERVICE, KEY_ACCOUNT)?;
-    Ok(EncryptedStore::open_with_key_store(
-        database_path,
-        &key_store,
-    )?)
+    let key = if database_path.exists() {
+        key_store.load()?
+    } else {
+        key_store.load_or_create()?
+    };
+    Ok(EncryptedStore::open(database_path, key)?)
+}
+
+fn open_application_recovery_store(app: &AppHandle) -> Result<EncryptedStore, String> {
+    let directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("application data directory is unavailable: {error}"))?
+        .join(UPDATE_RECOVERY_DIRECTORY);
+    let backup_path =
+        validate_update_recovery_backup(&directory, &app.package_info().version.to_string())?;
+    let key_store = OsKeyStore::new(KEY_SERVICE, KEY_ACCOUNT)
+        .map_err(|error| format!("database key store is unavailable: {error}"))?;
+    EncryptedStore::open_readonly_with_key_store(backup_path, &key_store)
+        .map_err(|error| format!("encrypted recovery backup could not be opened: {error}"))
+}
+
+fn validate_update_recovery_backup(
+    directory: &Path,
+    running_version: &str,
+) -> Result<PathBuf, String> {
+    let journal_path = directory.join(UPDATE_RECOVERY_JOURNAL_FILENAME);
+    let journal_metadata = fs::symlink_metadata(&journal_path)
+        .map_err(|error| format!("update recovery journal is unavailable: {error}"))?;
+    if journal_metadata.file_type().is_symlink() || !journal_metadata.is_file() {
+        return Err("update recovery journal must be a regular file".to_owned());
+    }
+    if journal_metadata.len() == 0 || journal_metadata.len() > MAX_UPDATE_RECOVERY_JOURNAL_BYTES {
+        return Err("update recovery journal size is invalid".to_owned());
+    }
+    let encoded = fs::read(&journal_path)
+        .map_err(|error| format!("update recovery journal could not be read: {error}"))?;
+    let journal: UpdateRecoveryJournal = serde_json::from_slice(&encoded)
+        .map_err(|error| format!("update recovery journal is invalid: {error}"))?;
+    if journal.schema_version != "0.1" {
+        return Err("update recovery journal schema is unsupported".to_owned());
+    }
+    if running_version.is_empty() || journal.target_version != running_version {
+        return Err("update recovery journal does not target this application version".to_owned());
+    }
+    if journal.source_version.trim().is_empty() || journal.source_version == journal.target_version
+    {
+        return Err("update recovery journal version transition is invalid".to_owned());
+    }
+    if journal.backup_file != UPDATE_RECOVERY_BACKUP_FILENAME {
+        return Err("update recovery journal backup filename is invalid".to_owned());
+    }
+    if journal.backup_bytes == 0 || journal.created_at_unix_ms == 0 {
+        return Err("update recovery journal metadata is incomplete".to_owned());
+    }
+
+    let backup_path = directory.join(UPDATE_RECOVERY_BACKUP_FILENAME);
+    let backup_metadata = fs::symlink_metadata(&backup_path)
+        .map_err(|error| format!("update recovery backup is unavailable: {error}"))?;
+    if backup_metadata.file_type().is_symlink() || !backup_metadata.is_file() {
+        return Err("update recovery backup must be a regular file".to_owned());
+    }
+    if backup_metadata.len() != journal.backup_bytes {
+        return Err("update recovery backup size does not match its journal".to_owned());
+    }
+    Ok(backup_path)
 }
 
 fn open_application_sidecar(app: &AppHandle) -> Result<Option<Arc<SidecarBundle>>, Box<dyn Error>> {
@@ -838,10 +911,10 @@ fn write_update_recovery_snapshot(
         .map_err(|error| format!("pre-update encrypted backup could not be inspected: {error}"))?
         .len();
     let journal = UpdateRecoveryJournal {
-        schema_version: "0.1",
+        schema_version: "0.1".to_owned(),
         source_version,
         target_version,
-        backup_file: UPDATE_RECOVERY_BACKUP_FILENAME,
+        backup_file: UPDATE_RECOVERY_BACKUP_FILENAME.to_owned(),
         backup_bytes,
         created_at_unix_ms,
     };
@@ -883,19 +956,58 @@ where
     }
 }
 
-fn initialize_store(app: &AppHandle, store: &SharedStore) -> Result<(), String> {
-    let mut store = store
+fn initialize_store(app: &AppHandle, state: &DesktopState) -> Result<(), String> {
+    let mut store = state
+        .store
         .lock()
         .map_err(|_| "encrypted workspace is temporarily unavailable".to_owned())?;
     if store.is_none() {
-        let mut initialized = open_application_store(app).map_err(|error| error.to_string())?;
-        remove_legacy_demo_capture(&mut initialized).map_err(|error| error.to_string())?;
-        if let Err(error) = maintain_store(&mut initialized) {
-            emit_runtime_error(app, "capture_retention_failed", error.to_string());
-        }
+        let initialized = match open_application_store(app) {
+            Ok(mut initialized) => {
+                remove_legacy_demo_capture(&mut initialized).map_err(|error| error.to_string())?;
+                if let Err(error) = maintain_store(&mut initialized) {
+                    emit_runtime_error(app, "capture_retention_failed", error.to_string());
+                }
+                initialized
+            }
+            Err(primary_error) => {
+                let recovery = open_application_recovery_store(app).map_err(|recovery_error| {
+                    format!(
+                        "encrypted workspace could not be opened: {primary_error}; validated update recovery is unavailable: {recovery_error}"
+                    )
+                })?;
+                state.capture_active.store(false, Ordering::Release);
+                emit_runtime_error(
+                    app,
+                    "update_recovery_read_only",
+                    format!(
+                        "the primary encrypted workspace failed to open after an update; a validated backup is open read-only: {primary_error}"
+                    ),
+                );
+                recovery
+            }
+        };
         *store = Some(initialized);
     }
     Ok(())
+}
+
+fn store_is_read_only(store: &SharedStore) -> Result<bool, String> {
+    let store = store
+        .lock()
+        .map_err(|_| "encrypted workspace is temporarily unavailable".to_owned())?;
+    Ok(store.as_ref().is_some_and(EncryptedStore::is_read_only))
+}
+
+fn ensure_store_writable(store: &SharedStore) -> Result<(), String> {
+    if store_is_read_only(store)? {
+        Err(
+            "capture controls are disabled while an update recovery backup is open read-only"
+                .to_owned(),
+        )
+    } else {
+        Ok(())
+    }
 }
 
 fn remove_legacy_demo_capture(
@@ -1215,10 +1327,25 @@ async fn runtime_snapshot(app: &AppHandle, state: &DesktopState) -> RuntimeSnaps
         system_proxy_active,
         proxy_session_event_count: state.proxy_session_event_count.load(Ordering::Acquire),
         certificate_authority: application_certificate_authority(app),
+        read_only_recovery: store_is_read_only(&state.store).unwrap_or(false),
     }
 }
 
 fn apply_runtime_state(workspace: &mut WorkspaceBootstrap, snapshot: RuntimeSnapshot) {
+    if snapshot.read_only_recovery {
+        workspace.source = WorkspaceSource::RecoveryBackup;
+        workspace.capture.active = false;
+        workspace.capture.can_control = false;
+        workspace.capture.proxy_available = false;
+        workspace.capture.mode = CaptureMode::Gateway;
+        workspace.capture.profile = "Validated update recovery backup".to_owned();
+        workspace.capture.endpoint = "Capture disabled".to_owned();
+        workspace.capture.storage = format!("{} / read-only recovery", workspace.capture.storage);
+        workspace.capture.certificate_authority = snapshot.certificate_authority;
+        workspace.capture.certificate_authority.can_manage_trust = false;
+        workspace.compatibility = recovery_read_only_compatibility();
+        return;
+    }
     let (profile, endpoint) = match snapshot.mode {
         CaptureMode::Gateway => (
             "OpenAI-compatible local gateway",
@@ -2362,6 +2489,11 @@ mod tests {
         assert_eq!(journal["targetVersion"], "0.2.0");
         assert_eq!(journal["createdAtUnixMs"], 42);
         assert!(!files_contain(&recovery, b"Fix the failing parser test."));
+        assert_eq!(
+            validate_update_recovery_backup(&recovery, "0.2.0")
+                .expect("matching recovery journal must validate"),
+            recovery.join(UPDATE_RECOVERY_BACKUP_FILENAME)
+        );
 
         let restored = EncryptedStore::restore_from(
             recovery.join(UPDATE_RECOVERY_BACKUP_FILENAME),
@@ -2373,6 +2505,66 @@ mod tests {
             .integrity_check()
             .expect("restored backup must be healthy");
         assert_eq!(restored.capture_count().expect("capture count"), 1);
+    }
+
+    #[test]
+    fn update_recovery_validation_rejects_stale_tampered_and_traversal_journals() {
+        let directory = tempdir().expect("temp directory must be created");
+        let mut store = EncryptedStore::open(
+            directory.path().join("captures.db"),
+            DatabaseKey::from_bytes([0x6A; 32]),
+        )
+        .expect("encrypted store must open");
+        seed_demo_capture(&mut store).expect("demo capture must seed");
+        let store = Arc::new(Mutex::new(Some(store)));
+        let recovery = directory.path().join("update-recovery");
+        write_update_recovery_snapshot(
+            &store,
+            &recovery,
+            "0.1.0".to_owned(),
+            "0.2.0".to_owned(),
+            42,
+        )
+        .expect("pre-update snapshot must succeed");
+        let journal_path = recovery.join(UPDATE_RECOVERY_JOURNAL_FILENAME);
+        let valid: serde_json::Value =
+            serde_json::from_slice(&fs::read(&journal_path).expect("journal must be readable"))
+                .expect("journal must parse");
+        let primary_path = directory.path().join("captures.db");
+        let primary_before = fs::read(&primary_path).expect("primary database must be readable");
+
+        for (field, value) in [
+            ("targetVersion", serde_json::json!("0.3.0")),
+            ("backupFile", serde_json::json!("../captures.db")),
+            ("backupBytes", serde_json::json!(1)),
+            ("schemaVersion", serde_json::json!("9.9")),
+        ] {
+            let mut invalid = valid.clone();
+            invalid[field] = value;
+            fs::write(
+                &journal_path,
+                serde_json::to_vec_pretty(&invalid).expect("invalid journal must encode"),
+            )
+            .expect("invalid journal must write");
+            assert!(
+                validate_update_recovery_backup(&recovery, "0.2.0").is_err(),
+                "invalid {field} must be rejected"
+            );
+        }
+
+        let mut unknown = valid;
+        unknown["unexpected"] = serde_json::json!(true);
+        fs::write(
+            &journal_path,
+            serde_json::to_vec_pretty(&unknown).expect("unknown journal must encode"),
+        )
+        .expect("unknown journal must write");
+        assert!(validate_update_recovery_backup(&recovery, "0.2.0").is_err());
+        assert_eq!(
+            fs::read(&primary_path).expect("primary database must remain readable"),
+            primary_before,
+            "recovery validation must never alter the failed primary database"
+        );
     }
 
     #[test]
@@ -2409,6 +2601,7 @@ mod tests {
                 system_proxy_active: false,
                 proxy_session_event_count: 0,
                 certificate_authority: CertificateAuthority::missing(),
+                read_only_recovery: false,
             },
         );
 
@@ -2421,6 +2614,51 @@ mod tests {
         assert_eq!(
             workspace.compatibility.code,
             codeischeap_desktop_api::CaptureCompatibilityCode::CapturePaused
+        );
+    }
+
+    #[test]
+    fn read_only_recovery_overrides_every_capture_control() {
+        let directory = tempdir().expect("temp directory must be created");
+        let store = EncryptedStore::open(
+            directory.path().join("captures.db"),
+            DatabaseKey::from_bytes([0x6B; 32]),
+        )
+        .expect("encrypted store must open");
+        let mut workspace = load_workspace(&store).expect("workspace must load");
+        let mut certificate_authority = CertificateAuthority::missing();
+        certificate_authority.can_manage_trust = true;
+
+        apply_runtime_state(
+            &mut workspace,
+            RuntimeSnapshot {
+                mode: CaptureMode::Proxy,
+                active: true,
+                proxy_available: true,
+                gateway_endpoint: Some("http://127.0.0.1:8787".to_owned()),
+                proxy_endpoint: Some("http://127.0.0.1:43125".to_owned()),
+                system_proxy_active: true,
+                proxy_session_event_count: 1,
+                certificate_authority,
+                read_only_recovery: true,
+            },
+        );
+
+        assert_eq!(workspace.source, WorkspaceSource::RecoveryBackup);
+        assert!(!workspace.capture.active);
+        assert!(!workspace.capture.can_control);
+        assert!(!workspace.capture.proxy_available);
+        assert_eq!(workspace.capture.mode, CaptureMode::Gateway);
+        assert_eq!(workspace.capture.endpoint, "Capture disabled");
+        assert!(workspace.capture.storage.contains("read-only recovery"));
+        assert!(!workspace.capture.certificate_authority.can_manage_trust);
+        assert_eq!(
+            workspace.compatibility.code,
+            codeischeap_desktop_api::CaptureCompatibilityCode::RecoveryReadOnly
+        );
+        assert_eq!(
+            workspace.compatibility.action,
+            codeischeap_desktop_api::CompatibilityAction::None
         );
     }
 
@@ -2456,6 +2694,7 @@ mod tests {
                 system_proxy_active: true,
                 proxy_session_event_count: 0,
                 certificate_authority: certificate_authority.clone(),
+                read_only_recovery: false,
             },
         );
 
@@ -2488,6 +2727,7 @@ mod tests {
                 system_proxy_active: true,
                 proxy_session_event_count: 1,
                 certificate_authority,
+                read_only_recovery: false,
             },
         );
         assert_eq!(

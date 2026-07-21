@@ -168,6 +168,7 @@
         "certificate_invalid",
         "certificate_trust_required",
         "capture_paused",
+        "recovery_read_only",
         "proxy_capture_unobserved",
         "proxy_capture_observed"
       ]
@@ -629,6 +630,7 @@
       "type": "string",
       "enum": [
         "encrypted_local",
+        "recovery_backup",
         "synthetic_fixture"
       ]
     }

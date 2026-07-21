@@ -34,6 +34,7 @@ pub enum StorageError {
     InvalidPageLimit,
     EmptySearch,
     InvalidBackupTarget,
+    ReadOnly,
     InvalidRetentionPolicy,
     DiskPressure {
         available_bytes: u64,
@@ -70,6 +71,10 @@ impl fmt::Display for StorageError {
             Self::InvalidPageLimit => write!(formatter, "capture page limit is invalid"),
             Self::EmptySearch => write!(formatter, "capture search query is empty"),
             Self::InvalidBackupTarget => write!(formatter, "database backup target is invalid"),
+            Self::ReadOnly => write!(
+                formatter,
+                "encrypted workspace is open in read-only recovery mode"
+            ),
             Self::InvalidRetentionPolicy => {
                 write!(formatter, "capture retention policy is invalid")
             }

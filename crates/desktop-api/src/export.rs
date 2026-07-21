@@ -179,8 +179,10 @@ pub fn build_support_bundle_preview(
             "health": {
                 "encryptedStore": workspace.capture.storage.to_ascii_lowercase().contains("sqlcipher")
                     || workspace.source == WorkspaceSource::SyntheticFixture,
-                "captureRuntime": runtime_issue.is_none(),
-                "endpointConnected": workspace.capture.endpoint != "Not connected",
+                "captureRuntime": runtime_issue.is_none()
+                    && workspace.source != WorkspaceSource::RecoveryBackup,
+                "endpointConnected": workspace.capture.endpoint != "Not connected"
+                    && workspace.source != WorkspaceSource::RecoveryBackup,
                 "proxyBundle": workspace.capture.proxy_available,
             },
             "compatibility": &workspace.compatibility,

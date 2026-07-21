@@ -22,7 +22,7 @@
         <div class="meta-item"><span>最后更新</span><strong>2026-07-21</strong></div>
       </div>
 
-      <div class="decision"><strong>当前结论</strong>四厂商 Prompt IR、搜索、Compare 与安全导出已闭环；三平台桌面 IPC 已启用 OS 级用户隔离与逐连接 sidecar 身份核对。签名更新入口在安装前恢复系统代理并建立加密恢复快照；下一步完成正式签名制品、真实管理员故障矩阵、屏幕阅读器验收与插件 WASI 最小权限。</div>
+      <div class="decision"><strong>当前结论</strong>四厂商 Prompt IR、搜索、Compare 与安全导出已闭环；三平台桌面 IPC 已启用 OS 级用户隔离与逐连接 sidecar 身份核对。签名更新入口在安装前恢复系统代理并建立加密恢复快照，升级后主库失败可校验 journal 并只读打开历史；下一步完成正式签名制品、真实回滚演练、管理员故障矩阵、屏幕阅读器验收与插件 WASI 最小权限。</div>
 
       <h2 id="usage">1. 更新规则</h2>
       <ol>
@@ -102,7 +102,7 @@
         <tr><td class="task-id">TST-002</td><td>Gateway/Proxy 集成测试</td><td><span class="status active">In progress</span></td><td>82%</td><td>Codex / TBD</td><td>2026-08-25</td><td>认证 IPC、暂停丢弃、真实模式切换与进程树清理、压缩、流式脱敏、非目标 TLS、HTTP/2 基线一致性及 Windows CA 精确增删通过；真实 sidecar 在客户端取消后保持存活，IPC 停止消费且 72 个事件超过容量 64 时，36 个目标响应仍在 15 秒内完成；真实 ROOT 往返和其余协议一致性待扩展</td></tr>
         <tr><td class="task-id">TST-003</td><td>平台故障注入</td><td><span class="status active">In progress</span></td><td>80%</td><td>Codex / TBD</td><td>2026-08-25</td><td>Windows/macOS 强杀恢复、活 owner 防误恢复、sidecar 独立退出回退和端口冲突拒绝已通过；PAC 原状态下应用与同步回滚双重失败会交由独立 watchdog 恢复；macOS CA 拒绝恢复及 helper 协议、权限、命令转义和恢复文件校验已覆盖；授权桌面 helper 的真实故障矩阵待完成</td></tr>
         <tr><td class="task-id">TST-004</td><td>UI、性能与可访问性</td><td><span class="status active">In progress</span></td><td>80%</td><td>Codex / TBD</td><td>2026-09-08</td><td>axe、WAI-ARIA tabs、方向键、焦点循环/恢复、键盘分隔条和双主题对比度已门禁；Ubuntu Chromium 固定 960×620 明色与 1440×900 暗色像素基线，千条列表要求首屏 &lt;2 秒、首尾滚动 &lt;2 秒、筛选 &lt;750 ms 且可见 DOM &lt;40 行；Gateway fake provider 基准要求额外延迟 P95 &lt;20 ms，最新本地基线为 0.609 ms；屏幕阅读器人工验收待完成</td></tr>
-        <tr><td class="task-id">REL-001</td><td>签名安装、升级和回滚</td><td><span class="status active">In progress</span></td><td>55%</td><td>Codex / Release Owner TBD</td><td>2026-09-22</td><td>设置页可检查、下载并安装 Tauri 签名更新；未配置公钥时失败关闭，安装前强制回到 Gateway、恢复代理并写入可恢复的加密数据库快照与版本 journal。正式签名安装包、密钥托管、迁移失败回退及只读恢复演练待完成</td></tr>
+        <tr><td class="task-id">REL-001</td><td>签名安装、升级和回滚</td><td><span class="status active">In progress</span></td><td>70%</td><td>Codex / Release Owner TBD</td><td>2026-09-22</td><td>设置页可检查、下载并安装 Tauri 签名更新；未配置公钥时失败关闭，安装前强制回到 Gateway、恢复代理并写入加密快照与版本 journal。主库打开或迁移失败时仅接受版本、固定文件名、大小和 schema 均匹配的快照，并以禁写模式保留搜索、支持包和脱敏导出；正式签名安装包、密钥托管与真实回滚演练待完成</td></tr>
         <tr><td class="task-id">REL-002</td><td>诊断与支持包</td><td><span class="status active">In progress</span></td><td>75%</td><td>Codex / Support Owner TBD</td><td>2026-09-22</td><td>版本化 JSON 支持包可预览、复制和保存，包含不带请求标识的兼容诊断树；256 KiB code-only journal 与最近 100 条事件接入，排除 Prompt、Raw 和日志详情；支持处理流程待完成</td></tr>
         <tr><td class="task-id">SPIKE-001</td><td>Gateway 流式透明转发验证</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-14</td><td>双向流式、取消传递、头清理与稳定 502 集成测试通过</td></tr>
         <tr><td class="task-id">SPIKE-002</td><td>mitmproxy sidecar IPC/打包验证</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-14</td><td><a href="spikes/mitmproxy-sidecar.html">凭据清理、IPC、打包与真实转发通过</a></td></tr>
@@ -129,7 +129,7 @@
         <tr><td>S5</td><td>CAP-006/007、SEC-002/003、APP-006、TST-003</td><td><span class="status active">In progress</span></td><td>SEC-002、CAP-007 完成，IPC 抗阻塞、双模式 OS PID 归因、Unix owner-only socket、Windows owner-only named pipe、readiness 身份校验、PAC/CA 拒绝恢复、macOS 授权 helper 和兼容诊断树已接入；继续真实故障验收与 WASI 最小权限</td></tr>
         <tr><td>S6</td><td>PAR-005~007、APP-005</td><td><span class="status done">Done</span></td><td>四厂商适配器、token/成本/指纹、全文搜索和结构/文本 Compare 全部完成</td></tr>
         <tr><td>S7</td><td>TST-004、性能、可访问性、诊断与保留</td><td><span class="status active">In progress</span></td><td>axe、键盘与焦点、双主题截图、千条列表预算及 Gateway P95 门禁完成；继续屏幕阅读器和 Beta 真实环境测量</td></tr>
-        <tr><td>S8</td><td>SEC-004、REL-001/002、安全评审</td><td><span class="status active">In progress</span></td><td>仓库供应链门禁、签名更新入口、预更新网络恢复与加密快照、code-only 支持包已接入；正式签名制品、回滚演练、支持流程与安全评审待推进</td></tr>
+        <tr><td>S8</td><td>SEC-004、REL-001/002、安全评审</td><td><span class="status active">In progress</span></td><td>仓库供应链门禁、签名更新入口、预更新网络恢复与加密快照、失败后只读历史恢复、code-only 支持包已接入；正式签名制品、真实回滚演练、支持流程与安全评审待推进</td></tr>
         <tr><td>S9</td><td>REL-003、完整回归与发布演练</td><td><span class="status">Not started</span></td><td>阻断项清零</td></tr>
       </tbody></table></div>
 
