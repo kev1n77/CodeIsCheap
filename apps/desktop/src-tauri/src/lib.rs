@@ -18,17 +18,18 @@ use std::os::unix::fs::{
 };
 
 use codeischeap_adapters::AdapterRegistry;
+#[cfg(all(windows, test))]
+use codeischeap_capture_ipc::named_pipe_is_owner_only;
 #[cfg(unix)]
 use codeischeap_capture_ipc::receive_one_unix_with_transport_verified;
-use codeischeap_capture_ipc::{
-    CaptureEnvelope, CaptureTransport, receive_one_with_transport,
-    receive_one_with_transport_verified,
-};
+use codeischeap_capture_ipc::{CaptureEnvelope, CaptureTransport};
 #[cfg(windows)]
 use codeischeap_capture_ipc::{
-    OwnerOnlyNamedPipeListener, named_pipe_client_process_id, named_pipe_is_owner_only,
+    OwnerOnlyNamedPipeListener, named_pipe_client_process_id,
     receive_one_named_pipe_with_transport_verified,
 };
+#[cfg(any(not(any(unix, windows)), test))]
+use codeischeap_capture_ipc::{receive_one_with_transport, receive_one_with_transport_verified};
 use codeischeap_capture_policy::CapturePolicy;
 use codeischeap_core::{
     GatewayCaptureError, GatewayCaptureOutcome, IngestError, ingest_envelope, persist_capture,
@@ -130,6 +131,7 @@ struct ProxyRuntime {
 }
 
 enum ProxyCaptureListener {
+    #[cfg(any(not(any(unix, windows)), test))]
     Tcp(TcpListener),
     #[cfg(unix)]
     Unix(PrivateUnixCaptureListener),
@@ -1660,6 +1662,7 @@ async fn receive_and_persist_proxy_capture(
     session: &mut ProxyCaptureSession,
 ) -> Result<Option<String>, ProxyCaptureError> {
     let received = match listener {
+        #[cfg(any(not(any(unix, windows)), test))]
         ProxyCaptureListener::Tcp(listener) => {
             if session.peer_verified {
                 receive_one_with_transport(listener, token).await
@@ -2643,10 +2646,13 @@ mod tests {
             "origin": "mitmproxy",
             "token": token,
         });
-        client
+        if client
             .write_all(format!("{auth}\n{}\n", serde_json::to_string(envelope).unwrap()).as_bytes())
             .await
-            .expect("named pipe IPC frames must write");
+            .is_err()
+        {
+            return false;
+        }
         let mut acknowledgement = String::new();
         if BufReader::new(client)
             .read_line(&mut acknowledgement)
