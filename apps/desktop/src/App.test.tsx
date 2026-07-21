@@ -9,6 +9,7 @@ import { App } from "./App";
 import fixture from "./data/workspace.json";
 import type {
   BetaMetricsPreview,
+  CaptureProfile,
   ExportPreview,
   ExportProfile,
   SupportBundlePreview,
@@ -124,6 +125,9 @@ describe("request workbench", () => {
       .toHaveAttribute("aria-selected", "true");
     connectionTab.focus();
     await user.keyboard("{ArrowRight}");
+    expect(within(dialog).getByRole("tab", { name: "Profiles" }))
+      .toHaveAttribute("aria-selected", "true");
+    await user.keyboard("{ArrowRight}");
     expect(within(dialog).getByRole("tab", { name: "Metrics" }))
       .toHaveAttribute("aria-selected", "true");
     await user.keyboard("{ArrowRight}");
@@ -237,6 +241,7 @@ describe("request workbench", () => {
 
     await user.click(screen.getByRole("button", { name: "Settings" }));
     const settings = screen.getByRole("dialog", { name: "Settings & diagnostics" });
+    await user.click(within(settings).getByRole("tab", { name: "Profiles" }));
     const settingsResults = await axe.run(settings, options);
     expect(settingsResults.violations.map((violation) => violation.id)).toEqual([]);
     await user.keyboard("{Escape}");
@@ -414,6 +419,86 @@ describe("request workbench", () => {
     expect(within(dialog).getByText("Waiting for the first request")).toBeInTheDocument();
     expect(within(dialog).getByRole("tab", { name: "Connection" }))
       .toHaveAttribute("aria-selected", "true");
+  });
+
+  it("saves a normalized Capture Profile only from a paused Gateway", async () => {
+    const user = userEvent.setup();
+    window.__TAURI_INTERNALS__ = {};
+    let workspace = structuredClone(fixture) as unknown as WorkspaceBootstrap;
+    workspace.capture = {
+      ...workspace.capture,
+      active: true,
+      canControl: true,
+      mode: "gateway",
+      endpoint: "http://127.0.0.1:8787",
+    };
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === "bootstrap_workspace") return structuredClone(workspace);
+      if (command === "set_capture_active" && args?.active === false) {
+        workspace = {
+          ...workspace,
+          capture: { ...workspace.capture, active: false },
+          compatibility: {
+            ...workspace.compatibility,
+            code: "capture_paused",
+            status: "attention",
+            title: "Gateway capture paused",
+            action: "resume_capture",
+          },
+        };
+        return structuredClone(workspace);
+      }
+      if (command === "update_capture_profile") {
+        const profile = args?.profile as CaptureProfile;
+        workspace = {
+          ...workspace,
+          captureProfile: {
+            ...profile,
+            name: profile.name.trim(),
+            gatewayUpstream: new URL(profile.gatewayUpstream).origin,
+            additionalHosts: [...profile.additionalHosts].sort(),
+          },
+          capture: { ...workspace.capture, profile: `${profile.name.trim()} · Local Gateway` },
+        };
+        return structuredClone(workspace);
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    const dialog = screen.getByRole("dialog", { name: "Settings & diagnostics" });
+    await user.click(within(dialog).getByRole("tab", { name: "Profiles" }));
+
+    const name = within(dialog).getByRole("textbox", { name: "Profile name" });
+    const gateway = within(dialog).getByRole("textbox", { name: "Gateway origin" });
+    const hosts = within(dialog).getByRole("textbox", { name: "Additional capture hosts" });
+    await user.clear(name);
+    await user.type(name, "Private lab");
+    await user.clear(gateway);
+    await user.click(gateway);
+    await user.paste("https://gateway.example.test/");
+    await user.click(hosts);
+    await user.paste("proxy.example.test\napi.private.test");
+
+    const saveProfile = within(dialog).getByRole("button", { name: "Save Profile" });
+    expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
+    expect(saveProfile).toBeDisabled();
+    await user.click(within(dialog).getByRole("button", { name: "Pause" }));
+    await waitFor(() => expect(saveProfile).toBeEnabled());
+    await user.click(saveProfile);
+
+    expect(invoke).toHaveBeenCalledWith("set_capture_active", { active: false });
+    expect(invoke).toHaveBeenCalledWith("update_capture_profile", {
+      profile: {
+        version: "0.1",
+        name: "Private lab",
+        gatewayUpstream: "https://gateway.example.test/",
+        additionalHosts: ["api.private.test", "proxy.example.test"],
+      },
+    });
+    expect(await within(dialog).findByText("Profile saved")).toBeInTheDocument();
+    expect(gateway).toHaveValue("https://gateway.example.test");
   });
 
   it("returns an active proxy workspace to the safe Gateway from settings", async () => {

@@ -118,6 +118,36 @@ test.describe("desktop workbench quality baseline", () => {
     expect(layout.scrollHeight).toBeLessThanOrEqual(layout.clientHeight);
   });
 
+  test("keeps Capture Profile controls usable at minimum size", async ({ page }) => {
+    await page.setViewportSize(MINIMUM_VIEWPORT);
+    await page.goto("/");
+    await page.getByRole("button", { name: "Settings" }).click();
+    const dialog = page.getByRole("dialog", { name: "Settings & diagnostics" });
+    await dialog.getByRole("tab", { name: "Profiles" }).click();
+
+    await expect(dialog.getByRole("textbox", { name: "Profile name" })).toHaveValue("OpenAI default");
+    await expect(dialog.getByRole("textbox", { name: "Gateway origin" })).toHaveValue("https://api.openai.com");
+    await expect(dialog.getByRole("textbox", { name: "Additional capture hosts" })).toBeVisible();
+    await expect(dialog.getByText("Pause capture", { exact: true })).toBeVisible();
+
+    const layout = await dialog.evaluate((element) => {
+      const content = element.querySelector<HTMLElement>(".profile-content");
+      return {
+        dialogClientWidth: element.clientWidth,
+        dialogScrollWidth: element.scrollWidth,
+        contentClientWidth: content?.clientWidth ?? 0,
+        contentScrollWidth: content?.scrollWidth ?? 0,
+      };
+    });
+    expect(layout.dialogScrollWidth).toBe(layout.dialogClientWidth);
+    expect(layout.contentScrollWidth).toBe(layout.contentClientWidth);
+
+    const saveProfile = dialog.getByRole("button", { name: "Save Profile" });
+    await saveProfile.scrollIntoViewIfNeeded();
+    await expect(saveProfile).toBeVisible();
+    await expect(saveProfile).toBeDisabled();
+  });
+
   test("keeps validated update recovery read-only and exportable", async ({ page }) => {
     await page.setViewportSize(MINIMUM_VIEWPORT);
     await page.goto("/?recoveryMode=1");

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import {
   AlertTriangle,
   BarChart3,
@@ -11,7 +11,9 @@ import {
   Play,
   RotateCcw,
   RefreshCw,
+  Save,
   ShieldCheck,
+  SlidersHorizontal,
   Stethoscope,
   UploadCloud,
   X,
@@ -19,6 +21,7 @@ import {
 import type {
   BetaMetricsPreview,
   CaptureMode,
+  CaptureProfile,
   CertificateAuthority,
   SupportBundlePreview,
   UpdateStatus,
@@ -36,9 +39,9 @@ import {
 } from "./workspace";
 import { handleTabListKeyDown, useModalDialog } from "./accessibility";
 
-type SettingsTab = "connection" | "metrics" | "diagnostics" | "updates";
+type SettingsTab = "connection" | "profiles" | "metrics" | "diagnostics" | "updates";
 
-export function SettingsDialog({ workspace, active, runtimeError, certificateError, modeChanging, certificateChanging, onToggleCapture, onModeChange, onCertificateTrustChange, onClose }: {
+export function SettingsDialog({ workspace, active, runtimeError, certificateError, modeChanging, certificateChanging, onToggleCapture, onModeChange, onCaptureProfileChange, onCertificateTrustChange, onClose }: {
   workspace: WorkspaceBootstrap;
   active: boolean;
   runtimeError: string;
@@ -47,6 +50,7 @@ export function SettingsDialog({ workspace, active, runtimeError, certificateErr
   certificateChanging: boolean;
   onToggleCapture: () => void;
   onModeChange: (mode: CaptureMode) => void;
+  onCaptureProfileChange: (profile: CaptureProfile) => Promise<CaptureProfile>;
   onCertificateTrustChange: (trusted: boolean) => void;
   onClose: () => void;
 }) {
@@ -67,6 +71,12 @@ export function SettingsDialog({ workspace, active, runtimeError, certificateErr
   const [updateChecking, setUpdateChecking] = useState(false);
   const [updateInstalling, setUpdateInstalling] = useState(false);
   const [updateError, setUpdateError] = useState("");
+  const [profileName, setProfileName] = useState(workspace.captureProfile.name);
+  const [profileGateway, setProfileGateway] = useState(workspace.captureProfile.gatewayUpstream);
+  const [profileHosts, setProfileHosts] = useState(workspace.captureProfile.additionalHosts.join("\n"));
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileError, setProfileError] = useState("");
+  const [profileSaved, setProfileSaved] = useState(false);
   const { dialogRef, initialFocusRef } = useModalDialog(onClose);
   const certificate = workspace.capture.certificateAuthority;
   const compatibility = workspace.compatibility;
@@ -75,6 +85,22 @@ export function SettingsDialog({ workspace, active, runtimeError, certificateErr
     && certificate.state === "ready"
     && certificate.trust === "not_trusted";
   const canRemoveTrust = certificate.canManageTrust && certificate.trust === "trusted";
+  const profileDraft = captureProfileDraft(
+    workspace.captureProfile.version,
+    profileName,
+    profileGateway,
+    profileHosts,
+  );
+  const profileValidationError = validateCaptureProfileDraft(profileDraft);
+  const profileDirty = !captureProfilesEqual(profileDraft, workspace.captureProfile);
+  const profileReady = !recoveryMode
+    && workspace.capture.canControl
+    && workspace.capture.mode === "gateway"
+    && !active;
+  const canSaveProfile = profileReady
+    && profileDirty
+    && !profileValidationError
+    && !profileSaving;
 
   useEffect(() => {
     if (tab !== "metrics") return;
@@ -211,6 +237,35 @@ export function SettingsDialog({ workspace, active, runtimeError, certificateErr
       });
   };
 
+  const restoreDefaultProfile = () => {
+    setProfileName("OpenAI default");
+    setProfileGateway("https://api.openai.com");
+    setProfileHosts("");
+    setProfileError("");
+    setProfileSaved(false);
+  };
+
+  const saveProfile = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!canSaveProfile) return;
+    setProfileSaving(true);
+    setProfileError("");
+    setProfileSaved(false);
+    onCaptureProfileChange(profileDraft)
+      .then((profile) => {
+        setProfileName(profile.name);
+        setProfileGateway(profile.gatewayUpstream);
+        setProfileHosts(profile.additionalHosts.join("\n"));
+        setProfileSaved(true);
+      })
+      .catch((reason: unknown) => {
+        setProfileError(
+          reason instanceof Error ? reason.message : "Capture Profile could not be saved.",
+        );
+      })
+      .finally(() => setProfileSaving(false));
+  };
+
   return (
     <div className="dialog-backdrop">
       <section ref={dialogRef} className="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title" tabIndex={-1}>
@@ -220,6 +275,7 @@ export function SettingsDialog({ workspace, active, runtimeError, certificateErr
         </header>
         <div className="settings-tabs" role="tablist" aria-label="Settings views" onKeyDown={handleTabListKeyDown}>
           <button id="settings-tab-connection" role="tab" aria-controls="settings-panel-connection" aria-selected={tab === "connection"} tabIndex={tab === "connection" ? 0 : -1} onClick={() => setTab("connection")}><Network size={14} />Connection</button>
+          <button id="settings-tab-profiles" role="tab" aria-controls="settings-panel-profiles" aria-selected={tab === "profiles"} tabIndex={tab === "profiles" ? 0 : -1} onClick={() => setTab("profiles")}><SlidersHorizontal size={14} />Profiles</button>
           <button id="settings-tab-metrics" role="tab" aria-controls="settings-panel-metrics" aria-selected={tab === "metrics"} tabIndex={tab === "metrics" ? 0 : -1} onClick={() => setTab("metrics")}><BarChart3 size={14} />Metrics</button>
           <button id="settings-tab-diagnostics" role="tab" aria-controls="settings-panel-diagnostics" aria-selected={tab === "diagnostics"} tabIndex={tab === "diagnostics" ? 0 : -1} onClick={() => setTab("diagnostics")}><Stethoscope size={14} />Diagnostics</button>
           <button id="settings-tab-updates" role="tab" aria-controls="settings-panel-updates" aria-selected={tab === "updates"} tabIndex={tab === "updates" ? 0 : -1} onClick={() => setTab("updates")}><UploadCloud size={14} />Updates</button>
@@ -267,6 +323,42 @@ export function SettingsDialog({ workspace, active, runtimeError, certificateErr
             <div><span>Safe recovery</span><strong>Return traffic to the local Gateway</strong><small>Stops the explicit proxy runtime and restores managed system proxy settings.</small></div>
             <button className="settings-command" disabled={!workspace.capture.canControl || workspace.capture.mode === "gateway" || modeChanging} onClick={() => onModeChange("gateway")}><RotateCcw size={14} />Return to Gateway</button>
           </section>
+        </div>}
+        {tab === "profiles" && <div id="settings-panel-profiles" className="settings-content profile-content" role="tabpanel" aria-labelledby="settings-tab-profiles" tabIndex={0}>
+          {!profileReady && <section className="profile-prerequisite" role="status">
+            <div>
+              <span>Runtime lock</span>
+              <strong>{recoveryMode ? "Read-only recovery" : workspace.capture.mode === "proxy" ? "Return to Gateway" : active ? "Pause capture" : "Profile changes unavailable"}</strong>
+              <small>The active runtime must be a paused local Gateway before its capture boundary changes.</small>
+            </div>
+            {!recoveryMode && workspace.capture.mode === "proxy" && <button className="settings-command" disabled={!workspace.capture.canControl || modeChanging} onClick={() => onModeChange("gateway")}><RotateCcw size={14} />Return to Gateway</button>}
+            {!recoveryMode && workspace.capture.mode === "gateway" && active && <button className="settings-command" disabled={!workspace.capture.canControl} onClick={onToggleCapture}><Pause size={14} />Pause</button>}
+          </section>}
+          <form className="profile-form" noValidate onSubmit={saveProfile}>
+            <div className="profile-fields">
+              <label htmlFor="profile-name">
+                <span>Profile name</span>
+                <input id="profile-name" aria-label="Profile name" aria-describedby="profile-name-detail" value={profileName} autoComplete="off" onChange={(event) => { setProfileName(event.target.value); setProfileError(""); setProfileSaved(false); }} />
+                <small id="profile-name-detail">{new TextEncoder().encode(profileName.trim()).byteLength}/64 bytes</small>
+              </label>
+              <label htmlFor="profile-gateway">
+                <span>Gateway origin</span>
+                <input id="profile-gateway" aria-label="Gateway origin" aria-describedby="profile-gateway-detail" type="url" inputMode="url" value={profileGateway} autoComplete="url" spellCheck={false} onChange={(event) => { setProfileGateway(event.target.value); setProfileError(""); setProfileSaved(false); }} />
+                <small id="profile-gateway-detail">HTTP(S) origin without credentials, path, query, or fragment</small>
+              </label>
+              <label htmlFor="profile-hosts" className="profile-hosts-field">
+                <span>Additional capture hosts</span>
+                <textarea id="profile-hosts" aria-label="Additional capture hosts" aria-describedby="profile-hosts-detail" rows={7} value={profileHosts} autoComplete="off" spellCheck={false} onChange={(event) => { setProfileHosts(event.target.value); setProfileError(""); setProfileSaved(false); }} />
+                <small id="profile-hosts-detail">{profileDraft.additionalHosts.length}/16 exact hosts · approved methods and paths remain unchanged</small>
+              </label>
+            </div>
+            {(profileError || profileValidationError) && <span className="settings-error profile-error" role="alert">{profileError || profileValidationError}</span>}
+            {profileSaved && <div className="profile-saved" role="status"><CheckCircle2 size={14} /><span>Profile saved</span><code>{workspace.captureProfile.name}</code></div>}
+            <footer className="profile-actions">
+              <button type="button" className="settings-command" disabled={profileSaving} onClick={restoreDefaultProfile}><RotateCcw size={14} />Restore defaults</button>
+              <button type="submit" className="settings-command primary-settings-command" disabled={!canSaveProfile}>{profileSaving ? <LoaderCircle className="is-spinning" size={14} /> : <Save size={14} />}{profileSaving ? "Saving" : "Save Profile"}</button>
+            </footer>
+          </form>
         </div>}
         {tab === "metrics" && <div id="settings-panel-metrics" className="settings-content metrics-content" role="tabpanel" aria-labelledby="settings-tab-metrics" tabIndex={0}>
           <div className="diagnostics-toolbar"><span>Aggregate evidence with a random deduplication ID. No prompts, request IDs, logs, or automatic upload.</span><div className="diagnostics-actions"><button className="settings-command" disabled={!metricsPreview} onClick={copyMetrics}><Copy size={14} />{metricsCopied ? "Copied" : "Copy evidence"}</button><button className="settings-command" disabled={!metricsPreview || metricsSaving || Boolean(metricsSavedPath)} onClick={saveMetrics}>{metricsSaving ? <LoaderCircle className="is-spinning" size={14} /> : <Download size={14} />}{metricsSavedPath ? "Saved" : "Save evidence"}</button></div></div>
@@ -377,4 +469,63 @@ function DiagnosticRow({ label, healthy, detail }: { label: string; healthy: boo
 function certificateLabel(certificate: CertificateAuthority) {
   const state = certificate.state === "missing" ? "Not generated" : certificate.state === "invalid" ? "Invalid" : "Ready";
   return `${state} · ${certificate.trust.replaceAll("_", " ")}`;
+}
+
+function captureProfileDraft(
+  version: string,
+  name: string,
+  gatewayUpstream: string,
+  hosts: string,
+): CaptureProfile {
+  return {
+    version,
+    name: name.trim(),
+    gatewayUpstream: gatewayUpstream.trim(),
+    additionalHosts: hosts
+      .split(/\r?\n/)
+      .map((host) => host.trim().replace(/\.$/, "").toLowerCase())
+      .filter(Boolean)
+      .sort(),
+  };
+}
+
+function validateCaptureProfileDraft(profile: CaptureProfile) {
+  const nameBytes = new TextEncoder().encode(profile.name).byteLength;
+  if (!profile.name || nameBytes > 64 || /[\u0000-\u001f\u007f]/.test(profile.name)) {
+    return "Profile name must be 1-64 bytes without control characters.";
+  }
+  let upstream: URL;
+  try {
+    upstream = new URL(profile.gatewayUpstream);
+  } catch {
+    return "Gateway origin must be an absolute HTTP or HTTPS URL.";
+  }
+  if (!(["http:", "https:"] as string[]).includes(upstream.protocol) || !upstream.hostname) {
+    return "Gateway origin must be an absolute HTTP or HTTPS URL.";
+  }
+  if (upstream.username || upstream.password) {
+    return "Gateway origin must not contain embedded credentials.";
+  }
+  if (upstream.pathname !== "/" || upstream.search || upstream.hash) {
+    return "Gateway origin must not contain a path, query, or fragment.";
+  }
+  if (profile.additionalHosts.length > 16) {
+    return "At most 16 additional capture hosts are allowed.";
+  }
+  const uniqueHosts = new Set(profile.additionalHosts);
+  if (uniqueHosts.size !== profile.additionalHosts.length) {
+    return "Additional capture hosts must be unique.";
+  }
+  if (profile.additionalHosts.some((host) => host.includes(",") || /\s/.test(host))) {
+    return "Each additional capture host must be an exact hostname or IP address.";
+  }
+  return "";
+}
+
+function captureProfilesEqual(left: CaptureProfile, right: CaptureProfile) {
+  return left.version === right.version
+    && left.name === right.name
+    && left.gatewayUpstream === right.gatewayUpstream
+    && left.additionalHosts.length === right.additionalHosts.length
+    && left.additionalHosts.every((host, index) => host === right.additionalHosts[index]);
 }

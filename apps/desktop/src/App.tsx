@@ -34,6 +34,7 @@ import { requestSearchText } from "./compare";
 import type {
   AnatomySection,
   CaptureMode,
+  CaptureProfile,
   CapturedRequest,
   CertificateAuthority,
   EvidenceLocator,
@@ -55,6 +56,7 @@ import {
   setCaptureMode as persistCaptureMode,
   subscribeToCaptureEvents,
   uninstallCertificateAuthorityTrust,
+  updateCaptureProfile as persistCaptureProfile,
 } from "./workspace";
 import { formatRawJson, resolveEvidenceLocator, resolveEvidencePointer } from "./raw-evidence";
 import type { ResolvedRawEvidence } from "./raw-evidence";
@@ -338,6 +340,15 @@ export function App() {
       .finally(() => setCertificateChanging(false));
   };
 
+  const changeCaptureProfile = async (profile: CaptureProfile) => {
+    const nextWorkspace = await persistCaptureProfile(profile);
+    setWorkspace(nextWorkspace);
+    setCaptureActive(nextWorkspace.capture.active);
+    setCaptureMode(nextWorkspace.capture.mode);
+    setCaptureError("");
+    return nextWorkspace.captureProfile;
+  };
+
   if (loadError) {
     return <LoadFailure detail={loadError} onRetry={() => setReloadToken((value) => value + 1)} />;
   }
@@ -440,6 +451,7 @@ export function App() {
         certificateChanging={certificateChanging}
         onToggleCapture={toggleCapture}
         onModeChange={changeCaptureMode}
+        onCaptureProfileChange={changeCaptureProfile}
         onCertificateTrustChange={changeCertificateTrust}
         onClose={closeSettings}
       />}

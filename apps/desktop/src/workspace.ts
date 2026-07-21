@@ -6,6 +6,7 @@ import credentialCorpus from "../../../policies/credential-corpus.v0.1.json";
 import type {
   BetaMetricsPreview,
   CaptureMode,
+  CaptureProfile,
   CapturedRequest,
   ExportPreview,
   ExportProfile,
@@ -83,6 +84,19 @@ function browserFixture(): WorkspaceBootstrap {
   return workspace;
 }
 
+function normalizeBrowserCaptureProfile(profile: CaptureProfile): CaptureProfile {
+  const upstream = new URL(profile.gatewayUpstream);
+  return {
+    version: profile.version,
+    name: profile.name.trim(),
+    gatewayUpstream: upstream.origin,
+    additionalHosts: profile.additionalHosts
+      .map((host) => host.trim().replace(/\.$/, "").toLowerCase())
+      .filter(Boolean)
+      .sort(),
+  };
+}
+
 export async function loadWorkspace(): Promise<WorkspaceBootstrap> {
   if (window.__TAURI_INTERNALS__) {
     return invoke<WorkspaceBootstrap>("bootstrap_workspace");
@@ -132,6 +146,19 @@ export async function setCaptureMode(mode: CaptureMode): Promise<WorkspaceBootst
   }
   const workspace = browserFixture();
   workspace.capture = { ...workspace.capture, mode };
+  return workspace;
+}
+
+export async function updateCaptureProfile(
+  profile: CaptureProfile,
+): Promise<WorkspaceBootstrap> {
+  if (window.__TAURI_INTERNALS__) {
+    return invoke<WorkspaceBootstrap>("update_capture_profile", { profile });
+  }
+  const workspace = browserFixture();
+  const normalized = normalizeBrowserCaptureProfile(profile);
+  workspace.captureProfile = normalized;
+  workspace.capture.profile = `${normalized.name} · Local Gateway`;
   return workspace;
 }
 
