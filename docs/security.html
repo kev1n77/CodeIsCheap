@@ -19,7 +19,7 @@
     <div class="table-wrap"><table><thead><tr><th>风险</th><th>控制</th></tr></thead><tbody>
       <tr><td>过度采集</td><td>AI host/path allowlist；非目标流量只 tunnel</td></tr>
       <tr><td>密钥落盘</td><td>删除 Authorization、Cookie、API key header 和敏感 query</td></tr>
-      <tr><td>本机进程伪造或阻塞 IPC</td><td>IPC 0.5 在 Windows 使用 loopback TCP、在 macOS/Linux 使用当前 eUID 私有 `0700` 目录内的 `0600` Unix socket；Unix 每次连接都从内核 peer credential 核对 sidecar eUID/PID，TCP 首连接继续通过 OS socket 表绑定已启动 sidecar PID；两种传输均使用会话级随机 token、常量时间比较、来源声明、1 KiB 认证帧、4 MiB Envelope 与 2 秒端到端截止时间，sidecar 等待服务端 ACK；独立 readiness token 阻止端口占用者被误认；临时进程归因端点不进入 Envelope 或存储。Windows named pipe DACL 仍属 SEC-003 后续项</td></tr>
+      <tr><td>本机进程伪造或阻塞 IPC</td><td>IPC 0.6 在 Windows 使用随机命名、拒绝远端客户端且 protected DACL 仅含当前用户与 SYSTEM 的 named pipe；创建后回读 owner 与 ACE 失败即关闭，每条连接再核对内核客户端 PID。macOS/Linux 使用当前 eUID 私有 `0700` 目录内的 `0600` Unix socket，并逐连接核对 peer eUID/PID。所有传输均使用会话级随机 token、常量时间比较、来源声明、1 KiB 认证帧、4 MiB Envelope 与 2 秒端到端截止时间，sidecar 等待服务端 ACK；超时 pipe instance 直接丢弃并预建下一实例。临时进程归因端点不进入 Envelope 或存储，旧 0.5 bundle 启动前拒绝</td></tr>
       <tr><td>CA 私钥泄露</td><td>每设备独立生成、不可同步、最小文件权限、一键卸载</td></tr>
       <tr><td>导出泄密</td><td>强制预览、秘密扫描、稳定占位符、策略版本记录</td></tr>
       <tr><td>诊断泄密</td><td>持久化日志仅含时间戳和受限事件代码；不记录错误详情、Prompt、Raw 或请求标识</td></tr>

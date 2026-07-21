@@ -84,7 +84,7 @@ use windows_sys::Win32::System::SystemServices::{
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
 pub const SIDECAR_MANIFEST_VERSION: &str = "0.1";
-pub const CAPTURE_IPC_PROTOCOL_VERSION: &str = "0.5";
+pub const CAPTURE_IPC_PROTOCOL_VERSION: &str = "0.6";
 pub const CAPTURE_ENVELOPE_VERSION: &str = "0.1";
 pub const CAPTURE_POLICY_VERSION: &str = "0.1";
 pub const MITMPROXY_VERSION: &str = "12.2.3";
@@ -1473,6 +1473,8 @@ pub enum CaptureIpcEndpoint {
     Tcp(SocketAddr),
     #[cfg(unix)]
     Unix(PathBuf),
+    #[cfg(windows)]
+    NamedPipe(String),
 }
 
 impl CaptureIpcEndpoint {
@@ -1485,6 +1487,8 @@ impl CaptureIpcEndpoint {
                 value.push(path);
                 value
             }
+            #[cfg(windows)]
+            Self::NamedPipe(name) => OsString::from(format!("pipe:{name}")),
         }
     }
 
@@ -1510,6 +1514,27 @@ impl CaptureIpcEndpoint {
                     return Err(SidecarError::InvalidLaunchConfig(
                         "capture IPC Unix socket path must be absolute, non-empty, and at most 103 bytes"
                             .to_owned(),
+                    ));
+                }
+                Ok(())
+            }
+            #[cfg(windows)]
+            Self::NamedPipe(name) => {
+                let prefix = r"\\.\pipe\CodeIsCheap-capture-";
+                let Some(suffix) = name.strip_prefix(prefix) else {
+                    return Err(SidecarError::InvalidLaunchConfig(
+                        "capture IPC named pipe must use the CodeIsCheap local namespace"
+                            .to_owned(),
+                    ));
+                };
+                if suffix.is_empty()
+                    || name.encode_utf16().count() > 256
+                    || !suffix
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+                {
+                    return Err(SidecarError::InvalidLaunchConfig(
+                        "capture IPC named pipe name is invalid".to_owned(),
                     ));
                 }
                 Ok(())
@@ -2413,7 +2438,7 @@ MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
                 "max_bytes": 1024
             },
             "capture_contract": {
-                "ipc_protocol": "0.5",
+                "ipc_protocol": "0.6",
                 "envelope": "0.1",
                 "policy": "0.1",
                 "policy_file": "capture-policy.v0.1.json",
@@ -2466,7 +2491,7 @@ MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
         let mut manifest: serde_json::Value =
             serde_json::from_slice(&fs::read(&manifest_path).expect("manifest must be readable"))
                 .expect("manifest must decode");
-        manifest["capture_contract"]["ipc_protocol"] = json!("0.4");
+        manifest["capture_contract"]["ipc_protocol"] = json!("0.5");
         fs::write(
             manifest_path,
             serde_json::to_vec(&manifest).expect("manifest must encode"),
@@ -2613,6 +2638,53 @@ MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
             );
             assert!(matches!(
                 config.validate(),
+                Err(SidecarError::InvalidLaunchConfig(_))
+            ));
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn command_accepts_only_local_codeischeap_named_pipe_endpoints() {
+        let (_directory, root) = bundle("unsigned");
+        let loaded = SidecarBundle::load(&root, BundleRequirements::development()).unwrap();
+        let name = r"\\.\pipe\CodeIsCheap-capture-test-1234".to_owned();
+        let config = SidecarLaunchConfig::new_with_endpoint(
+            CaptureIpcEndpoint::NamedPipe(name.clone()),
+            "synthetic-token-123456",
+            "ab".repeat(32),
+            vec!["api.openai.com".to_owned()],
+            "127.0.0.1:41002".parse().unwrap(),
+            root.join("conf"),
+        );
+        let command = loaded
+            .command(&config)
+            .expect("named pipe endpoint must validate");
+        let environment = command
+            .get_envs()
+            .filter_map(|(key, value)| value.map(|value| (key, value)))
+            .collect::<BTreeMap<_, _>>();
+        let expected = OsString::from(format!("pipe:{name}"));
+        assert_eq!(
+            environment.get(OsStr::new("CIC_CAPTURE_IPC_ADDR")),
+            Some(&expected.as_os_str())
+        );
+
+        for invalid in [
+            r"\\.\pipe\foreign".to_owned(),
+            r"\\server\pipe\CodeIsCheap-capture-test".to_owned(),
+            format!(r"\\.\pipe\CodeIsCheap-capture-{}", "a".repeat(260)),
+        ] {
+            let invalid = SidecarLaunchConfig::new_with_endpoint(
+                CaptureIpcEndpoint::NamedPipe(invalid),
+                "synthetic-token-123456",
+                "ab".repeat(32),
+                vec!["api.openai.com".to_owned()],
+                "127.0.0.1:41002".parse().unwrap(),
+                root.join("conf"),
+            );
+            assert!(matches!(
+                invalid.validate(),
                 Err(SidecarError::InvalidLaunchConfig(_))
             ));
         }

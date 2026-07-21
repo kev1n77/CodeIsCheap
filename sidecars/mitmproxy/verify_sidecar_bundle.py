@@ -14,7 +14,7 @@ from package_sidecar import signature_info
 MANIFEST_FILENAME = "sidecar-manifest.json"
 EXPECTED_SCHEMA_VERSION = "0.1"
 EXPECTED_CAPTURE_CONTRACT = {
-    "ipc_protocol": "0.5",
+    "ipc_protocol": "0.6",
     "envelope": "0.1",
     "policy": "0.1",
 }

@@ -395,6 +395,177 @@ class AddonTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "loopback"):
                 IpcConfig.from_env()
 
+    def test_named_pipe_transport_preserves_frames_and_acknowledgement(self) -> None:
+        class FakeNamedPipe:
+            def __init__(self) -> None:
+                self.written = bytearray()
+                self.acknowledgement = bytearray(b'{"status":"accepted"}\n')
+                self.closed = False
+
+            def write(self, data: object) -> int:
+                chunk = bytes(data)[:17]
+                self.written.extend(chunk)
+                return len(chunk)
+
+            def read(self, size: int) -> bytes:
+                chunk = bytes(self.acknowledgement[:size])
+                del self.acknowledgement[:size]
+                return chunk
+
+            def close(self) -> None:
+                self.closed = True
+
+        pipe = FakeNamedPipe()
+        name = r"\\.\pipe\CodeIsCheap-capture-test-1234"
+        with (
+            patch("codeischeap_addon.os.name", "nt"),
+            patch("builtins.open", return_value=pipe) as opened,
+            patch.dict(
+                os.environ,
+                {
+                    "CIC_CAPTURE_IPC_ADDR": f"pipe:{name}",
+                    "CIC_CAPTURE_IPC_TOKEN": "synthetic-token",
+                },
+                clear=False,
+            ),
+        ):
+            config = IpcConfig.from_env()
+            if config is None:
+                self.fail("named pipe IPC configuration must load")
+            envelope = build_envelope(FakeFlow())
+            send_envelope(config, envelope)
+
+        opened.assert_called_once_with(name, "r+b", buffering=0)
+        frames = bytes(pipe.written).splitlines()
+        self.assertEqual(json.loads(frames[0])["version"], "0.6")
+        self.assertEqual(json.loads(frames[1]), envelope)
+        self.assertTrue(pipe.closed)
+
+    def test_named_pipe_transport_rejects_foreign_namespaces(self) -> None:
+        for name in [r"\\.\pipe\foreign", r"\\server\pipe\CodeIsCheap-capture-test"]:
+            with (
+                self.subTest(name=name),
+                patch("codeischeap_addon.os.name", "nt"),
+                patch.dict(
+                    os.environ,
+                    {
+                        "CIC_CAPTURE_IPC_ADDR": f"pipe:{name}",
+                        "CIC_CAPTURE_IPC_TOKEN": "synthetic-token",
+                    },
+                    clear=False,
+                ),
+            ):
+                with self.assertRaisesRegex(ValueError, "named pipe"):
+                    IpcConfig.from_env()
+
+    @unittest.skipUnless(os.name == "nt", "Windows only")
+    def test_named_pipe_transport_uses_a_real_windows_pipe(self) -> None:
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateNamedPipeW.argtypes = [
+            wintypes.LPCWSTR,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.LPVOID,
+        ]
+        kernel32.CreateNamedPipeW.restype = wintypes.HANDLE
+        kernel32.ConnectNamedPipe.argtypes = [wintypes.HANDLE, wintypes.LPVOID]
+        kernel32.ConnectNamedPipe.restype = wintypes.BOOL
+        kernel32.ReadFile.argtypes = [
+            wintypes.HANDLE,
+            wintypes.LPVOID,
+            wintypes.DWORD,
+            ctypes.POINTER(wintypes.DWORD),
+            wintypes.LPVOID,
+        ]
+        kernel32.ReadFile.restype = wintypes.BOOL
+        kernel32.WriteFile.argtypes = kernel32.ReadFile.argtypes
+        kernel32.WriteFile.restype = wintypes.BOOL
+        kernel32.FlushFileBuffers.argtypes = [wintypes.HANDLE]
+        kernel32.FlushFileBuffers.restype = wintypes.BOOL
+        kernel32.DisconnectNamedPipe.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+
+        name = rf"\\.\pipe\CodeIsCheap-capture-python-{os.getpid()}-{time.time_ns()}"
+        handle = kernel32.CreateNamedPipeW(
+            name,
+            0x00000003,
+            0x00000008,
+            1,
+            64 * 1024,
+            64 * 1024,
+            0,
+            None,
+        )
+        self.assertNotEqual(handle, wintypes.HANDLE(-1).value)
+        received: list[bytes] = []
+        failures: list[BaseException] = []
+
+        def serve() -> None:
+            try:
+                if not kernel32.ConnectNamedPipe(handle, None):
+                    error = ctypes.get_last_error()
+                    if error != 535:
+                        raise OSError(error, "ConnectNamedPipe failed")
+                data = bytearray()
+                buffer = ctypes.create_string_buffer(4096)
+                while data.count(b"\n") < 2:
+                    count = wintypes.DWORD()
+                    if not kernel32.ReadFile(
+                        handle, buffer, len(buffer), ctypes.byref(count), None
+                    ):
+                        error = ctypes.get_last_error()
+                        raise OSError(error, "ReadFile failed")
+                    data.extend(buffer.raw[: count.value])
+                received.extend(bytes(data).splitlines(keepends=True)[:2])
+                acknowledgement = b'{"status":"accepted"}\n'
+                count = wintypes.DWORD()
+                if not kernel32.WriteFile(
+                    handle,
+                    acknowledgement,
+                    len(acknowledgement),
+                    ctypes.byref(count),
+                    None,
+                ):
+                    error = ctypes.get_last_error()
+                    raise OSError(error, "WriteFile failed")
+                if not kernel32.FlushFileBuffers(handle):
+                    error = ctypes.get_last_error()
+                    raise OSError(error, "FlushFileBuffers failed")
+            except BaseException as error:
+                failures.append(error)
+            finally:
+                kernel32.DisconnectNamedPipe(handle)
+                kernel32.CloseHandle(handle)
+
+        worker = threading.Thread(target=serve)
+        worker.start()
+        with patch.dict(
+            os.environ,
+            {
+                "CIC_CAPTURE_IPC_ADDR": f"pipe:{name}",
+                "CIC_CAPTURE_IPC_TOKEN": "synthetic-token",
+            },
+            clear=False,
+        ):
+            config = IpcConfig.from_env()
+        if config is None:
+            self.fail("real named pipe IPC configuration must load")
+        envelope = build_envelope(FakeFlow())
+        send_envelope(config, envelope)
+        worker.join(timeout=2)
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(failures, [])
+        self.assertEqual(json.loads(received[0])["version"], "0.6")
+        self.assertEqual(json.loads(received[1]), envelope)
+
     @unittest.skipUnless(os.name == "posix" and hasattr(socket, "AF_UNIX"), "Unix only")
     def test_ipc_sends_frames_over_an_absolute_unix_socket(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -430,7 +601,7 @@ class AddonTests(unittest.TestCase):
             listener.close()
 
             self.assertFalse(worker.is_alive())
-            self.assertEqual(json.loads(received[0])["version"], "0.5")
+            self.assertEqual(json.loads(received[0])["version"], "0.6")
             self.assertEqual(json.loads(received[1]), envelope)
 
     @unittest.skipUnless(os.name == "posix", "Unix only")
@@ -490,7 +661,7 @@ class AddonTests(unittest.TestCase):
         self.assertFalse(worker.is_alive())
         auth = json.loads(received[0])
         captured = json.loads(received[1])
-        self.assertEqual(auth["version"], "0.5")
+        self.assertEqual(auth["version"], "0.6")
         self.assertEqual(auth["origin"], "mitmproxy")
         self.assertEqual(auth["token"], "synthetic-token")
         self.assertEqual(auth["transport"], transport)
