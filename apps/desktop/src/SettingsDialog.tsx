@@ -61,6 +61,7 @@ export function SettingsDialog({ workspace, active, runtimeError, certificateErr
   const { dialogRef, initialFocusRef } = useModalDialog(onClose);
   const certificate = workspace.capture.certificateAuthority;
   const compatibility = workspace.compatibility;
+  const recoveryMode = workspace.source === "recovery_backup";
   const canTrust = certificate.canManageTrust
     && certificate.state === "ready"
     && certificate.trust === "not_trusted";
@@ -219,8 +220,8 @@ export function SettingsDialog({ workspace, active, runtimeError, certificateErr
           <table className="diagnostics-table">
             <tbody>
               <DiagnosticRow label="Encrypted store" healthy={workspace.capture.storage.toLocaleLowerCase().includes("sqlcipher") || workspace.source === "synthetic_fixture"} detail={workspace.capture.storage} />
-              <DiagnosticRow label="Capture runtime" healthy={!runtimeError} detail={runtimeError || `${workspace.capture.mode} · ${active ? "active" : "paused"}`} />
-              <DiagnosticRow label="Gateway endpoint" healthy={workspace.capture.endpoint !== "Not connected"} detail={workspace.capture.endpoint} />
+              <DiagnosticRow label="Capture runtime" healthy={!recoveryMode && !runtimeError} detail={recoveryMode ? "Disabled by read-only recovery mode" : runtimeError || `${workspace.capture.mode} · ${active ? "active" : "paused"}`} />
+              <DiagnosticRow label="Gateway endpoint" healthy={!recoveryMode && workspace.capture.endpoint !== "Not connected"} detail={workspace.capture.endpoint} />
               <DiagnosticRow label="Proxy bundle" healthy={workspace.capture.proxyAvailable} detail={workspace.capture.proxyAvailable ? "Verified and available" : "Unavailable"} />
               <DiagnosticRow label="Local CA" healthy={certificate.state === "ready"} detail={certificateLabel(certificate)} />
               <DiagnosticRow label="System trust" healthy={certificate.trust === "trusted" || workspace.capture.mode === "gateway"} detail={certificate.trust.replaceAll("_", " ")} />
@@ -232,9 +233,12 @@ export function SettingsDialog({ workspace, active, runtimeError, certificateErr
           <pre className="diagnostics-preview" aria-label="Diagnostic report preview">{supportPreview?.content ?? "Generating support bundle preview"}</pre>
         </div>}
         {tab === "updates" && <div id="settings-panel-updates" className="settings-content updates-content" role="tabpanel" aria-labelledby="settings-tab-updates" tabIndex={0}>
+          {recoveryMode && <section className="settings-band recovery-band" role="status">
+            <div><span>Recovery lock</span><strong>Updates are disabled</strong><small>Export required history and repair or restore the primary workspace before installing another release.</small></div>
+          </section>}
           <section className="settings-band">
             <div><span>Installed version</span><strong>{updateStatus?.currentVersion ?? "Current build"}</strong><small>Stable channel · signed packages only</small></div>
-            <button className="settings-command" disabled={updateChecking || updateInstalling} onClick={checkUpdates}>{updateChecking ? <LoaderCircle className="is-spinning" size={14} /> : <RefreshCw size={14} />}Check</button>
+            <button className="settings-command" disabled={recoveryMode || updateChecking || updateInstalling} onClick={checkUpdates}>{updateChecking ? <LoaderCircle className="is-spinning" size={14} /> : <RefreshCw size={14} />}Check</button>
           </section>
           {updateStatus && <section className="settings-band update-release-band">
             <div>
@@ -242,7 +246,7 @@ export function SettingsDialog({ workspace, active, runtimeError, certificateErr
               <strong>{updateStatus.configured ? updateStatus.availableVersion ? `Version ${updateStatus.availableVersion}` : "Up to date" : "Not configured"}</strong>
               <small>{updateStatus.configured ? updateStatus.notes || updateStatus.publishedAt || "No newer signed release is available." : "This build does not contain a trusted update public key."}</small>
             </div>
-            {updateStatus.availableVersion && <button className="settings-command" disabled={updateInstalling} onClick={installAvailableUpdate}>{updateInstalling ? <LoaderCircle className="is-spinning" size={14} /> : <Download size={14} />}Install & restart</button>}
+            {updateStatus.availableVersion && <button className="settings-command" disabled={recoveryMode || updateInstalling} onClick={installAvailableUpdate}>{updateInstalling ? <LoaderCircle className="is-spinning" size={14} /> : <Download size={14} />}Install & restart</button>}
           </section>}
           {updateInstalling && <section className="update-progress" aria-live="polite">
             <div><span>{updateProgress?.finished ? "Verifying signed package" : "Downloading update"}</span><strong>{formatUpdateProgress(updateProgress)}</strong></div>

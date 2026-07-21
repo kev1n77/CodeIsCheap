@@ -31,6 +31,7 @@ pub enum CaptureCompatibilityCode {
     CertificateInvalid,
     CertificateTrustRequired,
     CapturePaused,
+    RecoveryReadOnly,
     ProxyCaptureUnobserved,
     ProxyCaptureObserved,
 }
@@ -96,6 +97,39 @@ pub fn diagnose_capture_compatibility(
         },
         action: summary.action,
         steps,
+    }
+}
+
+#[must_use]
+pub fn recovery_read_only_compatibility() -> CaptureCompatibility {
+    CaptureCompatibility {
+        code: CaptureCompatibilityCode::RecoveryReadOnly,
+        status: CaptureCompatibilityStatus::Attention,
+        confidence: CompatibilityConfidence::High,
+        title: "Read-only update recovery".to_owned(),
+        summary: "A validated encrypted backup is open because the primary workspace failed after an update. Capture and system changes remain disabled.".to_owned(),
+        recommended_mode: CaptureMode::Gateway,
+        action: CompatibilityAction::None,
+        steps: vec![
+            CompatibilityStep {
+                id: "recovery_backup".to_owned(),
+                status: CompatibilityStepStatus::Pass,
+                label: "Encrypted recovery backup".to_owned(),
+                detail: "Validated and open read-only".to_owned(),
+            },
+            CompatibilityStep {
+                id: "capture_lock".to_owned(),
+                status: CompatibilityStepStatus::Attention,
+                label: "Capture and system changes".to_owned(),
+                detail: "Disabled to preserve recovery history".to_owned(),
+            },
+            CompatibilityStep {
+                id: "recovery_export".to_owned(),
+                status: CompatibilityStepStatus::Pass,
+                label: "Search and export".to_owned(),
+                detail: "Available for recovery and support".to_owned(),
+            },
+        ],
     }
 }
 

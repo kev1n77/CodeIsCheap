@@ -37,8 +37,28 @@ function browserFixture(): WorkspaceBootstrap {
   const workspace = structuredClone(fixture) as unknown as WorkspaceBootstrap;
   if (!import.meta.env.DEV) return workspace;
 
+  const parameters = new URLSearchParams(window.location.search);
+  if (parameters.get("recoveryMode") === "1") {
+    workspace.source = "recovery_backup";
+    workspace.capture = {
+      ...workspace.capture,
+      active: false,
+      canControl: false,
+      proxyAvailable: false,
+      mode: "gateway",
+      profile: "Validated update recovery backup",
+      endpoint: "Capture disabled",
+      storage: `${workspace.capture.storage} / read-only recovery`,
+      certificateAuthority: {
+        ...workspace.capture.certificateAuthority,
+        canManageTrust: false,
+      },
+    };
+    return workspace;
+  }
+
   const requestedCount = Number.parseInt(
-    new URLSearchParams(window.location.search).get("fixtureRequests") ?? "",
+    parameters.get("fixtureRequests") ?? "",
     10,
   );
   if (!Number.isInteger(requestedCount)
@@ -384,8 +404,9 @@ async function fixtureSupportBundlePreview(
       health: {
         encryptedStore: workspace.capture.storage.toLocaleLowerCase().includes("sqlcipher")
           || workspace.source === "synthetic_fixture",
-        captureRuntime: runtimeIssue == null,
-        endpointConnected: workspace.capture.endpoint !== "Not connected",
+        captureRuntime: runtimeIssue == null && workspace.source !== "recovery_backup",
+        endpointConnected: workspace.capture.endpoint !== "Not connected"
+          && workspace.source !== "recovery_backup",
         proxyBundle: workspace.capture.proxyAvailable,
       },
       compatibility: workspace.compatibility,

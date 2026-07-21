@@ -9,14 +9,30 @@ use codeischeap_capture_ipc::{
 use codeischeap_capture_policy::{CapturePolicy, SanitizedCapture};
 use codeischeap_prompt_ir::{Evidence, MessageRole, PromptIr, PromptPart, ResponseTrace};
 use codeischeap_storage::{
-    CaptureCursor, CaptureWrite, DatabaseKey, EncryptedStore, RetentionPolicy, SCHEMA_VERSION,
-    StorageError, StorageOptions,
+    CaptureCursor, CaptureWrite, DatabaseKey, DatabaseKeyStore, EncryptedStore, KeyStoreError,
+    RetentionPolicy, SCHEMA_VERSION, StorageError, StorageOptions,
 };
 use tempfile::tempdir;
 
 const KEY_BYTES: [u8; 32] = [0x42; 32];
 const SECRET_CANARY: &str = "storage-secret-canary";
 const PROMPT_CANARY: &str = "encrypted-prompt-canary migration plan";
+
+struct ExistingRecoveryKeyStore;
+
+impl DatabaseKeyStore for ExistingRecoveryKeyStore {
+    fn load(&self) -> Result<DatabaseKey, KeyStoreError> {
+        Ok(DatabaseKey::from_bytes(KEY_BYTES))
+    }
+
+    fn load_or_create(&self) -> Result<DatabaseKey, KeyStoreError> {
+        panic!("read-only recovery must never create a database key")
+    }
+
+    fn delete(&self) -> Result<(), KeyStoreError> {
+        Ok(())
+    }
+}
 
 fn sanitized_capture(id: &str, observed_at: u64, prompt: &str) -> SanitizedCapture {
     let policy = CapturePolicy::load_default().expect("policy must load");
@@ -268,6 +284,68 @@ fn online_backup_restores_an_encrypted_searchable_database() {
     );
     restored.integrity_check().expect("restored DB is healthy");
     assert_files_do_not_contain(directory.path(), PROMPT_CANARY.as_bytes());
+}
+
+#[test]
+fn encrypted_backup_opens_read_only_and_rejects_every_store_mutation() {
+    let directory = tempdir().expect("temp directory must be created");
+    let database_path = directory.path().join("captures.db");
+    let backup_path = directory.path().join("captures.pre-update.db");
+    let mut writable = EncryptedStore::open(&database_path, DatabaseKey::from_bytes(KEY_BYTES))
+        .expect("encrypted store must open");
+    writable
+        .upsert_capture(
+            &sanitized_capture("recovery_capture", 42, "recovery marker"),
+            None,
+        )
+        .expect("recovery fixture must persist");
+    writable
+        .backup_to(&backup_path)
+        .expect("encrypted backup must succeed");
+    drop(writable);
+
+    let before = fs::read(&backup_path).expect("backup must be readable");
+    let mut recovery =
+        EncryptedStore::open_readonly_with_key_store(&backup_path, &ExistingRecoveryKeyStore)
+            .expect("encrypted backup must open read-only with an existing key");
+
+    assert!(recovery.is_read_only());
+    assert_eq!(recovery.capture_count().expect("capture count"), 1);
+    assert_eq!(
+        recovery
+            .search_captures("recovery marker", 10)
+            .expect("read-only FTS must work")[0]
+            .capture_id,
+        "recovery_capture"
+    );
+    assert!(matches!(
+        recovery.upsert_capture(
+            &sanitized_capture("blocked_write", 43, "must not persist"),
+            None,
+        ),
+        Err(StorageError::ReadOnly)
+    ));
+    assert!(matches!(
+        recovery.delete_capture("recovery_capture"),
+        Err(StorageError::ReadOnly)
+    ));
+    assert!(matches!(
+        recovery.enforce_retention(&RetentionPolicy::default(), 100),
+        Err(StorageError::ReadOnly)
+    ));
+    assert!(matches!(recovery.checkpoint(), Err(StorageError::ReadOnly)));
+    assert!(matches!(
+        recovery.backup_to(directory.path().join("blocked.db")),
+        Err(StorageError::ReadOnly)
+    ));
+    drop(recovery);
+
+    assert_eq!(
+        fs::read(&backup_path).expect("backup must remain readable"),
+        before,
+        "read-only access must not alter the recovery backup"
+    );
+    assert!(!directory.path().join("blocked.db").exists());
 }
 
 #[test]

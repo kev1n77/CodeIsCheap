@@ -25,6 +25,7 @@ pub struct EncryptedStore {
     key: DatabaseKey,
     path: PathBuf,
     options: StorageOptions,
+    read_only: bool,
 }
 
 impl EncryptedStore {
@@ -47,6 +48,21 @@ impl EncryptedStore {
             key,
             path,
             options,
+            read_only: false,
+        })
+    }
+
+    pub fn open_readonly(path: impl AsRef<Path>, key: DatabaseKey) -> Result<Self, StorageError> {
+        let path = path.as_ref().to_path_buf();
+        let connection = open_readonly_connection(&path, &key)?;
+        validate_schema(&connection)?;
+        integrity_check(&connection)?;
+        Ok(Self {
+            connection,
+            key,
+            path,
+            options: StorageOptions::default(),
+            read_only: true,
         })
     }
 
@@ -66,9 +82,22 @@ impl EncryptedStore {
         Self::open_with_options(path, key, options)
     }
 
+    pub fn open_readonly_with_key_store(
+        path: impl AsRef<Path>,
+        key_store: &impl DatabaseKeyStore,
+    ) -> Result<Self, StorageError> {
+        let key = key_store.load()?;
+        Self::open_readonly(path, key)
+    }
+
     #[must_use]
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    #[must_use]
+    pub const fn is_read_only(&self) -> bool {
+        self.read_only
     }
 
     pub fn cipher_version(&self) -> Result<String, StorageError> {
@@ -101,6 +130,7 @@ impl EncryptedStore {
     }
 
     pub fn upsert_captures(&mut self, writes: &[CaptureWrite<'_>]) -> Result<usize, StorageError> {
+        self.ensure_writable()?;
         if writes.is_empty() {
             return Ok(0);
         }
@@ -243,6 +273,7 @@ impl EncryptedStore {
     }
 
     pub fn delete_capture(&mut self, capture_id: &str) -> Result<bool, StorageError> {
+        self.ensure_writable()?;
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -269,6 +300,7 @@ impl EncryptedStore {
         policy: &RetentionPolicy,
         now_unix_ms: u64,
     ) -> Result<RetentionReport, StorageError> {
+        self.ensure_writable()?;
         validate_retention_policy(policy)?;
         let mut report = RetentionReport {
             deleted_by_age: 0,
@@ -316,12 +348,14 @@ impl EncryptedStore {
     }
 
     pub fn checkpoint(&self) -> Result<(), StorageError> {
+        self.ensure_writable()?;
         self.connection
             .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
         Ok(())
     }
 
     pub fn backup_to(&self, path: impl AsRef<Path>) -> Result<(), StorageError> {
+        self.ensure_writable()?;
         let path = path.as_ref();
         if path == self.path {
             return Err(StorageError::InvalidBackupTarget);
@@ -369,7 +403,16 @@ impl EncryptedStore {
             key,
             path: destination_path,
             options: StorageOptions::default(),
+            read_only: false,
         })
+    }
+
+    fn ensure_writable(&self) -> Result<(), StorageError> {
+        if self.read_only {
+            Err(StorageError::ReadOnly)
+        } else {
+            Ok(())
+        }
     }
 }
 

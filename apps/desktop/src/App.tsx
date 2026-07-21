@@ -134,7 +134,8 @@ export function App() {
         );
         setCaptureActive(value.capture.active);
         setCaptureMode(value.capture.mode);
-        if (value.capture.requestCount === 0
+        if (value.source !== "recovery_backup"
+          && value.capture.requestCount === 0
           && localStorage.getItem("codeischeap.first-connection.dismissed") !== "true") {
           setSettingsOpen(true);
         }
@@ -345,8 +346,10 @@ export function App() {
     return <div className="loading-state"><span className="brand-glyph">C</span><span>Loading workspace</span></div>;
   }
 
+  const recoveryMode = workspace.source === "recovery_backup";
+
   return (
-    <div className="app-shell">
+    <div className={`app-shell${recoveryMode ? " has-recovery-banner" : ""}`}>
       <Titlebar
         active={captureActive}
         canControl={workspace.capture.canControl}
@@ -356,6 +359,10 @@ export function App() {
         onToggleTheme={() => setTheme((value) => value === "light" ? "dark" : "light")}
         onOpenSettings={() => setSettingsOpen(true)}
       />
+      {recoveryMode && <section className="recovery-banner" role="status" aria-label="Read-only update recovery mode">
+        <AlertTriangle size={16} />
+        <div><strong>Read-only recovery mode</strong><span>The primary workspace could not open after an update. This validated encrypted backup remains searchable and exportable; capture and system changes are disabled.</span></div>
+      </section>}
       <main
         className="workspace"
         style={{ gridTemplateColumns: `${paneWidths.sidebar}px 5px ${paneWidths.requestList}px 5px minmax(${INSPECTOR_MIN_WIDTH}px, 1fr)` }}
@@ -449,11 +456,15 @@ function Titlebar({ active, canControl, source, theme, onToggleCapture, onToggle
   onToggleTheme: () => void;
   onOpenSettings: () => void;
 }) {
+  const recoveryMode = source === "recovery_backup";
+  const sourceLabel = source === "encrypted_local"
+    ? "Encrypted local workspace"
+    : recoveryMode ? "Recovery backup" : "Synthetic workspace";
   return (
     <header className="titlebar">
-      <div className="brand-lockup"><span className="brand-glyph">C</span><strong>CodeIsCheap</strong><span className="fixture-label">{source === "encrypted_local" ? "Encrypted local workspace" : "Synthetic workspace"}</span></div>
+      <div className="brand-lockup"><span className="brand-glyph">C</span><strong>CodeIsCheap</strong><span className="fixture-label">{sourceLabel}</span></div>
       <div className="titlebar-actions">
-        <span className={`capture-indicator ${active ? "is-live" : ""}`}><span />{active ? "Capturing" : "Paused"}</span>
+        <span className={`capture-indicator ${active ? "is-live" : ""} ${recoveryMode ? "is-recovery" : ""}`}><span />{recoveryMode ? "Read-only" : active ? "Capturing" : "Paused"}</span>
         <button className="icon-button" title={canControl ? (active ? "Pause capture" : "Resume capture") : "Capture controls are not connected"} aria-label={active ? "Pause capture" : "Resume capture"} disabled={!canControl} onClick={onToggleCapture}>
           {active ? <Pause size={16} /> : <Play size={16} />}
         </button>
@@ -523,7 +534,7 @@ function CaptureSidebar({ workspace, active, canControl, proxyAvailable, mode, m
       <section className="sidebar-section system-health">
         <div className="section-label">Health</div>
         <div title={runtimeError || undefined}><Activity size={14} /><span>{mode === "gateway" ? "Gateway" : "Proxy"}</span><b className={runtimeError ? "health-error" : "health-ok"}>{runtimeError ? "Issue" : "Healthy"}</b></div>
-        <div><Database size={14} /><span>Local store</span><b className="health-ok">Ready</b></div>
+        <div><Database size={14} /><span>Local store</span><b className={workspace.source === "recovery_backup" ? "health-warning" : "health-ok"}>{workspace.source === "recovery_backup" ? "Read-only" : "Ready"}</b></div>
         <div><ShieldCheck size={14} /><span>Credentials</span><b className="health-ok">Excluded</b></div>
       </section>
       <div className="sidebar-footer"><CircleStop size={13} />No request data leaves this device</div>
