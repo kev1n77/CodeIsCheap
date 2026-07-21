@@ -71,6 +71,21 @@ release-readiness.v0.1.json
         )
 
         (root / "apps" / "desktop" / "src-tauri").mkdir(parents=True)
+        (root / "apps" / "desktop" / "src-tauri" / "capabilities").mkdir()
+        (root / "apps" / "desktop" / "src-tauri" / "capabilities" / "default.json").write_text(
+            json.dumps(
+                {
+                    "identifier": "default",
+                    "windows": ["main"],
+                    "permissions": [
+                        "core:event:allow-listen",
+                        "core:event:allow-unlisten",
+                        "dialog:allow-save",
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
         (root / "apps" / "desktop" / "package.json").write_text(
             json.dumps({"dependencies": {"react": "19.2.7"}}), encoding="utf-8"
         )
@@ -148,6 +163,30 @@ release-readiness.v0.1.json
             self.assertIn("requirement must use ==", violations)
             self.assertIn("git dependency must pin a full rev SHA", violations)
             self.assertIn("must run from version tags", violations)
+
+    def test_broad_or_remote_desktop_capabilities_fail(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.fixture(root)
+            capability = root / "apps" / "desktop" / "src-tauri" / "capabilities" / "default.json"
+            capability.write_text(
+                json.dumps(
+                    {
+                        "identifier": "default",
+                        "windows": ["*"],
+                        "local": False,
+                        "remote": {"urls": ["https://example.test"]},
+                        "permissions": ["core:default", "dialog:default"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            violations = "\n".join(collect_violations(root))
+            self.assertIn("only the main window may match", violations)
+            self.assertIn("remote origins are forbidden", violations)
+            self.assertIn("local app access is required", violations)
+            self.assertIn("permissions must be limited", violations)
 
 
 if __name__ == "__main__":

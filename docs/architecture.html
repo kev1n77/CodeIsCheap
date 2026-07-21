@@ -31,7 +31,7 @@
       <tr><td>控制核心</td><td>Rust + Tokio</td><td>进程、网络、加密和性能</td></tr>
       <tr><td>TLS 捕获</td><td>mitmproxy sidecar</td><td>复用成熟协议栈，避免自研 MITM</td></tr>
       <tr><td>数据</td><td>SQLite / SQLCipher</td><td>本地事务、全文检索和加密</td></tr>
-      <tr><td>扩展</td><td>声明式映射，复杂插件用 WASI</td><td>最小权限、可隔离</td></tr>
+      <tr><td>扩展</td><td>MVP 不加载可执行插件；后续复杂插件用 WASI</td><td>启用前定义最小权限与隔离验收</td></tr>
     </tbody></table></div>
     <p>桌面边界使用版本化 Desktop API：Rust DTO 同时生成 <a href="../schemas/desktop-api/v0.1.schema.json">JSON Schema</a> 与 React TypeScript bindings。Tauri command 惰性打开 OS 凭据库和 SQLCipher，失败时保留 WebView 并允许用户重试。</p>
 

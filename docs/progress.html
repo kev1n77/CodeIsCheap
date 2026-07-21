@@ -61,7 +61,7 @@
         <tr><td>Desktop / Frontend</td><td>APP-001~006</td><td>97%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>完成屏幕阅读器、首次捕获耗时与真实运行验收</td></tr>
         <tr><td>Capture / Network</td><td>CAP-001~007</td><td>88%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>完成 macOS helper 真实故障矩阵；生产签名随发布凭据补齐</td></tr>
         <tr><td>Prompt / Adapters</td><td>PAR-001~007</td><td>100%</td><td><span class="status done">Done</span></td><td>Codex / TBD</td><td>保持价格目录与 provider usage 映射可追溯</td></tr>
-        <tr><td>Data / Security</td><td>DAT-001~002、SEC-001~004</td><td>95%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>继续 WASI 权限、正式签名制品与独立安全评审</td></tr>
+        <tr><td>Data / Security</td><td>DAT-001~002、SEC-001~004</td><td>96%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>完成正式签名制品与独立安全评审；第三方 WASI 插件属于后续范围</td></tr>
         <tr><td>Test / Release</td><td>TST-001~004、REL-001~003</td><td>86%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>收集真实 Beta 证据并逐项关闭九个人工/真实环境 gate</td></tr>
       </tbody></table></div>
 
@@ -89,7 +89,7 @@
         <tr><td class="task-id">DAT-002</td><td>写入、查询、保留与磁盘压力</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>批量写入原子提交；默认保留 30 天/50,000 条并以 500 条事务清理；低于 256 MiB 或 SQLITE_FULL 时暂停记录但保持 Gateway 转发</td></tr>
         <tr><td class="task-id">SEC-001</td><td>范围策略和凭据 scrubber</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / Security Reviewer TBD</td><td>2026-07-22</td><td>请求与响应 header/JSON body 双层脱敏；Profile 管理保持既有 method/path allowlist，仅扩展最多 16 个精确 host；canary 在 DB、WAL、诊断日志、临时文件和支持包中零命中</td></tr>
         <tr><td class="task-id">SEC-002</td><td>脱敏与导出</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / Security Reviewer TBD</td><td>2026-07-18</td><td>单请求、筛选批量及支持包均强制扫描、完整预览、SHA-256 防陈旧和只新建文件；版本化 corpus 以 36 个字段名、17 类文本 secret 及近似反例覆盖 Rust/Python/Web</td></tr>
-        <tr><td class="task-id">SEC-003</td><td>本地 IPC 与插件隔离</td><td><span class="status active">In progress</span></td><td>97%</td><td>Codex / Security Reviewer TBD</td><td>2026-08-25</td><td>IPC 0.6 在 Windows 使用当前用户与 SYSTEM protected DACL、拒绝远端连接的随机 named pipe，创建后回读 owner/ACE 并逐连接核对 sidecar PID；macOS/Linux 使用当前 eUID `0700` 私有目录内 `0600` Unix socket，并逐连接核对 peer eUID/PID；统一使用 256-bit token、常量时间比较、1 KiB 认证帧、2 秒截止和 ACK，真实传输、超时恢复与旧 0.5 bundle 拒绝均有测试；仅插件启用后的 WASI 最小权限待完成</td></tr>
+        <tr><td class="task-id">SEC-003</td><td>本地 IPC 与插件隔离</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / Security Reviewer TBD</td><td>2026-07-22</td><td>IPC 0.6 在 Windows 使用当前用户与 SYSTEM protected DACL、拒绝远端连接的随机 named pipe，macOS/Linux 使用当前 eUID 私有目录与 Unix peer credential；统一使用 256-bit token、常量时间比较、1 KiB 认证帧、2 秒截止和 ACK。主 WebView 仅获事件 listen/unlisten 与保存对话框权限，禁止 remote origin；MVP 不提供可执行插件面，未来启用第三方插件前必须另行完成 WASI 最小权限验收</td></tr>
         <tr><td class="task-id">SEC-004</td><td>更新与供应链</td><td><span class="status active">In progress</span></td><td>96%</td><td>Codex / Release Owner TBD</td><td>2026-08-25</td><td>依赖、Action、所有权与高危漏洞门禁已接入。签名发布工作流仅接受 main 中版本 tag，要求 updater 私钥、Windows Authenticode、macOS Developer ID/notarization、已签名 sidecar，并在发布前复核版本、`.sig`、大小与 SHA-256；正式凭据和首批制品待发布负责人配置</td></tr>
         <tr><td class="task-id">PAR-001</td><td>Prompt IR v0.1 与首批 fixtures</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-14</td><td>OpenAI/Anthropic fixtures、校验与 schema 完成</td></tr>
         <tr><td class="task-id">PAR-002</td><td>解析器注册表与检测链</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>置信度排序、错误/panic 隔离、IR 校验、partial issues 与 Raw fallback 完成</td></tr>
@@ -127,7 +127,7 @@
         <tr><td>S2</td><td>CAP-001/002、PAR-002/003、APP-003</td><td><span class="status done">Done</span></td><td>Gateway、OpenAI 解析与千条实时工作台全部通过验收</td></tr>
         <tr><td>S3</td><td>PAR-004、APP-004、TST-001、DAT-002</td><td><span class="status done">Done</span></td><td>双厂商 Inspector、能力矩阵与数据生命周期全部通过验收</td></tr>
         <tr><td>S4</td><td>CAP-003~005、TST-002</td><td><span class="status active">In progress</span></td><td>sidecar bundle、桌面运行时、协议矩阵、Proxy 取消/背压、跨平台 CA 状态及两平台用户级信任生命周期已实现；签名、其余协议一致性与交互式验收待推进</td></tr>
-        <tr><td>S5</td><td>CAP-006/007、SEC-002/003、APP-006、TST-003</td><td><span class="status active">In progress</span></td><td>SEC-002、CAP-007 完成，IPC 抗阻塞、双模式 OS PID 归因、Unix owner-only socket、Windows owner-only named pipe、readiness 身份校验、PAC/CA 拒绝恢复、macOS 授权 helper 和兼容诊断树已接入；继续真实故障验收与 WASI 最小权限</td></tr>
+        <tr><td>S5</td><td>CAP-006/007、SEC-002/003、APP-006、TST-003</td><td><span class="status active">In progress</span></td><td>SEC-002/003、CAP-007 完成，IPC 抗阻塞、双模式 OS PID 归因、owner-only transport、readiness 身份校验、PAC/CA 拒绝恢复、macOS 授权 helper、最小 WebView capability 和兼容诊断树已接入；继续真实管理员故障验收</td></tr>
         <tr><td>S6</td><td>PAR-005~007、APP-005</td><td><span class="status done">Done</span></td><td>四厂商适配器、token/成本/指纹、全文搜索和结构/文本 Compare 全部完成</td></tr>
         <tr><td>S7</td><td>TST-004、性能、可访问性、诊断与保留</td><td><span class="status active">In progress</span></td><td>axe、键盘与焦点、双主题截图、千条列表预算及 Gateway P95 门禁完成；继续屏幕阅读器和 Beta 真实环境测量</td></tr>
         <tr><td>S8</td><td>SEC-004、REL-001/002、安全评审</td><td><span class="status active">In progress</span></td><td>仓库供应链门禁、失败关闭的跨平台签名发布流水线、应用内更新、预更新恢复快照、只读历史恢复与支持处理闭环已接入；正式凭据、首批制品、真实回滚与安全评审待推进</td></tr>
@@ -245,6 +245,7 @@
         <tr><td>2026-07-21</td><td>Desktop / Beta Metrics</td><td>APP-006 / REL-003 本地证据采集完成</td><td>独立双槽文件记录首次捕获和干净/异常会话，SQLCipher 聚合声明支持端点的解析率；设置页可复核、复制和只新建导出，不包含 Prompt、请求标识、日志或自动上传</td><td>Codex</td></tr>
         <tr><td>2026-07-21</td><td>Release / Beta Evidence</td><td>REL-003 离线聚合链完成</td><td>每个安装使用随机 128-bit ID 防止重复贡献；严格验证器拒绝隐私异常、未知字段、重复、symlink、伪造率和错误版本，按 30 位贡献者与 1,000 请求/会话最小量计算三个 gate，最终报告不保留样本 ID</td><td>Codex</td></tr>
         <tr><td>2026-07-22</td><td>Desktop / Capture Profiles</td><td>APP-006 / TM-02 Profile 管理闭环</td><td>设置页新增可访问的 Profiles 视图，编辑名称、无凭据 HTTP(S) Gateway origin 和最多 16 个逐行精确 host；活跃捕获或 Proxy 模式下失败关闭并提供 Pause/Return to Gateway，保存使用后端规范化结果回填，Restore defaults 可恢复内置 OpenAI 配置；桌面与 600×620 紧凑视口均无重叠或无意义溢出</td><td>Codex</td></tr>
+        <tr><td>2026-07-22</td><td>Security / WebView</td><td>SEC-003 Tauri capability 最小化</td><td>主 WebView 从 `core:default` 收紧为事件 listen/unlisten 与保存对话框三项权限，只匹配本地 `main` 窗口并禁止 remote origins；供应链门禁精确校验 capability 集合，宽窗口匹配、远端来源、非本地访问或额外权限均使 CI 失败。MVP 不加载可执行插件，WASI 隔离随未来插件功能单独验收</td><td>Codex</td></tr>
         <tr><td colspan="5">后续范围、架构、日期或资源变化均在此追加，并链接对应 ADR/会议结论。</td></tr>
       </tbody></table></div>
 
