@@ -37,6 +37,11 @@ Get-AuthenticodeSignature
 xcrun stapler validate
 scripts/prepare_release.py prepare
 scripts/prepare_release.py verify
+readiness_args=(--repository-root . --tag
+if [[ "$RELEASE_VERSION" == *-* ]]
+python scripts/verify_release_readiness.py "${readiness_args[@]}"
+notes_file="release/notes/${RELEASE_TAG}.md"
+release-readiness.v0.1.json
 --draft
 """,
             encoding="utf-8",
@@ -52,6 +57,7 @@ scripts/prepare_release.py verify
                 "/crates/sidecar-runtime/",
                 "/crates/storage/",
                 "/policies/",
+                "/release/",
                 "/sidecars/",
             )
         )

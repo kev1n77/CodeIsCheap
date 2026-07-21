@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>事故响应 · CodeIsCheap</title><link rel="stylesheet" href="assets/styles.css" /></head>
+<body>
+  <header class="site-header"><div class="header-inner"><a class="brand" href="index.html"><span class="brand-mark">C</span>CodeIsCheap</a><nav class="site-nav" aria-label="文档导航"><a href="index.html">总览</a><a href="security.html">安全</a><a href="compatibility.html">兼容</a><a href="release.html">发布</a><a href="support.html">支持</a><a href="incident-response.html" aria-current="page">事故</a><a href="progress.html">进度</a></nav></div></header>
+  <div class="page"><main>
+    <p class="eyebrow">Incident Response · 0.1</p><h1>事故响应</h1>
+    <p class="lead">优先恢复用户网络和保护本地数据；诊断只收集必要的事件代码、版本、平台和可验证制品信息。</p>
+    <div class="decision"><strong>立即升级</strong>代理残留导致断网、凭据/Prompt/CA 私钥泄露、签名异常、升级后主库与恢复备份均不可用。</div>
+
+    <h2 id="severity">分级</h2>
+    <div class="table-wrap"><table><thead><tr><th>级别</th><th>示例</th><th>响应目标</th></tr></thead><tbody>
+      <tr><td>P0</td><td>大范围断网、发布制品或签名被替换、确认泄露私钥/凭据</td><td>立即停止发布和分发；15 分钟内建立负责人</td></tr>
+      <tr><td>P1</td><td>单设备代理无法恢复、升级后数据不可读、Prompt 进入非预期文件</td><td>1 小时内缓解并保留最小证据</td></tr>
+      <tr><td>P2</td><td>单应用兼容、解析错误、可回退的更新失败</td><td>1 个工作日内给出路径</td></tr>
+      <tr><td>P3</td><td>界面、文档或非阻断诊断问题</td><td>进入常规版本计划</td></tr>
+    </tbody></table></div>
+
+    <h2 id="flow">响应链</h2>
+    <div class="flow" aria-label="事故响应流程"><div class="flow-step">确认范围与级别</div><div class="flow-arrow">→</div><div class="flow-step">恢复网络 / 停止发布</div><div class="flow-arrow">→</div><div class="flow-step">保护数据库与证据</div><div class="flow-arrow">→</div><div class="flow-step">修复并回归</div><div class="flow-arrow">→</div><div class="flow-step">复盘与门禁更新</div></div>
+
+    <h2 id="playbooks">关键 Playbook</h2>
+    <div class="table-wrap"><table><thead><tr><th>事件</th><th>立即动作</th><th>证据</th></tr></thead><tbody>
+      <tr><td>系统代理残留</td><td>停止 Proxy；运行应用启动恢复或同签名 watchdog；确认原 PAC/手动设置恢复</td><td>平台、版本、恢复 journal 状态、事件代码、恢复前后设置</td></tr>
+      <tr><td>凭据或 Prompt 泄露</td><td>停止分享/上传；删除副本；轮换凭据；暂停相关导出或发布</td><td>命中文件类型、策略版本、最小复现；不得复制真实 secret</td></tr>
+      <tr><td>签名或制品异常</td><td>保持 Release 为 draft 或下架；冻结 tag；核对 manifest、SHA-256、平台签名与 updater <code>.sig</code></td><td>Actions run、release manifest、签名验证输出</td></tr>
+      <tr><td>升级后数据失败</td><td>切回 Gateway；保持主库不变；只读打开受校验备份并导出必要历史</td><td>源/目标版本、恢复 journal、备份字节数、兼容诊断代码</td></tr>
+    </tbody></table></div>
+
+    <h2 id="evidence">证据边界</h2>
+    <ul><li>使用 <a href="support.html">支持包验证器</a>生成摘要；不得把原始 Prompt、Raw、私钥或日志详情写入工单。</li><li>发布事故保存 workflow URL、tag、manifest、文件哈希和签名结果。</li><li>数据库问题先复制加密文件并限制访问；不得要求用户提供 OS 凭据库中的 key。</li><li>证据到期按案件策略删除；安全事件只保留完成复盘所需的最小集合。</li></ul>
+
+    <h2 id="drill">GA 演练</h2>
+    <ol><li>在隔离 Windows 与 macOS 设备分别模拟 sidecar 强杀、应用强杀和 owner 断连，确认网络恢复。</li><li>使用签名候选版本模拟迁移失败，确认只读历史、搜索和脱敏导出。</li><li>模拟 updater manifest 哈希或签名不匹配，确认不会公开或安装。</li><li>记录负责人、时间线、检测/缓解时间、证据链接和改进项；由非执行者复核。</li><li>将演练证据写入 <code>release/readiness.v0.1.json</code> 后，发布门禁才可通过。</li></ol>
+    <footer class="doc-footer"><a href="support.html">← 支持处理</a><a href="progress.html">下一篇：进度跟踪 →</a></footer>
+  </main><aside class="toc"><strong>本页</strong><a href="#severity">分级</a><a href="#flow">响应链</a><a href="#playbooks">Playbook</a><a href="#evidence">证据边界</a><a href="#drill">GA 演练</a></aside></div>
+</body></html>

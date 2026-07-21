@@ -82,6 +82,13 @@ npm run desktop:tauri -- build
 
 私钥和密码不得写入仓库、`.env`、构建日志或支持包。正式发布使用受保护的 GitHub `release` environment 和 `.github/workflows/release.yml`；它只接受 main 中版本一致的 tag，要求已签名 sidecar、Windows Authenticode、macOS notarization 与 updater 私钥，并在公开草稿前生成和复核 `latest.json`、`.sig` 与 `release-manifest.v0.1.json`。操作与回滚证据见 [`docs/release.html`](./docs/release.html)。
 
+每个版本还必须提交 `release/notes/v<version>.md` 和 `release/readiness.v0.1.json`。普通 CI 允许 gate 保持 pending 但验证契约；正式发布要求兼容矩阵、支持流程、事故响应、真实管理员矩阵、屏幕阅读器、Beta 指标、独立安全评审与签名回滚证据全部通过，并把 readiness 快照纳入发布清单：
+
+```powershell
+python scripts/verify_release_readiness.py --repository-root . --allow-pending
+python scripts/verify_release_readiness.py --repository-root . --tag v0.1.0
+```
+
 系统代理事务与独立恢复 watchdog 位于 `crates/proxy-recovery`；Windows WinINet 与 macOS networksetup backend 均已通过临时 CI runner 的真实强杀恢复实验。
 
 启动 Gateway Spike：

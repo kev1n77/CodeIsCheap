@@ -27,6 +27,7 @@ SENSITIVE_OWNER_PATHS = (
     "/crates/sidecar-runtime/",
     "/crates/storage/",
     "/policies/",
+    "/release/",
     "/sidecars/",
 )
 DEPENDABOT_ECOSYSTEMS = {"cargo", "npm", "pip", "github-actions"}
@@ -42,6 +43,11 @@ RELEASE_WORKFLOW_REQUIREMENTS = {
     "xcrun stapler validate": "must validate macOS notarization",
     "scripts/prepare_release.py prepare": "must build deterministic release metadata",
     "scripts/prepare_release.py verify": "must verify release artifacts before upload",
+    "readiness_args=(--repository-root . --tag": "must bind readiness evidence to the release tag",
+    'if [[ "$RELEASE_VERSION" == *-* ]]': "must limit pending readiness gates to prereleases",
+    'python scripts/verify_release_readiness.py "${readiness_args[@]}"': "must enforce the release readiness contract",
+    'notes_file="release/notes/${RELEASE_TAG}.md"': "must require reviewed versioned release notes",
+    "release-readiness.v0.1.json": "must publish the reviewed readiness evidence",
     "--draft": "must create a draft before publishing release assets",
 }
 

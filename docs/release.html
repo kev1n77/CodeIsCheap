@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="assets/styles.css" />
 </head>
 <body>
-  <header class="site-header"><div class="header-inner"><a class="brand" href="index.html"><span class="brand-mark">C</span>CodeIsCheap</a><nav class="site-nav" aria-label="文档导航"><a href="index.html">总览</a><a href="product.html">产品</a><a href="capture.html">采集</a><a href="architecture.html">架构</a><a href="security.html">安全</a><a href="experience.html">体验</a><a href="delivery.html">交付</a><a href="development-plan.html">计划</a><a href="release.html" aria-current="page">发布</a><a href="progress.html">进度</a></nav></div></header>
+  <header class="site-header"><div class="header-inner"><a class="brand" href="index.html"><span class="brand-mark">C</span>CodeIsCheap</a><nav class="site-nav" aria-label="文档导航"><a href="index.html">总览</a><a href="product.html">产品</a><a href="capture.html">采集</a><a href="architecture.html">架构</a><a href="security.html">安全</a><a href="experience.html">体验</a><a href="delivery.html">交付</a><a href="compatibility.html">兼容</a><a href="release.html" aria-current="page">发布</a><a href="support.html">支持</a><a href="progress.html">进度</a></nav></div></header>
   <div class="page">
     <main>
       <p class="eyebrow">09 · Release Operations</p>
@@ -15,6 +15,7 @@
       <p class="lead">发布只从已进入 main 的版本 tag 启动。Windows Authenticode、macOS Developer ID 与 notarization、Tauri updater 签名缺一不可。</p>
 
       <div class="decision"><strong>失败关闭</strong>任何证书、私钥、平台签名、notarization、sidecar 签名、updater `.sig`、版本或哈希校验失败，都不得发布非草稿 Release。</div>
+      <p class="note">当前 <code>v0.1.0</code> readiness 为 3/12：兼容矩阵、支持流程和事故响应计划已完成；其余九项保持 pending，稳定版发布会被明确阻断。</p>
 
       <h2 id="flow">发布链</h2>
       <div class="flow" aria-label="签名发布流程">
@@ -36,6 +37,8 @@
       <h2 id="trigger">触发与证据</h2>
       <ol>
         <li>同步 <code>tauri.conf.json</code>、桌面 <code>package.json</code> 和 Tauri <code>Cargo.toml</code> 的版本。</li>
+        <li>提交 <code>release/notes/v&lt;version&gt;.md</code>，并在 <code>release/readiness.v0.1.json</code> 中附上全部人工验收证据。</li>
+        <li>签名 RC 可保留 pending 人工 gate，并以 GitHub prerelease 发布供隔离设备演练；稳定版必须零 pending。</li>
         <li>确认 main CI 全绿后创建并推送 <code>v&lt;semver&gt;</code> tag，或手动选择已存在 tag 运行 <strong>Signed release</strong>。</li>
         <li>审批 <code>release</code> environment；工作流会拒绝不在 main 中的 tag。</li>
         <li>保存工作流链接、<code>release-manifest.v0.1.json</code>、<code>latest.json</code>、安装包和 `.sig` 作为发布证据。</li>
@@ -53,11 +56,11 @@
 
       <h2 id="artifacts">发布附件</h2>
       <div class="two-column">
-        <section class="plain-panel"><h3>必须存在</h3><ul><li>Windows NSIS 安装包、updater archive 及 `.sig`</li><li>macOS DMG、app updater archive 及 `.sig`</li><li><code>latest.json</code></li><li><code>release-manifest.v0.1.json</code></li></ul></section>
+        <section class="plain-panel"><h3>必须存在</h3><ul><li>Windows NSIS 安装包、updater archive 及 `.sig`</li><li>macOS DMG、app updater archive 及 `.sig`</li><li><code>latest.json</code></li><li><code>release-manifest.v0.1.json</code></li><li><code>release-readiness.v0.1.json</code></li></ul></section>
         <section class="plain-panel"><h3>必须验证</h3><ul><li>版本 tag 与三处 manifest 一致</li><li>Windows Authenticode 为 Valid</li><li>macOS notarization ticket 已 stapled</li><li>所有文件大小与 SHA-256 匹配</li></ul></section>
       </div>
 
-      <footer class="doc-footer"><a href="development-plan.html">← 开发计划</a><a href="progress.html">下一篇：进度跟踪 →</a></footer>
+      <footer class="doc-footer"><a href="compatibility.html">← 兼容矩阵</a><a href="support.html">下一篇：支持处理 →</a></footer>
     </main>
     <aside class="toc"><strong>本页</strong><a href="#flow">发布链</a><a href="#secrets">发布环境</a><a href="#trigger">触发与证据</a><a href="#rollback">回滚演练</a><a href="#artifacts">发布附件</a></aside>
   </div>

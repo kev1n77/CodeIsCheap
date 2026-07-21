@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>兼容矩阵 · CodeIsCheap</title><link rel="stylesheet" href="assets/styles.css" /></head>
+<body>
+  <header class="site-header"><div class="header-inner"><a class="brand" href="index.html"><span class="brand-mark">C</span>CodeIsCheap</a><nav class="site-nav" aria-label="文档导航"><a href="index.html">总览</a><a href="product.html">产品</a><a href="capture.html">采集</a><a href="architecture.html">架构</a><a href="security.html">安全</a><a href="experience.html">体验</a><a href="delivery.html">交付</a><a href="compatibility.html" aria-current="page">兼容</a><a href="release.html">发布</a><a href="support.html">支持</a><a href="progress.html">进度</a></nav></div></header>
+  <div class="page"><main>
+    <p class="eyebrow">Compatibility · 0.1</p><h1>兼容矩阵</h1>
+    <p class="lead">兼容性按可验证的协议和网络路径声明，不按应用品牌承诺“全量捕获”。</p>
+    <div class="decision"><strong>GA 范围</strong>Windows x86_64 与 macOS Intel / Apple silicon。Linux 用于开发和 CI，不提供 GA 安装包。</div>
+
+    <h2 id="platforms">平台</h2>
+    <div class="table-wrap"><table><thead><tr><th>平台</th><th>Gateway</th><th>Proxy / CA / 恢复</th><th>发布状态</th></tr></thead><tbody>
+      <tr><td>Windows 11 x86_64</td><td>支持</td><td>CurrentUser WinINet、CurrentUser ROOT、独立 watchdog</td><td>GA 目标；管理员矩阵待签署</td></tr>
+      <tr><td>macOS 14+ Intel / Apple silicon</td><td>支持</td><td>User trust、授权 helper、networksetup 恢复</td><td>GA 目标；管理员矩阵待签署</td></tr>
+      <tr><td>Linux x86_64</td><td>开发支持</td><td>Unix IPC 与 Gateway CI；无 GA 系统集成</td><td>非 GA</td></tr>
+    </tbody></table></div>
+
+    <h2 id="providers">协议与端点</h2>
+    <div class="table-wrap"><table><thead><tr><th>Provider</th><th>结构化 Prompt IR</th><th>声明端点</th></tr></thead><tbody>
+      <tr><td>OpenAI</td><td>Responses、Chat Completions、Completions；响应与流式证据</td><td><code>/v1/responses</code>、<code>/v1/chat/completions</code>、<code>/v1/completions</code></td></tr>
+      <tr><td>Anthropic</td><td>Messages、legacy Complete；JSON / SSE、工具与 usage</td><td><code>/v1/messages</code>、<code>/v1/complete</code></td></tr>
+      <tr><td>Gemini</td><td>generateContent / streamGenerateContent</td><td><code>/v1beta/models/*</code>、<code>/v1/models/*</code></td></tr>
+      <tr><td>Ollama</td><td>chat / generate；JSON / NDJSON</td><td><code>/api/chat</code>、<code>/api/generate</code></td></tr>
+      <tr><td>Mistral</td><td>仅捕获与 Raw，不声明结构化解析</td><td>策略中的 chat、FIM 与 agents 端点</td></tr>
+    </tbody></table></div>
+    <p class="note">Embeddings、图像生成和其他允许端点可被安全捕获，但当前不承诺 Prompt Inspector 的完整结构化语义。</p>
+
+    <h2 id="modes">采集模式</h2>
+    <div class="two-column">
+      <section class="plain-panel"><h3>Local Gateway</h3><ul><li>客户端必须可配置 base URL</li><li>不需要本地 CA</li><li>支持流式、取消和错误透传</li><li>推荐作为默认与兼容回退</li></ul></section>
+      <section class="plain-panel"><h3>Explicit Proxy</h3><ul><li>应用必须使用系统/显式代理</li><li>HTTPS 需要信任本地 CA</li><li>支持 HTTP/1.1、HTTP/2、SSE、压缩与 NDJSON</li><li>不绕过 pinning，不覆盖 QUIC/TUN</li></ul></section>
+    </div>
+
+    <h2 id="limits">已知边界</h2>
+    <ul><li>证书固定、代理绕过、自带网络栈和 QUIC 可能无法捕获；UI 只给出低置信度诊断并建议 Gateway。</li><li>进程归因依赖操作系统连接表；无法唯一匹配时保持 unknown，不做猜测。</li><li>未知协议降级 Raw；产品不会恢复模型服务端隐藏 Prompt。</li><li>新增 provider、端点或平台必须同时更新 Capture Policy、fixtures、能力矩阵和本页。</li></ul>
+    <footer class="doc-footer"><a href="delivery.html">← MVP 交付</a><a href="release.html">下一篇：签名发布 →</a></footer>
+  </main><aside class="toc"><strong>本页</strong><a href="#platforms">平台</a><a href="#providers">协议与端点</a><a href="#modes">采集模式</a><a href="#limits">已知边界</a></aside></div>
+</body></html>

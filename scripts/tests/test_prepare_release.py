@@ -10,7 +10,14 @@ import unittest
 SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
 
-from prepare_release import ReleaseError, prepare_release, validate_tag, verify_release
+from prepare_release import (
+    ReleaseError,
+    prepare_release,
+    sha256_file,
+    validate_tag,
+    verify_release,
+)
+from verify_release_readiness import REQUIRED_GATE_IDS
 
 
 class ReleasePreparationTests(unittest.TestCase):
@@ -26,6 +33,31 @@ class ReleasePreparationTests(unittest.TestCase):
         (repository / "apps/desktop/src-tauri/Cargo.toml").write_text(
             f'[package]\nname = "desktop"\nversion = "{version}"\n',
             encoding="utf-8",
+        )
+        evidence = repository / "docs" / "release-evidence.html"
+        evidence.parent.mkdir(parents=True)
+        evidence.write_text("<!doctype html><title>Evidence</title>", encoding="utf-8")
+        notes = repository / "release" / "notes" / f"v{version}.md"
+        notes.parent.mkdir(parents=True)
+        notes.write_text(f"# CodeIsCheap {version}\n", encoding="utf-8")
+        readiness = {
+            "schemaVersion": "0.1",
+            "releaseVersion": version,
+            "updatedAt": "2026-07-21T00:00:00Z",
+            "notesFile": f"release/notes/v{version}.md",
+            "gates": [
+                {
+                    "id": gate_id,
+                    "status": "passed",
+                    "reviewer": "release-owner",
+                    "completedAt": "2026-07-21T00:00:00Z",
+                    "evidence": ["docs/release-evidence.html"],
+                }
+                for gate_id in sorted(REQUIRED_GATE_IDS)
+            ],
+        }
+        (repository / "release" / "readiness.v0.1.json").write_text(
+            json.dumps(readiness), encoding="utf-8"
         )
         return repository
 
@@ -65,6 +97,9 @@ class ReleasePreparationTests(unittest.TestCase):
             )
 
             self.assertEqual(manifest["version"], "1.2.3")
+            self.assertEqual(
+                manifest["readiness"]["file"], "release-readiness.v0.1.json"
+            )
             latest = json.loads((output / "latest.json").read_text(encoding="utf-8"))
             self.assertEqual(
                 set(latest["platforms"]), {"windows-x86_64", "darwin-x86_64"}
@@ -75,6 +110,24 @@ class ReleasePreparationTests(unittest.TestCase):
                 )
             )
             self.assertEqual(verify_release(output)["tag"], "v1.2.3")
+
+            readiness_path = output / "release-readiness.v0.1.json"
+            readiness = json.loads(readiness_path.read_text(encoding="utf-8"))
+            readiness["gates"][0] = {
+                "id": readiness["gates"][0]["id"],
+                "status": "pending",
+                "reviewer": None,
+                "completedAt": None,
+                "evidence": [],
+            }
+            readiness_path.write_text(json.dumps(readiness), encoding="utf-8")
+            manifest_path = output / "release-manifest.v0.1.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["readiness"]["bytes"] = readiness_path.stat().st_size
+            manifest["readiness"]["sha256"] = sha256_file(readiness_path)
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            with self.assertRaisesRegex(ReleaseError, "incomplete gate"):
+                verify_release(output)
 
     def test_rejects_version_mismatch_missing_signatures_and_tampering(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -109,6 +162,52 @@ class ReleasePreparationTests(unittest.TestCase):
             updater = output / "CodeIsCheap_1.2.3_x64-setup.nsis.zip"
             updater.write_bytes(b"tampered")
             with self.assertRaises(ReleaseError):
+                verify_release(output)
+
+    def test_prerelease_can_build_signed_candidate_with_pending_manual_gates(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository = self.repository(root, "1.2.3-rc.1")
+            readiness_path = repository / "release/readiness.v0.1.json"
+            readiness = json.loads(readiness_path.read_text(encoding="utf-8"))
+            readiness["gates"][0] = {
+                "id": readiness["gates"][0]["id"],
+                "status": "pending",
+                "reviewer": None,
+                "completedAt": None,
+                "evidence": [],
+            }
+            readiness_path.write_text(json.dumps(readiness), encoding="utf-8")
+
+            manifest = prepare_release(
+                repository,
+                self.release_input(root),
+                root / "candidate",
+                "v1.2.3-rc.1",
+                "example/CodeIsCheap",
+                "2026-07-21T00:00:00Z",
+                "Release candidate",
+            )
+            self.assertEqual(manifest["version"], "1.2.3-rc.1")
+            self.assertEqual(verify_release(root / "candidate")["tag"], "v1.2.3-rc.1")
+
+            output = root / "candidate"
+            output_readiness_path = output / "release-readiness.v0.1.json"
+            output_readiness = json.loads(
+                output_readiness_path.read_text(encoding="utf-8")
+            )
+            output_readiness["gates"][0]["status"] = "waived"
+            output_readiness_path.write_text(
+                json.dumps(output_readiness), encoding="utf-8"
+            )
+            manifest_path = output / "release-manifest.v0.1.json"
+            output_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            output_manifest["readiness"]["bytes"] = output_readiness_path.stat().st_size
+            output_manifest["readiness"]["sha256"] = sha256_file(
+                output_readiness_path
+            )
+            manifest_path.write_text(json.dumps(output_manifest), encoding="utf-8")
+            with self.assertRaisesRegex(ReleaseError, "unsupported gate status"):
                 verify_release(output)
 
 

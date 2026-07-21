@@ -177,6 +177,9 @@ jobs:
       - name: Verify repository supply chain policy
         run: python scripts/verify_supply_chain.py
 
+      - name: Validate release readiness contract
+        run: python scripts/verify_release_readiness.py --repository-root . --allow-pending
+
       - name: Test supply chain policy verifier
         run: python -m unittest discover -s scripts/tests -v
 
