@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="assets/styles.css" />
 </head>
 <body>
-  <header class="site-header"><div class="header-inner"><a class="brand" href="index.html"><span class="brand-mark">C</span>CodeIsCheap</a><nav class="site-nav" aria-label="文档导航"><a href="index.html">总览</a><a href="product.html">产品</a><a href="capture.html">采集</a><a href="architecture.html">架构</a><a href="security.html">安全</a><a href="experience.html">体验</a><a href="delivery.html">交付</a><a href="development-plan.html">计划</a><a href="progress.html" aria-current="page">进度</a></nav></div></header>
+  <header class="site-header"><div class="header-inner"><a class="brand" href="index.html"><span class="brand-mark">C</span>CodeIsCheap</a><nav class="site-nav" aria-label="文档导航"><a href="index.html">总览</a><a href="product.html">产品</a><a href="capture.html">采集</a><a href="architecture.html">架构</a><a href="security.html">安全</a><a href="experience.html">体验</a><a href="delivery.html">交付</a><a href="development-plan.html">计划</a><a href="release.html">发布</a><a href="progress.html" aria-current="page">进度</a></nav></div></header>
 
   <div class="page">
     <main>
@@ -16,13 +16,13 @@
       <p class="lead">本页是项目状态的单一入口。开发计划定义“应该做什么”，本页只记录“当前做到哪里、是否健康、下一步是什么”。</p>
 
       <div class="meta-grid">
-        <div class="meta-item"><span>工程进度</span><strong>80%</strong></div>
+        <div class="meta-item"><span>工程进度</span><strong>81%</strong></div>
         <div class="meta-item"><span>当前阶段</span><strong>恢复、安全与稳定性</strong></div>
-        <div class="meta-item"><span>当前迭代</span><strong>S5 / S7 · 进行中</strong></div>
+        <div class="meta-item"><span>当前迭代</span><strong>S5 / S7 / S8 · 进行中</strong></div>
         <div class="meta-item"><span>最后更新</span><strong>2026-07-21</strong></div>
       </div>
 
-      <div class="decision"><strong>当前结论</strong>四厂商 Prompt IR、搜索、Compare 与安全导出已闭环；三平台桌面 IPC 已启用 OS 级用户隔离与逐连接 sidecar 身份核对。签名更新入口在安装前恢复系统代理并建立加密恢复快照，升级后主库失败可校验 journal 并只读打开历史；下一步完成正式签名制品、真实回滚演练、管理员故障矩阵、屏幕阅读器验收与插件 WASI 最小权限。</div>
+      <div class="decision"><strong>当前结论</strong>四厂商 Prompt IR、搜索、Compare 与安全导出已闭环；三平台桌面 IPC 已启用 OS 级用户隔离与逐连接 sidecar 身份核对。签名发布流水线会校验平台签名、notarization、updater 签名、版本与制品哈希；下一步配置正式凭据并执行真实发布/回滚演练、管理员故障矩阵、屏幕阅读器验收与插件 WASI 最小权限。</div>
 
       <h2 id="usage">1. 更新规则</h2>
       <ol>
@@ -90,7 +90,7 @@
         <tr><td class="task-id">SEC-001</td><td>范围策略和凭据 scrubber</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / Security Reviewer TBD</td><td>2026-07-18</td><td>请求与响应 header/JSON body 双层脱敏；canary 在 DB、WAL、诊断日志、临时文件和支持包中零命中</td></tr>
         <tr><td class="task-id">SEC-002</td><td>脱敏与导出</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / Security Reviewer TBD</td><td>2026-07-18</td><td>单请求、筛选批量及支持包均强制扫描、完整预览、SHA-256 防陈旧和只新建文件；版本化 corpus 以 36 个字段名、17 类文本 secret 及近似反例覆盖 Rust/Python/Web</td></tr>
         <tr><td class="task-id">SEC-003</td><td>本地 IPC 与插件隔离</td><td><span class="status active">In progress</span></td><td>97%</td><td>Codex / Security Reviewer TBD</td><td>2026-08-25</td><td>IPC 0.6 在 Windows 使用当前用户与 SYSTEM protected DACL、拒绝远端连接的随机 named pipe，创建后回读 owner/ACE 并逐连接核对 sidecar PID；macOS/Linux 使用当前 eUID `0700` 私有目录内 `0600` Unix socket，并逐连接核对 peer eUID/PID；统一使用 256-bit token、常量时间比较、1 KiB 认证帧、2 秒截止和 ACK，真实传输、超时恢复与旧 0.5 bundle 拒绝均有测试；仅插件启用后的 WASI 最小权限待完成</td></tr>
-        <tr><td class="task-id">SEC-004</td><td>更新与供应链</td><td><span class="status active">In progress</span></td><td>92%</td><td>Codex / Release Owner TBD</td><td>2026-08-25</td><td>CI Action 固定完整 commit SHA；PR 执行高危依赖审查；Dependabot 与仓库策略覆盖依赖和所有权；diff、time 与 serde_with 已升级到首个安全版本，Rust MSRV 同步至 1.88。Tauri updater 仅接受编译时可信公钥与 HTTPS GitHub Release metadata，安装前重新核对版本、恢复系统代理并建立 SQLCipher 恢复快照；正式公钥、平台签名和发布制品待完成</td></tr>
+        <tr><td class="task-id">SEC-004</td><td>更新与供应链</td><td><span class="status active">In progress</span></td><td>96%</td><td>Codex / Release Owner TBD</td><td>2026-08-25</td><td>依赖、Action、所有权与高危漏洞门禁已接入。签名发布工作流仅接受 main 中版本 tag，要求 updater 私钥、Windows Authenticode、macOS Developer ID/notarization、已签名 sidecar，并在发布前复核版本、`.sig`、大小与 SHA-256；正式凭据和首批制品待发布负责人配置</td></tr>
         <tr><td class="task-id">PAR-001</td><td>Prompt IR v0.1 与首批 fixtures</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-14</td><td>OpenAI/Anthropic fixtures、校验与 schema 完成</td></tr>
         <tr><td class="task-id">PAR-002</td><td>解析器注册表与检测链</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>置信度排序、错误/panic 隔离、IR 校验、partial issues 与 Raw fallback 完成</td></tr>
         <tr><td class="task-id">PAR-003</td><td>OpenAI-compatible 适配器</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>Responses、Chat、Completions、多模态与 tools golden fixtures 通过</td></tr>
@@ -102,7 +102,7 @@
         <tr><td class="task-id">TST-002</td><td>Gateway/Proxy 集成测试</td><td><span class="status active">In progress</span></td><td>82%</td><td>Codex / TBD</td><td>2026-08-25</td><td>认证 IPC、暂停丢弃、真实模式切换与进程树清理、压缩、流式脱敏、非目标 TLS、HTTP/2 基线一致性及 Windows CA 精确增删通过；真实 sidecar 在客户端取消后保持存活，IPC 停止消费且 72 个事件超过容量 64 时，36 个目标响应仍在 15 秒内完成；真实 ROOT 往返和其余协议一致性待扩展</td></tr>
         <tr><td class="task-id">TST-003</td><td>平台故障注入</td><td><span class="status active">In progress</span></td><td>80%</td><td>Codex / TBD</td><td>2026-08-25</td><td>Windows/macOS 强杀恢复、活 owner 防误恢复、sidecar 独立退出回退和端口冲突拒绝已通过；PAC 原状态下应用与同步回滚双重失败会交由独立 watchdog 恢复；macOS CA 拒绝恢复及 helper 协议、权限、命令转义和恢复文件校验已覆盖；授权桌面 helper 的真实故障矩阵待完成</td></tr>
         <tr><td class="task-id">TST-004</td><td>UI、性能与可访问性</td><td><span class="status active">In progress</span></td><td>80%</td><td>Codex / TBD</td><td>2026-09-08</td><td>axe、WAI-ARIA tabs、方向键、焦点循环/恢复、键盘分隔条和双主题对比度已门禁；Ubuntu Chromium 固定 960×620 明色与 1440×900 暗色像素基线，千条列表要求首屏 &lt;2 秒、首尾滚动 &lt;2 秒、筛选 &lt;750 ms 且可见 DOM &lt;40 行；Gateway fake provider 基准要求额外延迟 P95 &lt;20 ms，最新本地基线为 0.609 ms；屏幕阅读器人工验收待完成</td></tr>
-        <tr><td class="task-id">REL-001</td><td>签名安装、升级和回滚</td><td><span class="status active">In progress</span></td><td>70%</td><td>Codex / Release Owner TBD</td><td>2026-09-22</td><td>设置页可检查、下载并安装 Tauri 签名更新；未配置公钥时失败关闭，安装前强制回到 Gateway、恢复代理并写入加密快照与版本 journal。主库打开或迁移失败时仅接受版本、固定文件名、大小和 schema 均匹配的快照，并以禁写模式保留搜索、支持包和脱敏导出；正式签名安装包、密钥托管与真实回滚演练待完成</td></tr>
+        <tr><td class="task-id">REL-001</td><td>签名安装、升级和回滚</td><td><span class="status active">In progress</span></td><td>80%</td><td>Codex / Release Owner TBD</td><td>2026-09-22</td><td>应用内签名更新、预更新恢复快照与失败后只读历史已实现；发布流水线会生成并验证 Windows/macOS 安装包、updater archive、`.sig`、`latest.json` 与哈希清单，先上传草稿再公开。正式证书/密钥托管、首批签名制品与隔离设备真实回滚演练待完成</td></tr>
         <tr><td class="task-id">REL-002</td><td>诊断与支持包</td><td><span class="status active">In progress</span></td><td>75%</td><td>Codex / Support Owner TBD</td><td>2026-09-22</td><td>版本化 JSON 支持包可预览、复制和保存，包含不带请求标识的兼容诊断树；256 KiB code-only journal 与最近 100 条事件接入，排除 Prompt、Raw 和日志详情；支持处理流程待完成</td></tr>
         <tr><td class="task-id">SPIKE-001</td><td>Gateway 流式透明转发验证</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-14</td><td>双向流式、取消传递、头清理与稳定 502 集成测试通过</td></tr>
         <tr><td class="task-id">SPIKE-002</td><td>mitmproxy sidecar IPC/打包验证</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-14</td><td><a href="spikes/mitmproxy-sidecar.html">凭据清理、IPC、打包与真实转发通过</a></td></tr>
@@ -129,7 +129,7 @@
         <tr><td>S5</td><td>CAP-006/007、SEC-002/003、APP-006、TST-003</td><td><span class="status active">In progress</span></td><td>SEC-002、CAP-007 完成，IPC 抗阻塞、双模式 OS PID 归因、Unix owner-only socket、Windows owner-only named pipe、readiness 身份校验、PAC/CA 拒绝恢复、macOS 授权 helper 和兼容诊断树已接入；继续真实故障验收与 WASI 最小权限</td></tr>
         <tr><td>S6</td><td>PAR-005~007、APP-005</td><td><span class="status done">Done</span></td><td>四厂商适配器、token/成本/指纹、全文搜索和结构/文本 Compare 全部完成</td></tr>
         <tr><td>S7</td><td>TST-004、性能、可访问性、诊断与保留</td><td><span class="status active">In progress</span></td><td>axe、键盘与焦点、双主题截图、千条列表预算及 Gateway P95 门禁完成；继续屏幕阅读器和 Beta 真实环境测量</td></tr>
-        <tr><td>S8</td><td>SEC-004、REL-001/002、安全评审</td><td><span class="status active">In progress</span></td><td>仓库供应链门禁、签名更新入口、预更新网络恢复与加密快照、失败后只读历史恢复、code-only 支持包已接入；正式签名制品、真实回滚演练、支持流程与安全评审待推进</td></tr>
+        <tr><td>S8</td><td>SEC-004、REL-001/002、安全评审</td><td><span class="status active">In progress</span></td><td>仓库供应链门禁、失败关闭的跨平台签名发布流水线、应用内更新、预更新恢复快照、只读历史恢复与 code-only 支持包已接入；正式凭据、首批制品、真实回滚、支持流程与安全评审待推进</td></tr>
         <tr><td>S9</td><td>REL-003、完整回归与发布演练</td><td><span class="status">Not started</span></td><td>阻断项清零</td></tr>
       </tbody></table></div>
 
