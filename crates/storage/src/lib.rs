@@ -13,9 +13,9 @@ use codeischeap_prompt_ir::ValidationErrors;
 pub use key::{DATABASE_KEY_BYTES, DatabaseKey, DatabaseKeyStore, KeyStoreError, OsKeyStore};
 pub use migrations::SCHEMA_VERSION;
 pub use model::{
-    CaptureCursor, CaptureSummary, CaptureWrite, DEFAULT_MAX_CAPTURE_AGE, DEFAULT_MAX_CAPTURES,
-    DEFAULT_MINIMUM_FREE_SPACE_BYTES, DEFAULT_RETENTION_BATCH_SIZE, RetentionPolicy,
-    RetentionReport, StorageOptions, StoredCapture,
+    CaptureCursor, CaptureMetrics, CaptureSummary, CaptureWrite, DEFAULT_MAX_CAPTURE_AGE,
+    DEFAULT_MAX_CAPTURES, DEFAULT_MINIMUM_FREE_SPACE_BYTES, DEFAULT_RETENTION_BATCH_SIZE,
+    RetentionPolicy, RetentionReport, StorageOptions, StoredCapture,
 };
 pub use store::{EncryptedStore, MAX_PAGE_SIZE};
 

@@ -178,6 +178,41 @@ fn response_outcomes_round_trip_into_queryable_encrypted_columns() {
 }
 
 #[test]
+fn capture_metrics_count_only_declared_structured_endpoints() {
+    let directory = tempdir().expect("temp directory must be created");
+    let mut store = EncryptedStore::open(
+        directory.path().join("captures.db"),
+        DatabaseKey::from_bytes(KEY_BYTES),
+    )
+    .expect("encrypted store must open");
+
+    let parsed = sanitized_capture("metrics_parsed", 10, "parsed request");
+    let parsed_ir = PromptIr::new("metrics_parsed", "openai");
+    store
+        .upsert_capture(&parsed, Some(&parsed_ir))
+        .expect("parsed capture must persist");
+    store
+        .upsert_capture(&sanitized_capture("metrics_raw", 20, "raw request"), None)
+        .expect("raw supported capture must persist");
+
+    let policy = CapturePolicy::load_default().expect("policy must load");
+    let mut excluded =
+        sanitized_capture("metrics_embeddings", 30, "embedding request").into_envelope();
+    excluded.request.path = "/v1/embeddings".to_owned();
+    let excluded = policy
+        .sanitize_envelope(excluded)
+        .expect("allowed non-structured endpoint must sanitize");
+    store
+        .upsert_capture(&excluded, None)
+        .expect("non-structured capture must persist");
+
+    let metrics = store.capture_metrics().expect("metrics must load");
+    assert_eq!(metrics.earliest_capture_at_unix_ms, Some(10));
+    assert_eq!(metrics.supported_capture_count, 2);
+    assert_eq!(metrics.parsed_capture_count, 1);
+}
+
+#[test]
 fn response_trace_does_not_pollute_prompt_full_text_search() {
     let directory = tempdir().expect("temp directory must be created");
     let mut store = EncryptedStore::open(

@@ -4,6 +4,7 @@ import { save } from "@tauri-apps/plugin-dialog";
 import fixture from "./data/workspace.json";
 import credentialCorpus from "../../../policies/credential-corpus.v0.1.json";
 import type {
+  BetaMetricsPreview,
   CaptureMode,
   CapturedRequest,
   ExportPreview,
@@ -261,6 +262,31 @@ export async function saveSupportBundle(
   return downloadJsonDocument(preview);
 }
 
+export async function previewBetaMetrics(): Promise<BetaMetricsPreview> {
+  if (window.__TAURI_INTERNALS__) {
+    return invoke<BetaMetricsPreview>("preview_beta_metrics");
+  }
+  return fixtureBetaMetricsPreview();
+}
+
+export async function saveBetaMetrics(
+  preview: BetaMetricsPreview,
+): Promise<ExportReceipt | null> {
+  if (window.__TAURI_INTERNALS__) {
+    const path = await save({
+      defaultPath: preview.suggestedFilename,
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+    if (!path) return null;
+    return invoke<ExportReceipt>("write_beta_metrics", {
+      generatedAtUnixMs: preview.generatedAtUnixMs,
+      expectedSha256: preview.contentSha256,
+      path,
+    });
+  }
+  return downloadJsonDocument({ ...preview, redactions: [] });
+}
+
 export async function checkForUpdate(): Promise<UpdateStatus> {
   if (window.__TAURI_INTERNALS__) {
     return invoke<UpdateStatus>("check_for_update");
@@ -425,6 +451,54 @@ async function fixtureSupportBundlePreview(
     redactions: scannedIssue.redactions,
     policyVersion: "0.1",
     formatVersion: "0.1",
+  };
+}
+
+async function fixtureBetaMetricsPreview(): Promise<BetaMetricsPreview> {
+  const generatedAtUnixMs = Date.now();
+  const metrics = {
+    firstCaptureElapsedMs: 42_000,
+    supportedCaptureCount: 240,
+    parsedCaptureCount: 237,
+    completedSessionCount: 320,
+    uncleanSessionCount: 1,
+  };
+  const parseRateBasisPoints = 9_875;
+  const crashFreeRateBasisPoints = 9_968;
+  const content = `${JSON.stringify({
+    formatVersion: "0.1",
+    generatedAtUnixMs,
+    product: {
+      name: "CodeIsCheap",
+      version: "0.1.0",
+      platform: navigator.platform || "web",
+      architecture: "web",
+    },
+    privacy: {
+      requestContentIncluded: false,
+      requestIdentifiersIncluded: false,
+      rawCaptureIncluded: false,
+      logsIncluded: false,
+      requestTimestampsIncluded: false,
+      automaticUpload: false,
+    },
+    metrics: {
+      ...metrics,
+      parseRateBasisPoints,
+      crashFreeRateBasisPoints,
+    },
+  }, null, 2)}\n`;
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(content));
+  return {
+    suggestedFilename: `codeischeap-beta-metrics-${generatedAtUnixMs}.json`,
+    content,
+    byteCount: new TextEncoder().encode(content).length,
+    contentSha256: hexDigest(digest),
+    generatedAtUnixMs,
+    formatVersion: "0.1",
+    metrics,
+    parseRateBasisPoints,
+    crashFreeRateBasisPoints,
   };
 }
 

@@ -2,7 +2,12 @@ import { beforeEach, describe, expect, it } from "vitest";
 import credentialCorpus from "../../../policies/credential-corpus.v0.1.json";
 import fixture from "./data/workspace.json";
 import type { WorkspaceBootstrap } from "./types";
-import { loadWorkspace, previewSupportBundle, searchWorkspace } from "./workspace";
+import {
+  loadWorkspace,
+  previewBetaMetrics,
+  previewSupportBundle,
+  searchWorkspace,
+} from "./workspace";
 
 describe("shared credential corpus", () => {
   beforeEach(() => {
@@ -67,5 +72,22 @@ describe("shared credential corpus", () => {
 
     expect(document.diagnostics.runtimeIssue).toBe(runtimeIssue);
     expect(preview.redactions).toHaveLength(0);
+  });
+
+  it("builds content-free local Beta evidence", async () => {
+    const preview = await previewBetaMetrics();
+    const document = JSON.parse(preview.content) as {
+      privacy: Record<string, boolean>;
+      metrics: Record<string, number>;
+    };
+
+    expect(preview.parseRateBasisPoints).toBe(9_875);
+    expect(preview.crashFreeRateBasisPoints).toBe(9_968);
+    expect(document.privacy.requestContentIncluded).toBe(false);
+    expect(document.privacy.requestIdentifiersIncluded).toBe(false);
+    expect(document.privacy.automaticUpload).toBe(false);
+    expect(document).not.toHaveProperty("requests");
+    expect(document).not.toHaveProperty("logs");
+    expect(preview.content).not.toContain(fixture.requests[0].promptPreview);
   });
 });

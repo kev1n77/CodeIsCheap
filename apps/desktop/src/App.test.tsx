@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import fixture from "./data/workspace.json";
 import type {
+  BetaMetricsPreview,
   ExportPreview,
   ExportProfile,
   SupportBundlePreview,
@@ -122,6 +123,9 @@ describe("request workbench", () => {
     expect(connectionTab)
       .toHaveAttribute("aria-selected", "true");
     connectionTab.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(within(dialog).getByRole("tab", { name: "Metrics" }))
+      .toHaveAttribute("aria-selected", "true");
     await user.keyboard("{ArrowRight}");
     expect(within(dialog).getByRole("tab", { name: "Diagnostics" }))
       .toHaveAttribute("aria-selected", "true");
@@ -335,6 +339,62 @@ describe("request workbench", () => {
       path: "D:\\exports\\support.json",
     });
     expect(await within(dialog).findByText("Support bundle saved")).toBeInTheDocument();
+  });
+
+  it("reviews and saves content-free Beta metrics evidence", async () => {
+    const user = userEvent.setup();
+    window.__TAURI_INTERNALS__ = {};
+    const workspace = structuredClone(fixture) as unknown as WorkspaceBootstrap;
+    const preview: BetaMetricsPreview = {
+      suggestedFilename: "codeischeap-beta-metrics-1700000000200.json",
+      content: "{\"privacy\":{\"requestContentIncluded\":false},\"metrics\":{\"parsedCaptureCount\":196}}\n",
+      byteCount: 91,
+      contentSha256: "b".repeat(64),
+      generatedAtUnixMs: 1_700_000_000_200,
+      formatVersion: "0.1",
+      metrics: {
+        firstCaptureElapsedMs: 90_000,
+        supportedCaptureCount: 200,
+        parsedCaptureCount: 196,
+        completedSessionCount: 400,
+        uncleanSessionCount: 1,
+      },
+      parseRateBasisPoints: 9_800,
+      crashFreeRateBasisPoints: 9_975,
+    };
+    vi.mocked(save).mockResolvedValue("D:\\exports\\beta-metrics.json");
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === "bootstrap_workspace") return structuredClone(workspace);
+      if (command === "preview_beta_metrics") return preview;
+      if (command === "write_beta_metrics") {
+        return { path: args?.path, byteCount: preview.byteCount, redactionCount: 0 };
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    const dialog = screen.getByRole("dialog", { name: "Settings & diagnostics" });
+    await user.click(within(dialog).getByRole("tab", { name: "Metrics" }));
+
+    expect(await within(dialog).findByText("98.00%")).toBeInTheDocument();
+    expect(within(dialog).getByText("99.75%")).toBeInTheDocument();
+    expect(within(dialog).getByText("196 of 200 supported requests")).toBeInTheDocument();
+    const evidence = within(dialog).getByLabelText("Beta metrics evidence preview");
+    expect(evidence).toHaveTextContent("requestContentIncluded");
+    expect(evidence).not.toHaveTextContent(workspacePrompt(workspace));
+    await user.click(within(dialog).getByRole("button", { name: "Save evidence" }));
+
+    expect(save).toHaveBeenCalledWith({
+      defaultPath: preview.suggestedFilename,
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+    expect(invoke).toHaveBeenCalledWith("write_beta_metrics", {
+      generatedAtUnixMs: preview.generatedAtUnixMs,
+      expectedSha256: preview.contentSha256,
+      path: "D:\\exports\\beta-metrics.json",
+    });
+    expect(await within(dialog).findByText("Beta evidence saved")).toBeInTheDocument();
   });
 
   it("opens the connection flow for an empty first-run workspace", async () => {

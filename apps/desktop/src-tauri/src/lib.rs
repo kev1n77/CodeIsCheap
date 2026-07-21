@@ -1,3 +1,7 @@
+mod beta_metrics;
+
+use beta_metrics::BetaMetricsTracker;
+
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::error::Error;
 use std::fmt;
@@ -36,12 +40,13 @@ use codeischeap_core::{
     process_gateway_event,
 };
 use codeischeap_desktop_api::{
-    CaptureMode, CapturedRequest, CertificateAuthority, CertificateAuthorityState,
-    CertificatePrivateMaterial, CertificateTrust, DesktopApiError, DiagnosticEvent, ExportPreview,
-    ExportProfile, ExportReceipt, SupportBundlePreview, UpdateStatus, WorkspaceBootstrap,
-    WorkspaceSource, build_batch_export_preview, build_export_preview,
-    build_support_bundle_preview, diagnose_capture_compatibility, load_request, load_workspace,
-    recovery_read_only_compatibility, search_requests,
+    BetaMetricsPreview, BetaMetricsSnapshot, CaptureMode, CapturedRequest, CertificateAuthority,
+    CertificateAuthorityState, CertificatePrivateMaterial, CertificateTrust, DesktopApiError,
+    DiagnosticEvent, ExportPreview, ExportProfile, ExportReceipt, SupportBundlePreview,
+    UpdateStatus, WorkspaceBootstrap, WorkspaceSource, build_batch_export_preview,
+    build_beta_metrics_preview, build_export_preview, build_support_bundle_preview,
+    diagnose_capture_compatibility, load_request, load_workspace, recovery_read_only_compatibility,
+    search_requests,
 };
 use codeischeap_gateway::{Gateway, GatewayCapture, GatewayCaptureEvent};
 use codeischeap_process_attribution::resolve_loopback_client_pid;
@@ -68,7 +73,7 @@ use codeischeap_storage::{
 use serde::{Deserialize, Serialize};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, State, WindowEvent};
 use tauri_plugin_updater::{Updater, UpdaterExt};
 use tokio::net::TcpListener;
 #[cfg(unix)]
@@ -95,6 +100,8 @@ const PROXY_RECOVERY_JOURNAL_FILENAME: &str = "proxy-recovery.v0.1.json";
 const DIAGNOSTIC_JOURNAL_FILENAME: &str = "diagnostics.v0.1.jsonl";
 const MAX_DIAGNOSTIC_JOURNAL_BYTES: u64 = 256 * 1024;
 const MAX_SUPPORT_DIAGNOSTIC_EVENTS: usize = 100;
+const BETA_METRICS_DIRECTORY: &str = "beta-metrics";
+const MAX_BETA_METRICS_ERROR_CHARS: usize = 500;
 const UPDATER_ENDPOINT: &str =
     "https://github.com/kev1n77/CodeIsCheap/releases/latest/download/latest.json";
 const UPDATE_CHECK_TIMEOUT: Duration = Duration::from_secs(30);
@@ -107,6 +114,10 @@ type SharedStore = Arc<Mutex<Option<EncryptedStore>>>;
 
 struct DesktopState {
     store: SharedStore,
+    beta_metrics: Mutex<Option<BetaMetricsTracker>>,
+    beta_metrics_error: Mutex<Option<String>>,
+    beta_metrics_initialized: AtomicBool,
+    beta_first_capture_eligible: bool,
     gateway: AsyncMutex<Option<GatewayRuntime>>,
     proxy: AsyncMutex<Option<ProxyRuntime>>,
     mode: AsyncMutex<CaptureMode>,
@@ -590,6 +601,46 @@ async fn write_support_bundle(
 }
 
 #[tauri::command]
+fn preview_beta_metrics(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+) -> Result<BetaMetricsPreview, String> {
+    initialize_store(&app, &state)?;
+    refresh_beta_metrics(&app, &state);
+    build_current_beta_metrics_preview(&state, current_unix_ms()?)
+}
+
+#[tauri::command]
+fn write_beta_metrics(
+    generated_at_unix_ms: u64,
+    expected_sha256: String,
+    path: PathBuf,
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+) -> Result<ExportReceipt, String> {
+    initialize_store(&app, &state)?;
+    refresh_beta_metrics(&app, &state);
+    let preview = build_current_beta_metrics_preview(&state, generated_at_unix_ms)?;
+    write_beta_metrics_preview_file(&preview, &expected_sha256, &path)
+}
+
+fn write_beta_metrics_preview_file(
+    preview: &BetaMetricsPreview,
+    expected_sha256: &str,
+    path: &Path,
+) -> Result<ExportReceipt, String> {
+    if preview.content_sha256 != expected_sha256 {
+        return Err("beta metrics changed after preview; review the refreshed evidence".to_owned());
+    }
+    write_new_json_file(path, preview.content.as_bytes())?;
+    Ok(ExportReceipt {
+        path: path.to_string_lossy().into_owned(),
+        byte_count: preview.byte_count,
+        redaction_count: 0,
+    })
+}
+
+#[tauri::command]
 async fn check_for_update(app: AppHandle) -> Result<UpdateStatus, String> {
     let current_version = app.package_info().version.to_string();
     let Some(public_key) = updater_public_key(option_env!("CODEISCHEAP_UPDATER_PUBLIC_KEY")) else {
@@ -672,18 +723,43 @@ async fn install_update(
         )
         .await
         .map_err(|error| format!("signed update could not be installed: {error}"))?;
+    complete_beta_metrics_session(&app);
     app.restart();
 }
 
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let (sidecar_bundle, sidecar_error) =
                 optional_sidecar(open_application_sidecar(app.handle()));
+            let (beta_metrics, beta_metrics_error, beta_first_capture_eligible) =
+                match app.path().app_data_dir() {
+                    Ok(directory) => {
+                        let first_capture_eligible = !directory.join("captures.db").exists();
+                        (
+                            Some(BetaMetricsTracker::new(
+                                directory.join(BETA_METRICS_DIRECTORY),
+                            )),
+                            None,
+                            first_capture_eligible,
+                        )
+                    }
+                    Err(error) => (
+                        None,
+                        Some(bounded_beta_metrics_error(format!(
+                            "application data directory is unavailable: {error}"
+                        ))),
+                        false,
+                    ),
+                };
             app.manage(DesktopState {
                 store: Arc::new(Mutex::new(None)),
+                beta_metrics: Mutex::new(beta_metrics),
+                beta_metrics_error: Mutex::new(beta_metrics_error.clone()),
+                beta_metrics_initialized: AtomicBool::new(false),
+                beta_first_capture_eligible,
                 gateway: AsyncMutex::new(None),
                 proxy: AsyncMutex::new(None),
                 mode: AsyncMutex::new(CaptureMode::Gateway),
@@ -694,6 +770,9 @@ pub fn run() {
                 sidecar_bundle,
                 sidecar_error: Mutex::new(sidecar_error),
             });
+            if let Some(error) = beta_metrics_error {
+                record_runtime_diagnostic(app.handle(), "beta_metrics_unavailable", &error);
+            }
 
             let show = MenuItem::with_id(app, "show", "Show CodeIsCheap", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
@@ -703,7 +782,10 @@ pub fn run() {
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => show_main_window(app),
-                    "quit" => app.exit(0),
+                    "quit" => {
+                        complete_beta_metrics_session(app);
+                        app.exit(0);
+                    }
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
@@ -733,6 +815,7 @@ pub fn run() {
             install_certificate_authority_trust,
             install_update,
             preview_batch_capture_export,
+            preview_beta_metrics,
             preview_capture_export,
             preview_support_bundle,
             search_workspace,
@@ -740,11 +823,17 @@ pub fn run() {
             set_capture_mode,
             uninstall_certificate_authority_trust,
             write_batch_capture_export,
+            write_beta_metrics,
             write_capture_export,
             write_support_bundle
         ])
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())
         .expect("CodeIsCheap desktop runtime failed");
+    app.run(|app, event| {
+        if matches!(event, RunEvent::Exit) {
+            complete_beta_metrics_session(app);
+        }
+    });
 }
 
 fn open_application_store(app: &AppHandle) -> Result<EncryptedStore, Box<dyn Error>> {
@@ -957,37 +1046,56 @@ where
 }
 
 fn initialize_store(app: &AppHandle, state: &DesktopState) -> Result<(), String> {
-    let mut store = state
-        .store
-        .lock()
-        .map_err(|_| "encrypted workspace is temporarily unavailable".to_owned())?;
-    if store.is_none() {
-        let initialized = match open_application_store(app) {
-            Ok(mut initialized) => {
-                remove_legacy_demo_capture(&mut initialized).map_err(|error| error.to_string())?;
-                if let Err(error) = maintain_store(&mut initialized) {
-                    emit_runtime_error(app, "capture_retention_failed", error.to_string());
+    let capture_metrics = {
+        let mut store = state
+            .store
+            .lock()
+            .map_err(|_| "encrypted workspace is temporarily unavailable".to_owned())?;
+        if store.is_none() {
+            let initialized = match open_application_store(app) {
+                Ok(mut initialized) => {
+                    remove_legacy_demo_capture(&mut initialized)
+                        .map_err(|error| error.to_string())?;
+                    if let Err(error) = maintain_store(&mut initialized) {
+                        emit_runtime_error(app, "capture_retention_failed", error.to_string());
+                    }
+                    initialized
                 }
-                initialized
-            }
-            Err(primary_error) => {
-                let recovery = open_application_recovery_store(app).map_err(|recovery_error| {
-                    format!(
-                        "encrypted workspace could not be opened: {primary_error}; validated update recovery is unavailable: {recovery_error}"
-                    )
-                })?;
-                state.capture_active.store(false, Ordering::Release);
-                emit_runtime_error(
-                    app,
-                    "update_recovery_read_only",
-                    format!(
-                        "the primary encrypted workspace failed to open after an update; a validated backup is open read-only: {primary_error}"
-                    ),
-                );
-                recovery
-            }
-        };
-        *store = Some(initialized);
+                Err(primary_error) => {
+                    let recovery =
+                        open_application_recovery_store(app).map_err(|recovery_error| {
+                            format!(
+                                "encrypted workspace could not be opened: {primary_error}; validated update recovery is unavailable: {recovery_error}"
+                            )
+                        })?;
+                    state.capture_active.store(false, Ordering::Release);
+                    emit_runtime_error(
+                        app,
+                        "update_recovery_read_only",
+                        format!(
+                            "the primary encrypted workspace failed to open after an update; a validated backup is open read-only: {primary_error}"
+                        ),
+                    );
+                    recovery
+                }
+            };
+            *store = Some(initialized);
+        }
+        if state.beta_metrics_initialized.load(Ordering::Acquire) {
+            None
+        } else {
+            Some(
+                store
+                    .as_ref()
+                    .ok_or_else(|| "encrypted workspace has not initialized".to_owned())?
+                    .capture_metrics(),
+            )
+        }
+    };
+    match capture_metrics {
+        Some(Ok(metrics)) => begin_beta_metrics_session(app, state, metrics),
+        Some(Err(error)) => record_beta_metrics_failure(app, state, error.to_string()),
+        None => {}
     }
     Ok(())
 }
@@ -1020,20 +1128,180 @@ async fn load_runtime_workspace(
     app: &AppHandle,
     state: &DesktopState,
 ) -> Result<WorkspaceBootstrap, String> {
-    let mut workspace = {
+    let (mut workspace, capture_metrics) = {
         let store = state
             .store
             .lock()
             .map_err(|_| "encrypted workspace is temporarily unavailable".to_owned())?;
-        load_workspace(
-            store
-                .as_ref()
-                .ok_or_else(|| "encrypted workspace has not initialized".to_owned())?,
-        )
-        .map_err(|error| error.to_string())?
+        let store = store
+            .as_ref()
+            .ok_or_else(|| "encrypted workspace has not initialized".to_owned())?;
+        let workspace = load_workspace(store).map_err(|error| error.to_string())?;
+        (workspace, store.capture_metrics())
     };
+    match capture_metrics {
+        Ok(metrics) => observe_beta_metrics(app, state, metrics),
+        Err(error) => record_beta_metrics_failure(app, state, error.to_string()),
+    }
     apply_runtime_state(&mut workspace, runtime_snapshot(app, state).await);
     Ok(workspace)
+}
+
+fn begin_beta_metrics_session(
+    app: &AppHandle,
+    state: &DesktopState,
+    capture_metrics: codeischeap_storage::CaptureMetrics,
+) {
+    let result = current_unix_ms().and_then(|now| {
+        let mut tracker = state
+            .beta_metrics
+            .lock()
+            .map_err(|_| "beta metrics are temporarily unavailable".to_owned())?;
+        tracker
+            .as_mut()
+            .ok_or_else(|| "beta metrics storage is unavailable".to_owned())?
+            .begin_session(now, capture_metrics, state.beta_first_capture_eligible)
+            .map_err(|error| error.to_string())
+    });
+    if result.is_ok() {
+        state
+            .beta_metrics_initialized
+            .store(true, Ordering::Release);
+    }
+    record_beta_metrics_result(app, state, result);
+}
+
+fn refresh_beta_metrics(app: &AppHandle, state: &DesktopState) {
+    let capture_metrics = state
+        .store
+        .lock()
+        .map_err(|_| "encrypted workspace is temporarily unavailable".to_owned())
+        .and_then(|store| {
+            store
+                .as_ref()
+                .ok_or_else(|| "encrypted workspace has not initialized".to_owned())?
+                .capture_metrics()
+                .map_err(|error| error.to_string())
+        });
+    match capture_metrics {
+        Ok(metrics) => observe_beta_metrics(app, state, metrics),
+        Err(error) => record_beta_metrics_failure(app, state, error),
+    }
+}
+
+fn observe_beta_metrics(
+    app: &AppHandle,
+    state: &DesktopState,
+    capture_metrics: codeischeap_storage::CaptureMetrics,
+) {
+    let result = state
+        .beta_metrics
+        .lock()
+        .map_err(|_| "beta metrics are temporarily unavailable".to_owned())
+        .and_then(|mut tracker| {
+            tracker
+                .as_mut()
+                .ok_or_else(|| "beta metrics storage is unavailable".to_owned())?
+                .observe_capture(capture_metrics)
+                .map_err(|error| error.to_string())
+        });
+    record_beta_metrics_result(app, state, result);
+}
+
+fn complete_beta_metrics_session(app: &AppHandle) {
+    let state = app.state::<DesktopState>();
+    let result = match state.beta_metrics.lock() {
+        Ok(mut tracker) => {
+            let Some(tracker) = tracker.as_mut() else {
+                return;
+            };
+            tracker.complete_session().map_err(|error| error.to_string())
+        }
+        Err(_) => Err("beta metrics are temporarily unavailable".to_owned()),
+    };
+    record_beta_metrics_result(app, &state, result);
+}
+
+fn build_current_beta_metrics_preview(
+    state: &DesktopState,
+    generated_at_unix_ms: u64,
+) -> Result<BetaMetricsPreview, String> {
+    if generated_at_unix_ms == 0 {
+        return Err("beta metrics generation time must be positive".to_owned());
+    }
+    if let Some(error) = state
+        .beta_metrics_error
+        .lock()
+        .map_err(|_| "beta metrics are temporarily unavailable".to_owned())?
+        .clone()
+    {
+        return Err(format!("beta metrics are unavailable: {error}"));
+    }
+    let capture_metrics = state
+        .store
+        .lock()
+        .map_err(|_| "encrypted workspace is temporarily unavailable".to_owned())?
+        .as_ref()
+        .ok_or_else(|| "encrypted workspace has not initialized".to_owned())?
+        .capture_metrics()
+        .map_err(|error| error.to_string())?;
+    let session_metrics = state
+        .beta_metrics
+        .lock()
+        .map_err(|_| "beta metrics are temporarily unavailable".to_owned())?
+        .as_ref()
+        .ok_or_else(|| "beta metrics storage is unavailable".to_owned())?
+        .snapshot()
+        .map_err(|error| error.to_string())?;
+    build_beta_metrics_preview(
+        BetaMetricsSnapshot {
+            first_capture_elapsed_ms: session_metrics.first_capture_elapsed_ms,
+            supported_capture_count: capture_metrics.supported_capture_count,
+            parsed_capture_count: capture_metrics.parsed_capture_count,
+            completed_session_count: session_metrics.completed_session_count,
+            unclean_session_count: session_metrics.unclean_session_count,
+        },
+        generated_at_unix_ms,
+    )
+    .map_err(|error| format!("beta metrics could not be encoded: {error}"))
+}
+
+fn record_beta_metrics_result(
+    app: &AppHandle,
+    state: &DesktopState,
+    result: Result<(), String>,
+) {
+    match result {
+        Ok(()) => {
+            if let Ok(mut current) = state.beta_metrics_error.lock() {
+                *current = None;
+            }
+        }
+        Err(error) => record_beta_metrics_failure(app, state, error),
+    }
+}
+
+fn record_beta_metrics_failure(app: &AppHandle, state: &DesktopState, error: String) {
+    let error = bounded_beta_metrics_error(error);
+    let changed = state
+        .beta_metrics_error
+        .lock()
+        .map(|mut current| {
+            if current.as_deref() == Some(error.as_str()) {
+                false
+            } else {
+                *current = Some(error.clone());
+                true
+            }
+        })
+        .unwrap_or(false);
+    if changed {
+        record_runtime_diagnostic(app, "beta_metrics_unavailable", &error);
+    }
+}
+
+fn bounded_beta_metrics_error(error: String) -> String {
+    error.chars().take(MAX_BETA_METRICS_ERROR_CHARS).collect()
 }
 
 fn build_capture_export(
@@ -3262,6 +3530,10 @@ mod tests {
         capture.set_enabled(false);
         let state = DesktopState {
             store: Arc::new(Mutex::new(None)),
+            beta_metrics: Mutex::new(None),
+            beta_metrics_error: Mutex::new(None),
+            beta_metrics_initialized: AtomicBool::new(true),
+            beta_first_capture_eligible: false,
             gateway: AsyncMutex::new(Some(GatewayRuntime {
                 capture: capture.clone(),
                 endpoint: "http://127.0.0.1:8787".to_owned(),
@@ -3308,6 +3580,35 @@ mod tests {
         );
         assert!(write_new_json_file(&path, b"replacement").is_err());
         assert!(write_new_json_file(&directory.path().join("capture.txt"), b"{}").is_err());
+    }
+
+    #[test]
+    fn beta_metrics_write_requires_the_reviewed_digest_and_a_new_file() {
+        let directory = tempdir().expect("export directory");
+        let path = directory.path().join("beta-metrics.json");
+        let preview = build_beta_metrics_preview(
+            BetaMetricsSnapshot {
+                first_capture_elapsed_ms: Some(30_000),
+                supported_capture_count: 100,
+                parsed_capture_count: 98,
+                completed_session_count: 200,
+                unclean_session_count: 1,
+            },
+            1_700_000_000_000,
+        )
+        .expect("preview must encode");
+
+        assert!(write_beta_metrics_preview_file(&preview, "stale", &path).is_err());
+        let receipt = write_beta_metrics_preview_file(&preview, &preview.content_sha256, &path)
+            .expect("reviewed evidence must write");
+        assert_eq!(receipt.redaction_count, 0);
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("evidence must be readable"),
+            preview.content
+        );
+        assert!(
+            write_beta_metrics_preview_file(&preview, &preview.content_sha256, &path).is_err()
+        );
     }
 
     #[test]

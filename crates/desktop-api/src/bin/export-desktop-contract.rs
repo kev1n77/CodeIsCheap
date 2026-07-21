@@ -2,8 +2,8 @@ use std::fs;
 use std::path::PathBuf;
 
 use codeischeap_desktop_api::{
-    ExportPreview, ExportProfile, ExportReceipt, ExportRedaction, SupportBundlePreview,
-    UpdateStatus, WorkspaceBootstrap,
+    BetaMetricsPreview, BetaMetricsSnapshot, ExportPreview, ExportProfile, ExportReceipt,
+    ExportRedaction, SupportBundlePreview, UpdateStatus, WorkspaceBootstrap,
 };
 use ts_rs::{Config, TS};
 
@@ -28,6 +28,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ExportPreview::export_all(&config)?;
     ExportReceipt::export_all(&config)?;
     SupportBundlePreview::export_all(&config)?;
+    BetaMetricsSnapshot::export_all(&config)?;
+    BetaMetricsPreview::export_all(&config)?;
     UpdateStatus::export_all(&config)?;
     Ok(())
 }

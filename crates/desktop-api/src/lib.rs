@@ -1,9 +1,14 @@
 //! Versioned DTOs shared by the Tauri command layer and React workbench.
 
+mod beta;
 mod compatibility;
 mod export;
 mod update;
 
+pub use beta::{
+    BETA_METRICS_FORMAT_VERSION, BetaMetricsPreview, BetaMetricsSnapshot,
+    build_beta_metrics_preview,
+};
 pub use compatibility::{
     CaptureCompatibility, CaptureCompatibilityCode, CaptureCompatibilityStatus,
     CompatibilityAction, CompatibilityConfidence, CompatibilityStep, CompatibilityStepStatus,
@@ -1558,6 +1563,9 @@ mod tests {
         ExportReceipt::export_all(&config).expect("export receipt binding must export");
         SupportBundlePreview::export_all(&config)
             .expect("support bundle preview binding must export");
+        BetaMetricsSnapshot::export_all(&config)
+            .expect("beta metrics snapshot binding must export");
+        BetaMetricsPreview::export_all(&config).expect("beta metrics preview binding must export");
         UpdateStatus::export_all(&config).expect("update status binding must export");
         let checked_in = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../apps/desktop/src/generated/desktop-api");

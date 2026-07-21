@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   AlertTriangle,
+  BarChart3,
   CheckCircle2,
   Copy,
   Download,
@@ -16,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 import type {
+  BetaMetricsPreview,
   CaptureMode,
   CertificateAuthority,
   SupportBundlePreview,
@@ -25,14 +27,16 @@ import type {
 import {
   checkForUpdate,
   installUpdate,
+  previewBetaMetrics,
   previewSupportBundle,
+  saveBetaMetrics,
   saveSupportBundle,
   subscribeToUpdateProgress,
   type UpdateDownloadProgress,
 } from "./workspace";
 import { handleTabListKeyDown, useModalDialog } from "./accessibility";
 
-type SettingsTab = "connection" | "diagnostics" | "updates";
+type SettingsTab = "connection" | "metrics" | "diagnostics" | "updates";
 
 export function SettingsDialog({ workspace, active, runtimeError, certificateError, modeChanging, certificateChanging, onToggleCapture, onModeChange, onCertificateTrustChange, onClose }: {
   workspace: WorkspaceBootstrap;
@@ -53,6 +57,11 @@ export function SettingsDialog({ workspace, active, runtimeError, certificateErr
   const [supportError, setSupportError] = useState("");
   const [supportSaving, setSupportSaving] = useState(false);
   const [supportSavedPath, setSupportSavedPath] = useState("");
+  const [metricsPreview, setMetricsPreview] = useState<BetaMetricsPreview | null>(null);
+  const [metricsError, setMetricsError] = useState("");
+  const [metricsSaving, setMetricsSaving] = useState(false);
+  const [metricsSavedPath, setMetricsSavedPath] = useState("");
+  const [metricsCopied, setMetricsCopied] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
   const [updateProgress, setUpdateProgress] = useState<UpdateDownloadProgress | null>(null);
   const [updateChecking, setUpdateChecking] = useState(false);
@@ -66,6 +75,25 @@ export function SettingsDialog({ workspace, active, runtimeError, certificateErr
     && certificate.state === "ready"
     && certificate.trust === "not_trusted";
   const canRemoveTrust = certificate.canManageTrust && certificate.trust === "trusted";
+
+  useEffect(() => {
+    if (tab !== "metrics") return;
+    let cancelled = false;
+    setMetricsPreview(null);
+    setMetricsError("");
+    setMetricsSavedPath("");
+    setMetricsCopied(false);
+    previewBetaMetrics()
+      .then((preview) => { if (!cancelled) setMetricsPreview(preview); })
+      .catch((reason: unknown) => {
+        if (!cancelled) {
+          setMetricsError(
+            reason instanceof Error ? reason.message : "Beta metrics could not be generated.",
+          );
+        }
+      });
+    return () => { cancelled = true; };
+  }, [tab]);
 
   useEffect(() => {
     if (tab !== "diagnostics") return;
@@ -132,6 +160,31 @@ export function SettingsDialog({ workspace, active, runtimeError, certificateErr
       .finally(() => setSupportSaving(false));
   };
 
+  const copyMetrics = async () => {
+    if (!metricsPreview) return;
+    try {
+      await navigator.clipboard.writeText(metricsPreview.content);
+      setMetricsCopied(true);
+      setMetricsError("");
+    } catch {
+      setMetricsError("Beta metrics could not be copied.");
+    }
+  };
+
+  const saveMetrics = () => {
+    if (!metricsPreview || metricsSaving || metricsSavedPath) return;
+    setMetricsSaving(true);
+    setMetricsError("");
+    saveBetaMetrics(metricsPreview)
+      .then((receipt) => { if (receipt) setMetricsSavedPath(receipt.path); })
+      .catch((reason: unknown) => {
+        setMetricsError(
+          reason instanceof Error ? reason.message : "Beta metrics could not be written.",
+        );
+      })
+      .finally(() => setMetricsSaving(false));
+  };
+
   const checkUpdates = () => {
     if (updateChecking || updateInstalling) return;
     setUpdateChecking(true);
@@ -167,6 +220,7 @@ export function SettingsDialog({ workspace, active, runtimeError, certificateErr
         </header>
         <div className="settings-tabs" role="tablist" aria-label="Settings views" onKeyDown={handleTabListKeyDown}>
           <button id="settings-tab-connection" role="tab" aria-controls="settings-panel-connection" aria-selected={tab === "connection"} tabIndex={tab === "connection" ? 0 : -1} onClick={() => setTab("connection")}><Network size={14} />Connection</button>
+          <button id="settings-tab-metrics" role="tab" aria-controls="settings-panel-metrics" aria-selected={tab === "metrics"} tabIndex={tab === "metrics" ? 0 : -1} onClick={() => setTab("metrics")}><BarChart3 size={14} />Metrics</button>
           <button id="settings-tab-diagnostics" role="tab" aria-controls="settings-panel-diagnostics" aria-selected={tab === "diagnostics"} tabIndex={tab === "diagnostics" ? 0 : -1} onClick={() => setTab("diagnostics")}><Stethoscope size={14} />Diagnostics</button>
           <button id="settings-tab-updates" role="tab" aria-controls="settings-panel-updates" aria-selected={tab === "updates"} tabIndex={tab === "updates" ? 0 : -1} onClick={() => setTab("updates")}><UploadCloud size={14} />Updates</button>
         </div>
@@ -213,6 +267,17 @@ export function SettingsDialog({ workspace, active, runtimeError, certificateErr
             <div><span>Safe recovery</span><strong>Return traffic to the local Gateway</strong><small>Stops the explicit proxy runtime and restores managed system proxy settings.</small></div>
             <button className="settings-command" disabled={!workspace.capture.canControl || workspace.capture.mode === "gateway" || modeChanging} onClick={() => onModeChange("gateway")}><RotateCcw size={14} />Return to Gateway</button>
           </section>
+        </div>}
+        {tab === "metrics" && <div id="settings-panel-metrics" className="settings-content metrics-content" role="tabpanel" aria-labelledby="settings-tab-metrics" tabIndex={0}>
+          <div className="diagnostics-toolbar"><span>Aggregate local evidence only. No prompts, identifiers, logs, or automatic upload.</span><div className="diagnostics-actions"><button className="settings-command" disabled={!metricsPreview} onClick={copyMetrics}><Copy size={14} />{metricsCopied ? "Copied" : "Copy evidence"}</button><button className="settings-command" disabled={!metricsPreview || metricsSaving || Boolean(metricsSavedPath)} onClick={saveMetrics}>{metricsSaving ? <LoaderCircle className="is-spinning" size={14} /> : <Download size={14} />}{metricsSavedPath ? "Saved" : "Save evidence"}</button></div></div>
+          {metricsError && <span className="settings-error diagnostics-error" role="alert">{metricsError}</span>}
+          <div className="metrics-summary" aria-label="Beta metrics summary">
+            <MetricSummary label="First capture" value={formatDuration(metricsPreview?.metrics.firstCaptureElapsedMs ?? null)} detail="Elapsed from the first eligible launch" />
+            <MetricSummary label="Endpoint parse rate" value={formatRate(metricsPreview?.parseRateBasisPoints ?? null)} detail={metricsPreview ? `${metricsPreview.metrics.parsedCaptureCount} of ${metricsPreview.metrics.supportedCaptureCount} supported requests` : "Waiting for local evidence"} />
+            <MetricSummary label="Crash-free sessions" value={formatRate(metricsPreview?.crashFreeRateBasisPoints ?? null)} detail={metricsPreview ? `${metricsPreview.metrics.completedSessionCount - metricsPreview.metrics.uncleanSessionCount} of ${metricsPreview.metrics.completedSessionCount} completed sessions` : "Waiting for local evidence"} />
+          </div>
+          {metricsSavedPath && <div className="diagnostics-saved" role="status"><CheckCircle2 size={14} /><span>Beta evidence saved</span><code title={metricsSavedPath}>{metricsSavedPath}</code></div>}
+          <pre className="diagnostics-preview" aria-label="Beta metrics evidence preview">{metricsPreview?.content ?? "Generating Beta metrics preview"}</pre>
         </div>}
         {tab === "diagnostics" && <div id="settings-panel-diagnostics" className="settings-content diagnostics-content" role="tabpanel" aria-labelledby="settings-tab-diagnostics" tabIndex={0}>
           <div className="diagnostics-toolbar"><span>Request content, identifiers, Raw capture, and log details are excluded.</span><div className="diagnostics-actions"><button className="settings-command" disabled={!supportPreview} onClick={copyReport}><Copy size={14} />{copied ? "Copied" : "Copy report"}</button><button className="settings-command" disabled={!supportPreview || supportSaving || Boolean(supportSavedPath)} onClick={saveBundle}>{supportSaving ? <LoaderCircle className="is-spinning" size={14} /> : <Download size={14} />}{supportSavedPath ? "Saved" : "Save support bundle"}</button></div></div>
@@ -272,6 +337,21 @@ function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+}
+
+function formatDuration(milliseconds: number | null) {
+  if (milliseconds == null) return "Not observed";
+  if (milliseconds < 1_000) return `${milliseconds} ms`;
+  if (milliseconds < 60_000) return `${(milliseconds / 1_000).toFixed(1)} s`;
+  return `${(milliseconds / 60_000).toFixed(1)} min`;
+}
+
+function formatRate(basisPoints: number | null) {
+  return basisPoints == null ? "Not enough data" : `${(basisPoints / 100).toFixed(2)}%`;
+}
+
+function MetricSummary({ label, value, detail }: { label: string; value: string; detail: string }) {
+  return <section><span>{label}</span><strong>{value}</strong><small>{detail}</small></section>;
 }
 
 function CompatibilityCommand({ action, disabled, onResume, onTrust, onGateway }: {
