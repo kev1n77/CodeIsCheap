@@ -89,6 +89,14 @@ python scripts/verify_release_readiness.py --repository-root . --allow-pending
 python scripts/verify_release_readiness.py --repository-root . --tag v0.1.0
 ```
 
+Beta 参与者从应用 Metrics 页主动导出本机聚合值；Release Owner 使用版本化策略离线去重和汇总，原始文件不进入仓库：
+
+```powershell
+python scripts/aggregate_beta_metrics.py --policy release/beta-metrics-policy.v0.1.json --input-directory path/to/reviewed-exports --output path/to/new-beta-report.json --require-ready
+```
+
+流程与最小样本量见 [`docs/beta-evidence.html`](./docs/beta-evidence.html)。
+
 系统代理事务与独立恢复 watchdog 位于 `crates/proxy-recovery`；Windows WinINet 与 macOS networksetup backend 均已通过临时 CI runner 的真实强杀恢复实验。
 
 启动 Gateway Spike：

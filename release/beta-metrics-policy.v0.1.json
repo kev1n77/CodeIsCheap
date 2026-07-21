@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "0.1",
+  "releaseVersion": "0.1.0",
+  "allowedPlatforms": ["macos", "windows"],
+  "minimums": {
+    "contributors": 30,
+    "firstCaptureSamples": 30,
+    "supportedCaptures": 1000,
+    "completedSessions": 1000
+  },
+  "thresholds": {
+    "firstCaptureP50MaxMs": 180000,
+    "endpointParseRateMinBasisPointsExclusive": 9500,
+    "crashFreeRateMinBasisPointsExclusive": 9950
+  }
+}

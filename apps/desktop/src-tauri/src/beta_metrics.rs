@@ -18,6 +18,7 @@ const MAX_BETA_METRICS_BYTES: u64 = 16 * 1024;
 pub enum BetaMetricsError {
     Io(std::io::Error),
     Json(serde_json::Error),
+    Random(getrandom::Error),
     Invalid(&'static str),
 }
 
@@ -26,6 +27,7 @@ impl fmt::Display for BetaMetricsError {
         match self {
             Self::Io(error) => write!(formatter, "beta metrics I/O failed: {error}"),
             Self::Json(error) => write!(formatter, "beta metrics JSON is invalid: {error}"),
+            Self::Random(error) => write!(formatter, "beta metrics randomness failed: {error}"),
             Self::Invalid(detail) => write!(formatter, "beta metrics are invalid: {detail}"),
         }
     }
@@ -45,8 +47,15 @@ impl From<serde_json::Error> for BetaMetricsError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+impl From<getrandom::Error> for BetaMetricsError {
+    fn from(error: getrandom::Error) -> Self {
+        Self::Random(error)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BetaSessionMetrics {
+    pub sample_id: String,
     pub first_capture_elapsed_ms: Option<u64>,
     pub completed_session_count: u64,
     pub unclean_session_count: u64,
@@ -57,6 +66,8 @@ pub struct BetaSessionMetrics {
 struct BetaMetricsRecord {
     schema_version: String,
     generation: u64,
+    #[serde(default)]
+    sample_id: String,
     first_launch_at_unix_ms: u64,
     first_capture_elapsed_ms: Option<u64>,
     first_capture_eligible: bool,
@@ -92,17 +103,24 @@ impl BetaMetricsTracker {
         if now_unix_ms == 0 {
             return Err(BetaMetricsError::Invalid("session time must be positive"));
         }
-        let mut record = self.load_latest()?.unwrap_or(BetaMetricsRecord {
-            schema_version: BETA_METRICS_VERSION.to_owned(),
-            generation: 0,
-            first_launch_at_unix_ms: now_unix_ms,
-            first_capture_elapsed_ms: None,
-            first_capture_eligible: first_capture_eligible
-                && capture_metrics.earliest_capture_at_unix_ms.is_none(),
-            completed_session_count: 0,
-            unclean_session_count: 0,
-            active_session_started_at_unix_ms: None,
-        });
+        let mut record = match self.load_latest()? {
+            Some(record) => record,
+            None => BetaMetricsRecord {
+                schema_version: BETA_METRICS_VERSION.to_owned(),
+                generation: 0,
+                sample_id: new_sample_id()?,
+                first_launch_at_unix_ms: now_unix_ms,
+                first_capture_elapsed_ms: None,
+                first_capture_eligible: first_capture_eligible
+                    && capture_metrics.earliest_capture_at_unix_ms.is_none(),
+                completed_session_count: 0,
+                unclean_session_count: 0,
+                active_session_started_at_unix_ms: None,
+            },
+        };
+        if record.sample_id.is_empty() {
+            record.sample_id = new_sample_id()?;
+        }
         if record.active_session_started_at_unix_ms.is_some() {
             record.completed_session_count = record
                 .completed_session_count
@@ -149,6 +167,7 @@ impl BetaMetricsTracker {
             "beta metrics have not initialized",
         ))?;
         Ok(BetaSessionMetrics {
+            sample_id: record.sample_id.clone(),
             first_capture_elapsed_ms: record.first_capture_elapsed_ms,
             completed_session_count: record.completed_session_count,
             unclean_session_count: record.unclean_session_count,
@@ -201,7 +220,7 @@ impl BetaMetricsTracker {
     }
 
     fn persist(&mut self, mut record: BetaMetricsRecord) -> Result<(), BetaMetricsError> {
-        validate_record(&record, true)?;
+        validate_record(&record, true, false)?;
         record.generation = record
             .generation
             .checked_add(1)
@@ -268,16 +287,23 @@ fn load_record(path: &Path) -> Result<Option<BetaMetricsRecord>, BetaMetricsErro
         ));
     }
     let record: BetaMetricsRecord = serde_json::from_slice(&fs::read(path)?)?;
-    validate_record(&record, false)?;
+    validate_record(&record, false, true)?;
     Ok(Some(record))
 }
 
 fn validate_record(
     record: &BetaMetricsRecord,
     allow_zero_generation: bool,
+    allow_missing_sample_id: bool,
 ) -> Result<(), BetaMetricsError> {
+    let invalid_sample_id = if record.sample_id.is_empty() {
+        !allow_missing_sample_id
+    } else {
+        !valid_sample_id(&record.sample_id)
+    };
     if record.schema_version != BETA_METRICS_VERSION
         || (!allow_zero_generation && record.generation == 0)
+        || invalid_sample_id
         || record.first_launch_at_unix_ms == 0
         || record.unclean_session_count > record.completed_session_count
         || record.active_session_started_at_unix_ms == Some(0)
@@ -286,6 +312,25 @@ fn validate_record(
         return Err(BetaMetricsError::Invalid("record invariant failed"));
     }
     Ok(())
+}
+
+fn new_sample_id() -> Result<String, BetaMetricsError> {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut bytes = [0_u8; 16];
+    getrandom::fill(&mut bytes)?;
+    let mut sample_id = String::with_capacity(32);
+    for byte in bytes {
+        sample_id.push(char::from(HEX[usize::from(byte >> 4)]));
+        sample_id.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    Ok(sample_id)
+}
+
+fn valid_sample_id(sample_id: &str) -> bool {
+    sample_id.len() == 32
+        && sample_id
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 fn remove_slot_for_rewrite(path: &Path) -> Result<(), BetaMetricsError> {
@@ -323,6 +368,9 @@ mod tests {
             tracker
                 .observe_capture(captures(Some(150)))
                 .expect("observe");
+            assert!(valid_sample_id(
+                &tracker.snapshot().expect("snapshot").sample_id
+            ));
             assert_eq!(
                 tracker
                     .snapshot()
@@ -340,6 +388,7 @@ mod tests {
         assert_eq!(snapshot.completed_session_count, 1);
         assert_eq!(snapshot.unclean_session_count, 0);
         assert_eq!(snapshot.first_capture_elapsed_ms, Some(50));
+        assert!(valid_sample_id(&snapshot.sample_id));
     }
 
     #[test]
@@ -414,5 +463,39 @@ mod tests {
                 .first_capture_elapsed_ms,
             None
         );
+    }
+
+    #[test]
+    fn legacy_records_receive_a_stable_random_sample_id() {
+        let directory = tempdir().expect("temporary directory");
+        fs::write(
+            directory.path().join(BETA_METRICS_SLOT_B),
+            br#"{
+                "schemaVersion":"0.1",
+                "generation":1,
+                "firstLaunchAtUnixMs":100,
+                "firstCaptureElapsedMs":null,
+                "firstCaptureEligible":false,
+                "completedSessionCount":1,
+                "uncleanSessionCount":0,
+                "activeSessionStartedAtUnixMs":null
+            }"#,
+        )
+        .expect("legacy record");
+
+        let sample_id = {
+            let mut tracker = BetaMetricsTracker::new(directory.path());
+            tracker
+                .begin_session(200, captures(None), false)
+                .expect("migrate legacy record");
+            tracker.snapshot().expect("snapshot").sample_id
+        };
+        assert!(valid_sample_id(&sample_id));
+
+        let mut restarted = BetaMetricsTracker::new(directory.path());
+        restarted
+            .begin_session(300, captures(None), false)
+            .expect("restart migrated record");
+        assert_eq!(restarted.snapshot().expect("snapshot").sample_id, sample_id);
     }
 }

@@ -16,13 +16,13 @@
       <p class="lead">本页是项目状态的单一入口。开发计划定义“应该做什么”，本页只记录“当前做到哪里、是否健康、下一步是什么”。</p>
 
       <div class="meta-grid">
-        <div class="meta-item"><span>工程进度</span><strong>84%</strong></div>
+        <div class="meta-item"><span>工程进度</span><strong>85%</strong></div>
         <div class="meta-item"><span>当前阶段</span><strong>发布就绪与真实验收</strong></div>
         <div class="meta-item"><span>当前迭代</span><strong>S5 / S7 / S8 / S9 · 进行中</strong></div>
         <div class="meta-item"><span>最后更新</span><strong>2026-07-21</strong></div>
       </div>
 
-      <div class="decision"><strong>当前结论</strong>产品功能、安全支持和发布机制已形成闭环；首次捕获、端点解析率和 crash-free session 已支持本地无内容采集与人工导出，但仍需真实 Beta 样本关闭 readiness。下一步完成真实发布/回滚、管理员矩阵、屏幕阅读器、Beta 取样和独立安全评审。</div>
+      <div class="decision"><strong>当前结论</strong>产品功能、安全支持和发布机制已形成闭环；Beta 指标已具备本地无内容采集、随机去重 ID、严格离线聚合和最小样本门槛，但仍需真实参与者数据关闭 readiness。下一步完成真实取样、发布/回滚、管理员矩阵、屏幕阅读器和独立安全评审。</div>
 
       <h2 id="usage">1. 更新规则</h2>
       <ol>
@@ -50,7 +50,7 @@
         <tr><td class="task-id">M2</td><td>Gateway 与双厂商闭环</td><td>20%</td><td><div class="progress-track"><div class="progress-value" style="width:100%"></div></div> 100%</td><td><span class="status done">Done</span></td><td>W8</td><td>Codex / TBD</td></tr>
         <tr><td class="task-id">M3</td><td>显式代理、安全与恢复</td><td>20%</td><td><div class="progress-track"><div class="progress-value" style="width:75%"></div></div> 75%</td><td><span class="status active">In progress</span></td><td>W12</td><td>Codex / TBD</td></tr>
         <tr><td class="task-id">M4</td><td>四厂商、Compare 与搜索</td><td>15%</td><td><div class="progress-track"><div class="progress-value" style="width:100%"></div></div> 100%</td><td><span class="status done">Done</span></td><td>W14</td><td>Codex / TBD</td></tr>
-        <tr><td class="task-id">M5</td><td>Public Beta 稳定性</td><td>15%</td><td><div class="progress-track"><div class="progress-value" style="width:20%"></div></div> 20%</td><td><span class="status active">In progress</span></td><td>W18</td><td>Codex / TBD</td></tr>
+        <tr><td class="task-id">M5</td><td>Public Beta 稳定性</td><td>15%</td><td><div class="progress-track"><div class="progress-value" style="width:30%"></div></div> 30%</td><td><span class="status active">In progress</span></td><td>W18</td><td>Codex / TBD</td></tr>
         <tr><td class="task-id">M6</td><td>GA 发布</td><td>10%</td><td><div class="progress-track"><div class="progress-value" style="width:0%"></div></div> 0%</td><td><span class="status">Not started</span></td><td>W20</td><td>TBD</td></tr>
       </tbody></table></div>
       <p class="note">总体进度 = Σ（里程碑权重 × 里程碑完成度）。设计文档不计入工程完成度。</p>
@@ -62,7 +62,7 @@
         <tr><td>Capture / Network</td><td>CAP-001~007</td><td>88%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>完成 macOS helper 真实故障矩阵；生产签名随发布凭据补齐</td></tr>
         <tr><td>Prompt / Adapters</td><td>PAR-001~007</td><td>100%</td><td><span class="status done">Done</span></td><td>Codex / TBD</td><td>保持价格目录与 provider usage 映射可追溯</td></tr>
         <tr><td>Data / Security</td><td>DAT-001~002、SEC-001~004</td><td>95%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>继续 WASI 权限、正式签名制品与独立安全评审</td></tr>
-        <tr><td>Test / Release</td><td>TST-001~004、REL-001~003</td><td>84%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>逐项关闭 readiness 中九个人工/真实环境 gate</td></tr>
+        <tr><td>Test / Release</td><td>TST-001~004、REL-001~003</td><td>86%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>收集真实 Beta 证据并逐项关闭九个人工/真实环境 gate</td></tr>
       </tbody></table></div>
 
       <h2 id="current-sprint">5. 当前迭代：S5 / S6</h2>
@@ -154,8 +154,8 @@
 
       <h2 id="quality">9. 质量指标</h2>
       <div class="table-wrap"><table><thead><tr><th>指标</th><th>当前</th><th>Beta 目标</th><th>数据来源</th></tr></thead><tbody>
-        <tr><td>支持端点解析成功率</td><td>本地聚合与导出已实现；Beta 样本待收集</td><td>&gt; 95%</td><td>声明支持端点计数与人工导出的无内容 JSON</td></tr>
-        <tr><td>首次捕获时间 P50</td><td>首次合格安装计时已实现；Beta 样本待收集</td><td>&lt; 3 分钟</td><td>本地双槽会话记录与人工导出的无内容 JSON</td></tr>
+        <tr><td>支持端点解析成功率</td><td>本地导出、去重与离线聚合已实现；真实样本待收集</td><td>&gt; 95%</td><td><a href="beta-evidence.html">版本化策略与无内容聚合报告</a></td></tr>
+        <tr><td>首次捕获时间 P50</td><td>首次合格安装计时、去重与 P50 已实现；真实样本待收集</td><td>&lt; 3 分钟</td><td><a href="beta-evidence.html">版本化策略与无内容聚合报告</a></td></tr>
         <tr><td>代理恢复成功率</td><td>N/A</td><td>100%</td><td>故障注入矩阵</td></tr>
         <tr><td>凭据落盘命中</td><td>0（SQLCipher DB/WAL）</td><td>0</td><td>DB、日志、临时文件扫描</td></tr>
         <tr><td>Gateway 额外延迟 P95</td><td>0.609 ms（最新本地 200 次样本）</td><td>&lt; 20 ms</td><td>串行 CI fake provider benchmark；直连与带捕获 Gateway 对照</td></tr>
@@ -165,7 +165,7 @@
         <tr><td>数据生命周期</td><td>批量原子写入、30 天/50,000 条保留、256 MiB 磁盘保护通过</td><td>压力下不损坏 DB 且网络转发不中断</td><td>SQLCipher 集成测试与 Tauri 运行时测试</td></tr>
         <tr><td>Sidecar bundle</td><td>三平台制品、原子安装、Tauri 嵌入和最小环境子进程测试通过</td><td>运行时复核全部 hash/contract；发布时强制有效平台签名</td><td>CI bundle artifact、Rust runtime 与 release signature gate</td></tr>
         <tr><td>Proxy 兼容诊断</td><td>bundle/端点/CA/信任/会话事件可解释；零事件仅低置信度提示 pinning/绕过</td><td>不误报已证实 pinning；可一键回退 Gateway</td><td>Desktop API、Tauri、React 测试与 620 px 浏览器布局验收</td></tr>
-        <tr><td>关键 crash-free session</td><td>干净/异常退出计数已实现；Beta 样本待收集</td><td>&gt; 99.5%</td><td>本地双槽会话记录与人工导出的无内容 JSON</td></tr>
+        <tr><td>关键 crash-free session</td><td>干净/异常退出、去重与离线聚合已实现；真实样本待收集</td><td>&gt; 99.5%</td><td><a href="beta-evidence.html">版本化策略与无内容聚合报告</a></td></tr>
       </tbody></table></div>
 
       <h2 id="release">10. 发布就绪清单</h2>
@@ -243,6 +243,7 @@
         <tr><td>2026-07-21</td><td>Capture / Recovery</td><td>macOS 26 owner 断连恢复兼容</td><td>认证后的 helper 控制 socket 在 peer 关闭时可能返回 EINVAL；所有传输层断连现统一进入显式代理恢复并正常结束，畸形协议和 JSON 仍恢复后报错</td><td>Codex</td></tr>
         <tr><td>2026-07-21</td><td>Release / GA</td><td>REL-003 版本化 readiness 首段完成</td><td>发布说明、兼容矩阵和事故响应计划进入仓库；12 项 gate 使用严格 JSON 契约记录 reviewer、时间与证据，普通 CI 验证结构，签名发布要求全部通过并把 readiness 快照纳入制品哈希清单</td><td>Codex</td></tr>
         <tr><td>2026-07-21</td><td>Desktop / Beta Metrics</td><td>APP-006 / REL-003 本地证据采集完成</td><td>独立双槽文件记录首次捕获和干净/异常会话，SQLCipher 聚合声明支持端点的解析率；设置页可复核、复制和只新建导出，不包含 Prompt、请求标识、日志或自动上传</td><td>Codex</td></tr>
+        <tr><td>2026-07-21</td><td>Release / Beta Evidence</td><td>REL-003 离线聚合链完成</td><td>每个安装使用随机 128-bit ID 防止重复贡献；严格验证器拒绝隐私异常、未知字段、重复、symlink、伪造率和错误版本，按 30 位贡献者与 1,000 请求/会话最小量计算三个 gate，最终报告不保留样本 ID</td><td>Codex</td></tr>
         <tr><td colspan="5">后续范围、架构、日期或资源变化均在此追加，并链接对应 ADR/会议结论。</td></tr>
       </tbody></table></div>
 
