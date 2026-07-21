@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "0.1",
+  "releaseVersion": "0.1.0",
+  "updatedAt": "2026-07-21T13:10:00Z",
+  "notesFile": "release/notes/v0.1.0.md",
+  "gates": [
+    { "id": "compatibility_matrix", "status": "passed", "reviewer": "Codex", "completedAt": "2026-07-21T13:10:00Z", "evidence": ["docs/compatibility.html"] },
+    { "id": "support_process", "status": "passed", "reviewer": "Codex", "completedAt": "2026-07-21T13:10:00Z", "evidence": ["docs/support.html"] },
+    { "id": "incident_response_plan", "status": "passed", "reviewer": "Codex", "completedAt": "2026-07-21T13:10:00Z", "evidence": ["docs/incident-response.html"] },
+    { "id": "windows_admin_matrix", "status": "pending", "reviewer": null, "completedAt": null, "evidence": [] },
+    { "id": "macos_admin_matrix", "status": "pending", "reviewer": null, "completedAt": null, "evidence": [] },
+    { "id": "screen_reader_acceptance", "status": "pending", "reviewer": null, "completedAt": null, "evidence": [] },
+    { "id": "first_capture_p50", "status": "pending", "reviewer": null, "completedAt": null, "evidence": [] },
+    { "id": "endpoint_parse_rate", "status": "pending", "reviewer": null, "completedAt": null, "evidence": [] },
+    { "id": "beta_crash_free_sessions", "status": "pending", "reviewer": null, "completedAt": null, "evidence": [] },
+    { "id": "independent_security_review", "status": "pending", "reviewer": null, "completedAt": null, "evidence": [] },
+    { "id": "signed_update_rollback", "status": "pending", "reviewer": null, "completedAt": null, "evidence": [] },
+    { "id": "incident_response_drill", "status": "pending", "reviewer": null, "completedAt": null, "evidence": [] }
+  ]
+}

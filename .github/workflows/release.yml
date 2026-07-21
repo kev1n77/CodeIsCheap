@@ -10,10 +10,6 @@ on:
         description: Existing v<semver> tag to release
         required: true
         type: string
-      notes:
-        description: Optional release notes override
-        required: false
-        type: string
 
 concurrency:
   group: signed-release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
@@ -58,6 +54,19 @@ jobs:
 
       - name: Run release preparation tests
         run: python -m unittest discover -s scripts/tests -v
+
+      - name: Require completed GA readiness evidence
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          readiness_args=(--repository-root . --tag "$RELEASE_TAG")
+          if [[ "$RELEASE_VERSION" == *-* ]]; then
+            readiness_args+=(--allow-pending)
+          fi
+          python scripts/verify_release_readiness.py "${readiness_args[@]}"
 
       - name: Verify repository supply chain policy
         run: python scripts/verify_supply_chain.py
@@ -292,7 +301,6 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
       RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
-      RELEASE_NOTES: ${{ github.event_name == 'workflow_dispatch' && inputs.notes || '' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -310,12 +318,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if test -n "$RELEASE_NOTES"; then
-            printf '%s\n' "$RELEASE_NOTES" > release-notes.md
-          else
-            git tag -l "$RELEASE_TAG" --format='%(contents)' > release-notes.md
-            test -s release-notes.md || printf 'CodeIsCheap %s\n' "$RELEASE_VERSION" > release-notes.md
-          fi
+          notes_file="release/notes/${RELEASE_TAG}.md"
+          test -f "$notes_file" && test -s "$notes_file" || {
+            echo "reviewed release notes are required at $notes_file" >&2
+            exit 1
+          }
+          cp "$notes_file" release-notes.md
           python scripts/prepare_release.py prepare \
             --repository-root . \
             --input release-input \
@@ -325,6 +333,7 @@ jobs:
             --pub-date "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
             --notes-file release-notes.md
           python scripts/prepare_release.py verify --output release-output
+          test -s release-output/release-readiness.v0.1.json
 
       - name: Create draft release and publish only after upload succeeds
         shell: bash

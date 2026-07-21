@@ -54,7 +54,7 @@
       <tr><td class="task-id">TM-09</td><td>恶意 Prompt 触发 UI 注入</td><td>React 默认转义、Tauri CSP</td><td>Raw 仅纯文本、URL 不自动执行、XSS fixture</td></tr>
       <tr><td class="task-id">TM-10</td><td>超大/高速流量耗尽内存或磁盘</td><td>认证帧 1 KiB、Envelope 4 MiB、sidecar 有界队列、IPC 连接截止时间、存储配额与磁盘压力暂停</td><td>完善丢弃/降级指标与高压故障注入</td></tr>
       <tr><td class="task-id">TM-11</td><td>将推断内容误标为已观察 Prompt</td><td>Prompt IR evidence 类型</td><td>UI 强制显示 observed / inferred / unknown</td></tr>
-      <tr><td class="task-id">TM-12</td><td>诊断、崩溃报告或遥测外泄</td><td>当前无产品遥测；256 KiB 诊断 journal 仅保存受限事件代码和时间戳；支持包最多包含最近 100 条事件，排除 Prompt、Raw、请求标识和日志详情，并由用户预览后保存</td><td>遥测必须显式选择且先脱敏；建立支持处理与保留流程</td></tr>
+      <tr><td class="task-id">TM-12</td><td>诊断、崩溃报告或遥测外泄</td><td>当前无产品遥测；256 KiB 诊断 journal 仅保存受限事件代码和时间戳；支持包最多包含最近 100 条事件，排除 Prompt、Raw、请求标识和日志详情，并由用户预览后保存；接收、保留与删除流程已发布</td><td>未来遥测必须显式选择且先脱敏</td></tr>
     </tbody></table></div>
 
     <h2 id="blockers">发布阻断项</h2>
@@ -66,6 +66,7 @@
       <li>HTTPS 代理完成 CA 生命周期、权限和卸载验证</li>
       <li>sidecar 与更新包完成签名、hash 和 SBOM 校验</li>
       <li>安全 reviewer 关闭所有 Critical / High 未缓解项</li>
+      <li>版本化 GA readiness 的人工与真实环境证据全部通过</li>
     </ul>
 
     <h2 id="review">评审记录</h2>

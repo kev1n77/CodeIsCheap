@@ -8,9 +8,15 @@ import json
 from pathlib import Path
 import re
 import shutil
-import tomllib
 from typing import Any
 from urllib.parse import quote, unquote
+
+from release_version import ReleaseVersionError, validate_tag as validate_release_tag
+from verify_release_readiness import (
+    READINESS_PATH,
+    REQUIRED_GATE_IDS,
+    verify_release_readiness,
+)
 
 
 PLATFORM_DIRECTORY_PREFIX = "release-"
@@ -19,13 +25,15 @@ SUPPORTED_PLATFORMS = {
     "darwin-x86_64": (".app.tar.gz", ".app.tar"),
     "darwin-aarch64": (".app.tar.gz", ".app.tar"),
 }
-TAG_PATTERN = re.compile(
-    r"v(?P<version>(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)\Z"
-)
-
-
 class ReleaseError(ValueError):
     """Raised when release inputs are incomplete or inconsistent."""
+
+
+def validate_tag(repository: Path, tag: str) -> str:
+    try:
+        return validate_release_tag(repository, tag)
+    except ReleaseVersionError as error:
+        raise ReleaseError(str(error)) from error
 
 
 def sha256_file(path: Path) -> str:
@@ -34,36 +42,6 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
-
-
-def repository_version(repository: Path) -> str:
-    tauri = json.loads(
-        (repository / "apps/desktop/src-tauri/tauri.conf.json").read_text(
-            encoding="utf-8"
-        )
-    )["version"]
-    package = json.loads(
-        (repository / "apps/desktop/package.json").read_text(encoding="utf-8")
-    )["version"]
-    with (repository / "apps/desktop/src-tauri/Cargo.toml").open("rb") as source:
-        cargo = tomllib.load(source)["package"]["version"]
-    versions = {str(tauri), str(package), str(cargo)}
-    if len(versions) != 1:
-        raise ReleaseError(
-            "desktop versions disagree across tauri.conf.json, package.json, and Cargo.toml"
-        )
-    return versions.pop()
-
-
-def validate_tag(repository: Path, tag: str) -> str:
-    match = TAG_PATTERN.fullmatch(tag)
-    if match is None:
-        raise ReleaseError("release tag must be a canonical v<semver> tag")
-    version = match.group("version")
-    expected = repository_version(repository)
-    if version != expected:
-        raise ReleaseError(f"release tag {tag} does not match desktop version {expected}")
-    return version
 
 
 def _safe_file(path: Path, root: Path) -> Path:
@@ -150,7 +128,15 @@ def prepare_release(
     pub_date: str,
     notes: str,
 ) -> dict[str, Any]:
-    version = validate_tag(repository_root, tag)
+    try:
+        version = validate_tag(repository_root, tag)
+        verify_release_readiness(
+            repository_root,
+            tag,
+            allow_pending="-" in version,
+        )
+    except (ReleaseVersionError, ValueError) as error:
+        raise ReleaseError(str(error)) from error
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", github_repository):
         raise ReleaseError("GitHub repository must use owner/name syntax")
     if not pub_date or "T" not in pub_date:
@@ -170,6 +156,9 @@ def prepare_release(
         output.mkdir(parents=True)
 
     artifacts = _copy_artifacts(platforms, output)
+    readiness_source = repository_root / READINESS_PATH
+    readiness_path = output / "release-readiness.v0.1.json"
+    shutil.copy2(readiness_source, readiness_path)
     base_url = f"https://github.com/{github_repository}/releases/download/{tag}"
     latest_platforms: dict[str, dict[str, str]] = {}
     for platform, (artifact, signature) in updater_pairs.items():
@@ -203,6 +192,11 @@ def prepare_release(
             "bytes": latest_path.stat().st_size,
             "sha256": sha256_file(latest_path),
         },
+        "readiness": {
+            "file": readiness_path.name,
+            "bytes": readiness_path.stat().st_size,
+            "sha256": sha256_file(readiness_path),
+        },
     }
     manifest_path = output / "release-manifest.v0.1.json"
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
@@ -215,7 +209,11 @@ def verify_release(output: Path) -> dict[str, Any]:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if manifest.get("schemaVersion") != "0.1":
         raise ReleaseError("release manifest schema is unsupported")
-    expected_names = {"release-manifest.v0.1.json", "latest.json"}
+    expected_names = {
+        "release-manifest.v0.1.json",
+        "latest.json",
+        "release-readiness.v0.1.json",
+    }
     for record in manifest.get("artifacts", []):
         if not isinstance(record, dict) or not isinstance(record.get("file"), str):
             raise ReleaseError("release manifest artifact record is invalid")
@@ -234,6 +232,48 @@ def verify_release(output: Path) -> dict[str, Any]:
     latest = json.loads(latest_path.read_text(encoding="utf-8"))
     if latest.get("version") != manifest.get("version"):
         raise ReleaseError("latest.json version does not match the release manifest")
+    readiness_record = manifest.get("readiness", {})
+    readiness_path = _safe_file(output / "release-readiness.v0.1.json", output)
+    if (
+        readiness_record.get("file") != readiness_path.name
+        or readiness_path.stat().st_size != readiness_record.get("bytes")
+        or sha256_file(readiness_path) != readiness_record.get("sha256")
+    ):
+        raise ReleaseError("release readiness evidence integrity failed")
+    readiness = json.loads(readiness_path.read_text(encoding="utf-8"))
+    if f"v{readiness.get('releaseVersion')}" != manifest.get("tag"):
+        raise ReleaseError("release readiness version does not match the manifest tag")
+    gates = readiness.get("gates")
+    if not isinstance(gates, list):
+        raise ReleaseError("release readiness gate collection is invalid")
+    gate_ids = {
+        gate.get("id")
+        for gate in gates
+        if isinstance(gate, dict) and isinstance(gate.get("id"), str)
+    }
+    if gate_ids != REQUIRED_GATE_IDS or len(gates) != len(REQUIRED_GATE_IDS):
+        raise ReleaseError("release readiness gate set is incomplete")
+    pending = False
+    for gate in gates:
+        if gate.get("status") == "passed":
+            if (
+                not gate.get("reviewer")
+                or not gate.get("completedAt")
+                or not gate.get("evidence")
+            ):
+                raise ReleaseError("release readiness contains an invalid passed gate")
+        elif gate.get("status") == "pending":
+            if (
+                gate.get("reviewer") is not None
+                or gate.get("completedAt") is not None
+                or gate.get("evidence") != []
+            ):
+                raise ReleaseError("release readiness contains an invalid pending gate")
+            pending = True
+        else:
+            raise ReleaseError("release readiness contains an unsupported gate status")
+    if pending and "-" not in str(manifest.get("version", "")):
+        raise ReleaseError("release readiness contains an incomplete gate")
     expected_updaters = manifest.get("updaters", {})
     if set(latest.get("platforms", {})) != set(expected_updaters):
         raise ReleaseError("latest.json platform set does not match the release manifest")
