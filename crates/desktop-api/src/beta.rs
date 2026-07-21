@@ -6,9 +6,10 @@ use ts_rs::TS;
 
 pub const BETA_METRICS_FORMAT_VERSION: &str = "0.1";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct BetaMetricsSnapshot {
+    pub sample_id: String,
     pub first_capture_elapsed_ms: Option<u64>,
     pub supported_capture_count: u64,
     pub parsed_capture_count: u64,
@@ -46,6 +47,7 @@ pub fn build_beta_metrics_preview(
     let document = json!({
         "formatVersion": BETA_METRICS_FORMAT_VERSION,
         "generatedAtUnixMs": generated_at_unix_ms,
+        "sampleId": metrics.sample_id.as_str(),
         "product": {
             "name": "CodeIsCheap",
             "version": env!("CARGO_PKG_VERSION"),
@@ -58,6 +60,7 @@ pub fn build_beta_metrics_preview(
             "rawCaptureIncluded": false,
             "logsIncluded": false,
             "requestTimestampsIncluded": false,
+            "pseudonymousSampleIdIncluded": true,
             "automaticUpload": false,
         },
         "metrics": {
@@ -107,6 +110,7 @@ mod tests {
     fn beta_preview_contains_only_aggregate_metrics() {
         let preview = build_beta_metrics_preview(
             BetaMetricsSnapshot {
+                sample_id: "0123456789abcdef0123456789abcdef".to_owned(),
                 first_capture_elapsed_ms: Some(90_000),
                 supported_capture_count: 200,
                 parsed_capture_count: 196,
@@ -120,9 +124,12 @@ mod tests {
 
         assert_eq!(preview.parse_rate_basis_points, Some(9_800));
         assert_eq!(preview.crash_free_rate_basis_points, Some(9_975));
+        assert_eq!(document["sampleId"], "0123456789abcdef0123456789abcdef");
         assert_eq!(document["privacy"]["requestContentIncluded"], false);
         assert_eq!(document["privacy"]["requestIdentifiersIncluded"], false);
+        assert_eq!(document["privacy"]["pseudonymousSampleIdIncluded"], true);
         assert_eq!(document["privacy"]["automaticUpload"], false);
+        assert!(document["metrics"].get("sampleId").is_none());
         assert!(document.get("requests").is_none());
         assert!(document.get("diagnostics").is_none());
         assert_eq!(preview.content_sha256.len(), 64);
@@ -132,6 +139,7 @@ mod tests {
     fn rates_remain_unknown_without_denominators() {
         let preview = build_beta_metrics_preview(
             BetaMetricsSnapshot {
+                sample_id: "0123456789abcdef0123456789abcdef".to_owned(),
                 first_capture_elapsed_ms: None,
                 supported_capture_count: 0,
                 parsed_capture_count: 0,

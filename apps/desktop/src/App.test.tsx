@@ -353,6 +353,7 @@ describe("request workbench", () => {
       generatedAtUnixMs: 1_700_000_000_200,
       formatVersion: "0.1",
       metrics: {
+        sampleId: "0123456789abcdef0123456789abcdef",
         firstCaptureElapsedMs: 90_000,
         supportedCaptureCount: 200,
         parsedCaptureCount: 196,

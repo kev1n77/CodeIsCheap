@@ -77,6 +77,7 @@ describe("shared credential corpus", () => {
   it("builds content-free local Beta evidence", async () => {
     const preview = await previewBetaMetrics();
     const document = JSON.parse(preview.content) as {
+      sampleId: string;
       privacy: Record<string, boolean>;
       metrics: Record<string, number>;
     };
@@ -85,7 +86,10 @@ describe("shared credential corpus", () => {
     expect(preview.crashFreeRateBasisPoints).toBe(9_968);
     expect(document.privacy.requestContentIncluded).toBe(false);
     expect(document.privacy.requestIdentifiersIncluded).toBe(false);
+    expect(document.privacy.pseudonymousSampleIdIncluded).toBe(true);
     expect(document.privacy.automaticUpload).toBe(false);
+    expect(document.sampleId).toBe(preview.metrics.sampleId);
+    expect(document.metrics).not.toHaveProperty("sampleId");
     expect(document).not.toHaveProperty("requests");
     expect(document).not.toHaveProperty("logs");
     expect(preview.content).not.toContain(fixture.requests[0].promptPreview);

@@ -1257,6 +1257,7 @@ fn build_current_beta_metrics_preview(
         .map_err(|error| error.to_string())?;
     build_beta_metrics_preview(
         BetaMetricsSnapshot {
+            sample_id: session_metrics.sample_id,
             first_capture_elapsed_ms: session_metrics.first_capture_elapsed_ms,
             supported_capture_count: capture_metrics.supported_capture_count,
             parsed_capture_count: capture_metrics.parsed_capture_count,
@@ -3586,6 +3587,7 @@ mod tests {
         let path = directory.path().join("beta-metrics.json");
         let preview = build_beta_metrics_preview(
             BetaMetricsSnapshot {
+                sample_id: "0123456789abcdef0123456789abcdef".to_owned(),
                 first_capture_elapsed_ms: Some(30_000),
                 supported_capture_count: 100,
                 parsed_capture_count: 98,

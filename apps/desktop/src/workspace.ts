@@ -457,6 +457,7 @@ async function fixtureSupportBundlePreview(
 async function fixtureBetaMetricsPreview(): Promise<BetaMetricsPreview> {
   const generatedAtUnixMs = Date.now();
   const metrics = {
+    sampleId: "0123456789abcdef0123456789abcdef",
     firstCaptureElapsedMs: 42_000,
     supportedCaptureCount: 240,
     parsedCaptureCount: 237,
@@ -468,6 +469,7 @@ async function fixtureBetaMetricsPreview(): Promise<BetaMetricsPreview> {
   const content = `${JSON.stringify({
     formatVersion: "0.1",
     generatedAtUnixMs,
+    sampleId: metrics.sampleId,
     product: {
       name: "CodeIsCheap",
       version: "0.1.0",
@@ -480,11 +482,16 @@ async function fixtureBetaMetricsPreview(): Promise<BetaMetricsPreview> {
       rawCaptureIncluded: false,
       logsIncluded: false,
       requestTimestampsIncluded: false,
+      pseudonymousSampleIdIncluded: true,
       automaticUpload: false,
     },
     metrics: {
-      ...metrics,
+      firstCaptureElapsedMs: metrics.firstCaptureElapsedMs,
+      supportedCaptureCount: metrics.supportedCaptureCount,
+      parsedCaptureCount: metrics.parsedCaptureCount,
       parseRateBasisPoints,
+      completedSessionCount: metrics.completedSessionCount,
+      uncleanSessionCount: metrics.uncleanSessionCount,
       crashFreeRateBasisPoints,
     },
   }, null, 2)}\n`;

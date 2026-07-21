@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Beta 指标证据 · CodeIsCheap</title>
+  <link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+  <header class="site-header"><div class="header-inner"><a class="brand" href="index.html"><span class="brand-mark">C</span>CodeIsCheap</a><nav class="site-nav" aria-label="文档导航"><a href="index.html">总览</a><a href="product.html">产品</a><a href="capture.html">采集</a><a href="architecture.html">架构</a><a href="security.html">安全</a><a href="experience.html">体验</a><a href="delivery.html">交付</a><a href="compatibility.html">兼容</a><a href="release.html">发布</a><a href="beta-evidence.html" aria-current="page">Beta 证据</a><a href="progress.html">进度</a></nav></div></header>
+  <div class="page">
+    <main>
+      <p class="eyebrow">10 · Beta Evidence</p>
+      <h1>Beta 指标证据</h1>
+      <p class="lead">参与者在 Metrics 页人工复核并导出本机聚合值；没有后台上传，也不收集 Prompt、请求标识、日志或请求时间戳。</p>
+
+      <div class="decision"><strong>去重边界</strong>每个安装生成随机 128-bit 样本 ID，仅供离线聚合器拒绝重复贡献者。最终报告不保留样本 ID，只记录源文件 SHA-256。</div>
+
+      <h2 id="policy">门槛</h2>
+      <div class="table-wrap"><table><thead><tr><th>Gate</th><th>目标</th><th>最小证据量</th></tr></thead><tbody>
+        <tr><td>首次成功捕获 P50</td><td>&lt; 180,000 ms</td><td>30 位贡献者、30 个合格样本</td></tr>
+        <tr><td>支持端点解析率</td><td>&gt; 95%</td><td>30 位贡献者、1,000 个请求</td></tr>
+        <tr><td>Crash-free session</td><td>&gt; 99.5%</td><td>30 位贡献者、1,000 个完成会话</td></tr>
+      </tbody></table></div>
+      <p class="note">权威配置为 <code>release/beta-metrics-policy.v0.1.json</code>。证据不足标记为 <code>insufficient</code>，不会伪装成通过或失败。</p>
+
+      <h2 id="aggregate">聚合</h2>
+      <pre><code>python scripts/aggregate_beta_metrics.py \
+  --policy release/beta-metrics-policy.v0.1.json \
+  --input-directory path/to/reviewed-exports \
+  --output path/to/new-beta-report.json \
+  --require-ready</code></pre>
+      <p>工具拒绝重复样本、重复 JSON key、symlink、超限文件、错误版本、非目标平台、未知字段、不安全隐私声明、伪造率和违反子集关系的计数。输出必须是新文件。</p>
+
+      <h2 id="review">审核</h2>
+      <ol>
+        <li>确认输入目录只含每位参与者最新且主动提交的一份导出。</li>
+        <li>保存聚合命令、策略版本、最终报告与受控原始证据位置。</li>
+        <li>由 Release Owner 审核三个 gate；未达标时继续取样或修复产品。</li>
+        <li>通过后仅将无样本 ID 的报告加入 readiness evidence；原始文件不进入仓库。</li>
+      </ol>
+
+      <footer class="doc-footer"><a href="release.html">← 签名发布</a><a href="progress.html">下一篇：进度跟踪 →</a></footer>
+    </main>
+    <aside class="toc"><strong>本页</strong><a href="#policy">门槛</a><a href="#aggregate">聚合</a><a href="#review">审核</a></aside>
+  </div>
+</body>
+</html>

@@ -54,6 +54,9 @@
       </ul>
       <p class="note">真实回滚演练必须基于正式签名制品与隔离测试数据。仓库测试只能证明机制，不能替代发布负责人签署的设备证据。</p>
 
+      <h2 id="beta">Beta 指标证据</h2>
+      <p>首次捕获 P50、支持端点解析率和 crash-free session 使用主动导出的本机聚合值，不使用后台遥测。收集、去重、最小样本量、离线聚合和审核流程见 <a href="beta-evidence.html">Beta 指标证据</a>。</p>
+
       <h2 id="artifacts">发布附件</h2>
       <div class="two-column">
         <section class="plain-panel"><h3>必须存在</h3><ul><li>Windows NSIS 安装包、updater archive 及 `.sig`</li><li>macOS DMG、app updater archive 及 `.sig`</li><li><code>latest.json</code></li><li><code>release-manifest.v0.1.json</code></li><li><code>release-readiness.v0.1.json</code></li></ul></section>
@@ -62,7 +65,7 @@
 
       <footer class="doc-footer"><a href="compatibility.html">← 兼容矩阵</a><a href="support.html">下一篇：支持处理 →</a></footer>
     </main>
-    <aside class="toc"><strong>本页</strong><a href="#flow">发布链</a><a href="#secrets">发布环境</a><a href="#trigger">触发与证据</a><a href="#rollback">回滚演练</a><a href="#artifacts">发布附件</a></aside>
+    <aside class="toc"><strong>本页</strong><a href="#flow">发布链</a><a href="#secrets">发布环境</a><a href="#trigger">触发与证据</a><a href="#rollback">回滚演练</a><a href="#beta">Beta 证据</a><a href="#artifacts">发布附件</a></aside>
   </div>
 </body>
 </html>
