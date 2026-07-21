@@ -194,6 +194,7 @@
     },
     "CaptureProfile": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "additionalHosts": {
           "type": "array",
