@@ -89,10 +89,18 @@ python scripts/verify_release_readiness.py --repository-root . --allow-pending
 python scripts/verify_release_readiness.py --repository-root . --tag v0.1.0
 ```
 
+六个人工 gate 的首项证据必须是场景完整、执行人与复核人分离的本地 JSON 包；模板与单包校验命令如下：
+
+```powershell
+python scripts/verify_readiness_evidence.py init-manual --gate windows_admin_matrix --release-version 0.1.0 --output path/to/new-evidence.json
+python scripts/verify_readiness_evidence.py verify-manual --repository-root . --evidence path/to/completed-evidence.json
+```
+
 Beta 参与者从应用 Metrics 页主动导出本机聚合值；Release Owner 使用版本化策略离线去重和汇总，原始文件不进入仓库：
 
 ```powershell
 python scripts/aggregate_beta_metrics.py --policy release/beta-metrics-policy.v0.1.json --input-directory path/to/reviewed-exports --output path/to/new-beta-report.json --require-ready
+python scripts/verify_readiness_evidence.py verify-beta --repository-root . --evidence path/to/new-beta-report.json
 ```
 
 流程与最小样本量见 [`docs/beta-evidence.html`](./docs/beta-evidence.html)。

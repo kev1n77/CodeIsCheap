@@ -10,6 +10,13 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from release_version import ReleaseVersionError, repository_version, validate_tag
+from verify_readiness_evidence import (
+    BETA_GATE_IDS,
+    MANUAL_GATE_IDS,
+    ReadinessEvidenceError,
+    validate_beta_report,
+    validate_manual_evidence,
+)
 
 
 READINESS_SCHEMA_VERSION = "0.1"
@@ -125,6 +132,14 @@ def _evidence(repository: Path, value: Any, gate_id: str) -> str:
     return value
 
 
+def _structured_evidence_path(repository: Path, value: str, gate_id: str) -> Path:
+    if urlsplit(value).scheme:
+        raise ReadinessError(
+            f"gate {gate_id} requires its first evidence item to be a local JSON file"
+        )
+    return repository.joinpath(*PurePosixPath(value).parts)
+
+
 def _read_document(repository: Path) -> dict[str, Any]:
     path = repository / READINESS_PATH
     encoded = _regular_file(path, MAX_READINESS_BYTES, "release readiness file")
@@ -219,6 +234,28 @@ def verify_release_readiness(
             ]
             if len(set(validated_evidence)) != len(validated_evidence):
                 raise ReadinessError(f"gate {gate_id} contains duplicate evidence")
+            try:
+                if gate_id in MANUAL_GATE_IDS:
+                    validate_manual_evidence(
+                        _structured_evidence_path(
+                            repository, validated_evidence[0], gate_id
+                        ),
+                        repository,
+                        gate_id=gate_id,
+                        release_version=expected_version,
+                        reviewer=reviewer,
+                        gate_completed_at=gate["completedAt"],
+                    )
+                elif gate_id in BETA_GATE_IDS:
+                    validate_beta_report(
+                        _structured_evidence_path(
+                            repository, validated_evidence[0], gate_id
+                        ),
+                        repository,
+                        release_version=expected_version,
+                    )
+            except ReadinessEvidenceError as error:
+                raise ReadinessError(f"gate {gate_id} evidence is invalid: {error}") from error
         else:
             raise ReadinessError(f"gate {gate_id} status must be pending or passed")
     if seen != REQUIRED_GATE_IDS:

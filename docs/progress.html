@@ -131,14 +131,14 @@
         <tr><td>S6</td><td>PAR-005~007、APP-005</td><td><span class="status done">Done</span></td><td>四厂商适配器、token/成本/指纹、全文搜索和结构/文本 Compare 全部完成</td></tr>
         <tr><td>S7</td><td>TST-004、性能、可访问性、诊断与保留</td><td><span class="status active">In progress</span></td><td>axe、键盘与焦点、双主题截图、千条列表预算及 Gateway P95 门禁完成；继续屏幕阅读器和 Beta 真实环境测量</td></tr>
         <tr><td>S8</td><td>SEC-004、REL-001/002、安全评审</td><td><span class="status active">In progress</span></td><td>仓库供应链门禁、失败关闭的跨平台签名发布流水线、应用内更新、预更新恢复快照、只读历史恢复与支持处理闭环已接入；正式凭据、首批制品、真实回滚与安全评审待推进</td></tr>
-        <tr><td>S9</td><td>REL-003、完整回归与发布演练</td><td><span class="status active">In progress</span></td><td>兼容矩阵、事故响应、版本说明与失败关闭 readiness 门禁完成；九项真实环境/人工 gate 待关闭</td></tr>
+        <tr><td>S9</td><td>REL-003、完整回归与发布演练</td><td><span class="status active">In progress</span></td><td>兼容矩阵、事故响应、版本说明、结构化人工/Beta 证据校验与失败关闭 readiness 门禁完成；九项真实环境/人工 gate 待关闭</td></tr>
       </tbody></table></div>
 
       <h2 id="blockers">7. 阻塞项</h2>
       <div class="table-wrap"><table><thead><tr><th>ID</th><th>阻塞</th><th>影响</th><th>Owner</th><th>开始</th><th>解除条件</th><th>状态</th></tr></thead><tbody>
         <tr><td class="task-id">B-001</td><td>核心团队与正式投入未确认</td><td>无法建立可靠的人力与交付日期基线</td><td>TBD</td><td>2026-07-14</td><td>角色、投入比例与正式启动日确定</td><td><span class="status blocked">Open</span></td></tr>
         <tr><td class="task-id">B-002</td><td>正式平台证书、updater key 与 release environment 未配置</td><td>无法生成首批可分发签名制品</td><td>Release Owner TBD</td><td>2026-07-21</td><td>受保护环境完成密钥托管并通过候选构建</td><td><span class="status blocked">Open</span></td></tr>
-        <tr><td class="task-id">B-003</td><td>九项 GA readiness 人工/真实环境证据未完成</td><td>签名发布工作流按设计拒绝公开 Release</td><td>Release / QA / Security TBD</td><td>2026-07-21</td><td><code>release/readiness.v0.1.json</code> 全部 gate 为 passed 且证据可验证</td><td><span class="status blocked">Open</span></td></tr>
+        <tr><td class="task-id">B-003</td><td>九项 GA readiness 人工/真实环境证据未完成</td><td>签名发布工作流按设计拒绝公开 Release</td><td>Release / QA / Security TBD</td><td>2026-07-21</td><td>六个人工场景包和 Beta 聚合报告通过校验，<code>release/readiness.v0.1.json</code> 零 pending</td><td><span class="status blocked">Open</span></td></tr>
         <tr><td colspan="7">新增阻塞项时在此追加；解除后保留记录并将状态改为 Closed。</td></tr>
       </tbody></table></div>
 
