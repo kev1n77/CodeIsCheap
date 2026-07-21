@@ -10,20 +10,20 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[cfg(unix)]
+use std::os::unix::ffi::OsStrExt as _;
+#[cfg(unix)]
 use std::os::unix::fs::{
     DirBuilderExt as _, FileTypeExt as _, MetadataExt as _, OpenOptionsExt as _,
     PermissionsExt as _,
 };
-#[cfg(unix)]
-use std::os::unix::ffi::OsStrExt as _;
 
 use codeischeap_adapters::AdapterRegistry;
+#[cfg(unix)]
+use codeischeap_capture_ipc::receive_one_unix_with_transport_verified;
 use codeischeap_capture_ipc::{
     CaptureEnvelope, CaptureTransport, receive_one_with_transport,
     receive_one_with_transport_verified,
 };
-#[cfg(unix)]
-use codeischeap_capture_ipc::receive_one_unix_with_transport_verified;
 use codeischeap_capture_policy::CapturePolicy;
 use codeischeap_core::{
     GatewayCaptureError, GatewayCaptureOutcome, IngestError, ingest_envelope, persist_capture,
@@ -47,10 +47,11 @@ use codeischeap_proxy_recovery::{
 #[cfg(windows)]
 use codeischeap_proxy_recovery::{ProxySession, ProxySettings, WindowsProxyBackend};
 use codeischeap_sidecar_runtime::{
-    BundleRequirements, CertificateAuthorityState as SidecarCertificateAuthorityState,
-    CaptureIpcEndpoint, CertificateTrustState as SidecarCertificateTrustState,
-    MANIFEST_FILENAME, PrivateMaterialState as SidecarPrivateMaterialState, SidecarBundle,
-    SidecarLaunchConfig, SidecarProcess, inspect_certificate_authority,
+    BundleRequirements, CaptureIpcEndpoint,
+    CertificateAuthorityState as SidecarCertificateAuthorityState,
+    CertificateTrustState as SidecarCertificateTrustState, MANIFEST_FILENAME,
+    PrivateMaterialState as SidecarPrivateMaterialState, SidecarBundle, SidecarLaunchConfig,
+    SidecarProcess, inspect_certificate_authority,
     install_certificate_authority as install_ca_trust,
     uninstall_certificate_authority as uninstall_ca_trust,
 };
@@ -2215,10 +2216,7 @@ mod tests {
             .await
             .expect("private Unix IPC must bind");
         let path = match (&binding.listener, &binding.endpoint) {
-            (
-                ProxyCaptureListener::Unix(listener),
-                CaptureIpcEndpoint::Unix(endpoint_path),
-            ) => {
+            (ProxyCaptureListener::Unix(listener), CaptureIpcEndpoint::Unix(endpoint_path)) => {
                 assert_eq!(&listener.path, endpoint_path);
                 endpoint_path.clone()
             }
@@ -2272,10 +2270,7 @@ mod tests {
             )
         );
         assert!(acknowledged);
-        assert_eq!(
-            result.expect("paused Unix capture must be accepted"),
-            None
-        );
+        assert_eq!(result.expect("paused Unix capture must be accepted"), None);
     }
 
     #[cfg(unix)]
@@ -2495,11 +2490,7 @@ mod tests {
     }
 
     #[cfg(unix)]
-    async fn send_unix_ipc_capture(
-        path: PathBuf,
-        token: &str,
-        envelope: &CaptureEnvelope,
-    ) -> bool {
+    async fn send_unix_ipc_capture(path: PathBuf, token: &str, envelope: &CaptureEnvelope) -> bool {
         let mut stream = UnixStream::connect(path)
             .await
             .expect("Unix IPC client must connect");
