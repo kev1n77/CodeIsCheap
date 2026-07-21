@@ -8,6 +8,8 @@
     "desktop:dev": "npm run dev --workspace @codeischeap/desktop",
     "desktop:check": "npm run check --workspace @codeischeap/desktop",
     "desktop:build": "npm run build --workspace @codeischeap/desktop",
+    "desktop:e2e": "npm run e2e --workspace @codeischeap/desktop",
+    "desktop:e2e:update": "npm run e2e:update --workspace @codeischeap/desktop",
     "desktop:tauri": "npm run tauri --workspace @codeischeap/desktop",
     "sidecar:package": "python sidecars/mitmproxy/package_sidecar.py",
     "sidecar:verify": "python sidecars/mitmproxy/verify_sidecar_bundle.py sidecars/mitmproxy/dist",

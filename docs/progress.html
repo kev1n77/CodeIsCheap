@@ -19,10 +19,10 @@
         <div class="meta-item"><span>工程进度</span><strong>80%</strong></div>
         <div class="meta-item"><span>当前阶段</span><strong>恢复、安全与稳定性</strong></div>
         <div class="meta-item"><span>当前迭代</span><strong>S5 / S7 · 进行中</strong></div>
-        <div class="meta-item"><span>最后更新</span><strong>2026-07-20</strong></div>
+        <div class="meta-item"><span>最后更新</span><strong>2026-07-21</strong></div>
       </div>
 
-      <div class="decision"><strong>当前结论</strong>四厂商 Prompt IR、搜索、Compare 与安全导出已闭环；macOS 特权代理 helper 已接入。桌面可访问性基线现覆盖 axe、键盘、焦点、最小窗口和双主题对比度；下一步完成真实管理员故障矩阵、屏幕阅读器与性能验收，并推进 OS socket ACL。</div>
+      <div class="decision"><strong>当前结论</strong>四厂商 Prompt IR、搜索、Compare 与安全导出已闭环；macOS 特权代理 helper 已接入。桌面质量门禁现覆盖 axe、键盘、焦点、双主题 Linux 像素基线、千条列表交互预算和 Gateway P95 延迟；下一步完成真实管理员故障矩阵、屏幕阅读器验收，并推进 OS socket ACL。</div>
 
       <h2 id="usage">1. 更新规则</h2>
       <ol>
@@ -50,7 +50,7 @@
         <tr><td class="task-id">M2</td><td>Gateway 与双厂商闭环</td><td>20%</td><td><div class="progress-track"><div class="progress-value" style="width:100%"></div></div> 100%</td><td><span class="status done">Done</span></td><td>W8</td><td>Codex / TBD</td></tr>
         <tr><td class="task-id">M3</td><td>显式代理、安全与恢复</td><td>20%</td><td><div class="progress-track"><div class="progress-value" style="width:75%"></div></div> 75%</td><td><span class="status active">In progress</span></td><td>W12</td><td>Codex / TBD</td></tr>
         <tr><td class="task-id">M4</td><td>四厂商、Compare 与搜索</td><td>15%</td><td><div class="progress-track"><div class="progress-value" style="width:100%"></div></div> 100%</td><td><span class="status done">Done</span></td><td>W14</td><td>Codex / TBD</td></tr>
-        <tr><td class="task-id">M5</td><td>Public Beta 稳定性</td><td>15%</td><td><div class="progress-track"><div class="progress-value" style="width:10%"></div></div> 10%</td><td><span class="status active">In progress</span></td><td>W18</td><td>Codex / TBD</td></tr>
+        <tr><td class="task-id">M5</td><td>Public Beta 稳定性</td><td>15%</td><td><div class="progress-track"><div class="progress-value" style="width:20%"></div></div> 20%</td><td><span class="status active">In progress</span></td><td>W18</td><td>Codex / TBD</td></tr>
         <tr><td class="task-id">M6</td><td>GA 发布</td><td>10%</td><td><div class="progress-track"><div class="progress-value" style="width:0%"></div></div> 0%</td><td><span class="status">Not started</span></td><td>W20</td><td>TBD</td></tr>
       </tbody></table></div>
       <p class="note">总体进度 = Σ（里程碑权重 × 里程碑完成度）。设计文档不计入工程完成度。</p>
@@ -62,7 +62,7 @@
         <tr><td>Capture / Network</td><td>CAP-001~007</td><td>88%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>完成 macOS helper 真实故障矩阵；生产签名随发布凭据补齐</td></tr>
         <tr><td>Prompt / Adapters</td><td>PAR-001~007</td><td>100%</td><td><span class="status done">Done</span></td><td>Codex / TBD</td><td>保持价格目录与 provider usage 映射可追溯</td></tr>
         <tr><td>Data / Security</td><td>DAT-001~002、SEC-001~004</td><td>75%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>继续 OS 级 IPC ACL、WASI 权限、供应链控制与独立安全评审</td></tr>
-        <tr><td>Test / Release</td><td>TST-001~004、REL-001~003</td><td>60%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>继续 TST-002 协议一致性、TST-004 性能/屏幕阅读器与支持处理流程</td></tr>
+        <tr><td>Test / Release</td><td>TST-001~004、REL-001~003</td><td>68%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>继续 TST-002 协议一致性、屏幕阅读器与支持处理流程</td></tr>
       </tbody></table></div>
 
       <h2 id="current-sprint">5. 当前迭代：S5 / S6</h2>
@@ -100,7 +100,7 @@
         <tr><td class="task-id">TST-001</td><td>协议 fixture 与 golden tests</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-17</td><td>版本化能力矩阵覆盖 OpenAI、Anthropic、Gemini 与 Ollama 的请求、响应、流式、工具、多模态、错误和 Raw fallback；声明均由 fixture 与 golden 验证</td></tr>
         <tr><td class="task-id">TST-002</td><td>Gateway/Proxy 集成测试</td><td><span class="status active">In progress</span></td><td>82%</td><td>Codex / TBD</td><td>2026-08-25</td><td>认证 IPC、暂停丢弃、真实模式切换与进程树清理、压缩、流式脱敏、非目标 TLS、HTTP/2 基线一致性及 Windows CA 精确增删通过；真实 sidecar 在客户端取消后保持存活，IPC 停止消费且 72 个事件超过容量 64 时，36 个目标响应仍在 15 秒内完成；真实 ROOT 往返和其余协议一致性待扩展</td></tr>
         <tr><td class="task-id">TST-003</td><td>平台故障注入</td><td><span class="status active">In progress</span></td><td>80%</td><td>Codex / TBD</td><td>2026-08-25</td><td>Windows/macOS 强杀恢复、活 owner 防误恢复、sidecar 独立退出回退和端口冲突拒绝已通过；PAC 原状态下应用与同步回滚双重失败会交由独立 watchdog 恢复；macOS CA 拒绝恢复及 helper 协议、权限、命令转义和恢复文件校验已覆盖；授权桌面 helper 的真实故障矩阵待完成</td></tr>
-        <tr><td class="task-id">TST-004</td><td>UI、性能与可访问性</td><td><span class="status active">In progress</span></td><td>55%</td><td>Codex / TBD</td><td>2026-09-08</td><td>axe 自动扫描覆盖工作台、设置和导出对话框；WAI-ARIA tabs、方向键、焦点循环/恢复和键盘分隔条有回归测试；Tauri 最小窗口 960×620 在两栏最大边界下无横向裁切，明暗主题小字 token 均达到 4.5:1；屏幕阅读器、截图基线和性能基准待完成</td></tr>
+        <tr><td class="task-id">TST-004</td><td>UI、性能与可访问性</td><td><span class="status active">In progress</span></td><td>80%</td><td>Codex / TBD</td><td>2026-09-08</td><td>axe、WAI-ARIA tabs、方向键、焦点循环/恢复、键盘分隔条和双主题对比度已门禁；Ubuntu Chromium 固定 960×620 明色与 1440×900 暗色像素基线，千条列表要求首屏 &lt;2 秒、首尾滚动 &lt;2 秒、筛选 &lt;750 ms 且可见 DOM &lt;40 行；Gateway fake provider 基准要求额外延迟 P95 &lt;20 ms，最新本地基线为 0.609 ms；屏幕阅读器人工验收待完成</td></tr>
         <tr><td class="task-id">REL-002</td><td>诊断与支持包</td><td><span class="status active">In progress</span></td><td>75%</td><td>Codex / Support Owner TBD</td><td>2026-09-22</td><td>版本化 JSON 支持包可预览、复制和保存，包含不带请求标识的兼容诊断树；256 KiB code-only journal 与最近 100 条事件接入，排除 Prompt、Raw 和日志详情；支持处理流程待完成</td></tr>
         <tr><td class="task-id">SPIKE-001</td><td>Gateway 流式透明转发验证</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-14</td><td>双向流式、取消传递、头清理与稳定 502 集成测试通过</td></tr>
         <tr><td class="task-id">SPIKE-002</td><td>mitmproxy sidecar IPC/打包验证</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-14</td><td><a href="spikes/mitmproxy-sidecar.html">凭据清理、IPC、打包与真实转发通过</a></td></tr>
@@ -126,7 +126,7 @@
         <tr><td>S4</td><td>CAP-003~005、TST-002</td><td><span class="status active">In progress</span></td><td>sidecar bundle、桌面运行时、协议矩阵、Proxy 取消/背压、跨平台 CA 状态及两平台用户级信任生命周期已实现；签名、其余协议一致性与交互式验收待推进</td></tr>
         <tr><td>S5</td><td>CAP-006/007、SEC-002/003、APP-006、TST-003</td><td><span class="status active">In progress</span></td><td>SEC-002、CAP-007 完成，IPC 抗阻塞、双模式 OS PID 归因、readiness 身份校验、PAC/CA 拒绝恢复、macOS 授权 helper 和兼容诊断树已接入；继续真实故障验收与 OS socket ACL</td></tr>
         <tr><td>S6</td><td>PAR-005~007、APP-005</td><td><span class="status done">Done</span></td><td>四厂商适配器、token/成本/指纹、全文搜索和结构/文本 Compare 全部完成</td></tr>
-        <tr><td>S7</td><td>TST-004、性能、可访问性、诊断与保留</td><td><span class="status active">In progress</span></td><td>axe、键盘与焦点门禁、960×620 布局和双主题对比度完成；继续屏幕阅读器、截图基线和关键性能测量</td></tr>
+        <tr><td>S7</td><td>TST-004、性能、可访问性、诊断与保留</td><td><span class="status active">In progress</span></td><td>axe、键盘与焦点、双主题截图、千条列表预算及 Gateway P95 门禁完成；继续屏幕阅读器和 Beta 真实环境测量</td></tr>
         <tr><td>S8</td><td>SEC-004、REL-001/002、安全评审</td><td><span class="status active">In progress</span></td><td>code-only 诊断与支持包已接入；签名更新、安装回滚、支持流程与安全评审待推进</td></tr>
         <tr><td>S9</td><td>REL-003、完整回归与发布演练</td><td><span class="status">Not started</span></td><td>阻断项清零</td></tr>
       </tbody></table></div>
@@ -153,8 +153,8 @@
         <tr><td>首次捕获时间 P50</td><td>N/A</td><td>&lt; 3 分钟</td><td>本地匿名事件/可用性测试</td></tr>
         <tr><td>代理恢复成功率</td><td>N/A</td><td>100%</td><td>故障注入矩阵</td></tr>
         <tr><td>凭据落盘命中</td><td>0（SQLCipher DB/WAL）</td><td>0</td><td>DB、日志、临时文件扫描</td></tr>
-        <tr><td>Gateway 额外延迟 P95</td><td>N/A</td><td>&lt; 20 ms</td><td>本地 fake provider benchmark</td></tr>
-        <tr><td>千条请求列表</td><td>有限可见 DOM；焦点与选择回归通过</td><td>滚动流畅且增量不抢焦点</td><td>React 组件测试与浏览器验收</td></tr>
+        <tr><td>Gateway 额外延迟 P95</td><td>0.609 ms（最新本地 200 次样本）</td><td>&lt; 20 ms</td><td>串行 CI fake provider benchmark；直连与带捕获 Gateway 对照</td></tr>
+        <tr><td>千条请求列表</td><td>Ubuntu Chromium：首屏 393 ms、首尾滚动 112 ms、筛选 62 ms、初始 9 行 DOM</td><td>首屏/滚动 &lt;2 s，筛选 &lt;750 ms，可见 DOM &lt;40 行</td><td>960×620 Playwright 性能附件与像素基线</td></tr>
         <tr><td>Anatomy 原始证据定位</td><td>合成节点 100% 可解析；加密 DTO 契约通过</td><td>声明支持的节点均可定位</td><td>JSON Pointer 单测、Desktop API 测试与浏览器验收</td></tr>
         <tr><td>Timeline 原始证据定位</td><td>SSE sequence 与 UTF-8 frame 字节范围一致</td><td>流事件可回到精确原文</td><td>Gateway 集成测试与浏览器验收</td></tr>
         <tr><td>数据生命周期</td><td>批量原子写入、30 天/50,000 条保留、256 MiB 磁盘保护通过</td><td>压力下不损坏 DB 且网络转发不中断</td><td>SQLCipher 集成测试与 Tauri 运行时测试</td></tr>
@@ -227,6 +227,7 @@
         <tr><td>2026-07-18</td><td>Recovery / macOS</td><td>CAP-006 特权 helper 协议核心完成</td><td>helper 只接受无凭据 loopback HTTP 端点和固定恢复文件；控制 socket 为 0600 并同时核对请求 UID 与 PID，只允许单 owner 长连接；正常命令、owner 断连和 helper 崩溃分别由显式恢复、会话 Drop 与独立 root watchdog 恢复原快照</td><td>Codex</td></tr>
         <tr><td>2026-07-19</td><td>Desktop / Recovery</td><td>CAP-006 macOS 授权 helper 桌面接入</td><td>静态 AppleScript 对可执行文件、journal、status、socket、endpoint、PID 与 UID 逐项 shell-quote；桌面在受信任 CA 下建立持久特权会话，切换模式、sidecar 退出或 owner 断连均触发恢复；armed journal 下次启动通过严格单次 root 命令恢复，CLI 拒绝缺失、乱序和多余参数</td><td>Codex</td></tr>
         <tr><td>2026-07-20</td><td>Desktop / Accessibility</td><td>APP-002 / TST-004 可访问性基线完成</td><td>设置、Inspector 与 Compare 使用完整 tablist/tab/tabpanel 契约并支持方向键；设置与导出对话框循环焦点、Escape 关闭并恢复触发点；分隔条支持方向键/Home/End 和数值语义；axe 覆盖工作台与对话框，960×620 动态宽度预算消除右栏裁切，明暗主题辅助文字对比度均不低于 4.5:1</td><td>Codex</td></tr>
+        <tr><td>2026-07-21</td><td>Desktop / Performance</td><td>TST-004 浏览器与 Gateway 性能门禁完成</td><td>Playwright 在 Ubuntu Chromium 固定 960×620 明色和 1440×900 暗色像素基线；开发态确定性千条 fixture 验证首屏、首尾滚动、筛选、有限 DOM 与无横向溢出，并将指标写入 CI 附件；Gateway 以 200 次直连/带捕获交错样本计算额外延迟 P95，最新本地结果为 0.609 ms，CI 阈值为 20 ms</td><td>Codex</td></tr>
         <tr><td colspan="5">后续范围、架构、日期或资源变化均在此追加，并链接对应 ADR/会议结论。</td></tr>
       </tbody></table></div>
 

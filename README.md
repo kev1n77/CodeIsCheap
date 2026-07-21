@@ -22,8 +22,16 @@ npm run desktop:dev
 ```powershell
 npm run desktop:check
 npm run desktop:build
+npx playwright install chromium
+npm run desktop:e2e
 cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
 cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
+```
+
+浏览器质量门禁在 Chromium 中覆盖 960x620 与 1440x900 两种桌面尺寸、明暗主题截图、千条请求虚拟列表、滚动/筛选预算和横向溢出。Linux 基线需要更新时执行 `npm run desktop:e2e:update`。Gateway 延迟预算可独立复测：
+
+```powershell
+cargo test -p codeischeap-gateway --test performance -- --ignored --nocapture --test-threads=1
 ```
 
 校验核心 Rust workspace：
