@@ -30,6 +30,20 @@ SENSITIVE_OWNER_PATHS = (
     "/sidecars/",
 )
 DEPENDABOT_ECOSYSTEMS = {"cargo", "npm", "pip", "github-actions"}
+RELEASE_WORKFLOW_REQUIREMENTS = {
+    'tags:\n      - "v*"': "must run from version tags",
+    "environment: release": "must use the protected release environment",
+    "CODEISCHEAP_UPDATER_PUBLIC_KEY": "must require the updater public key",
+    "TAURI_SIGNING_PRIVATE_KEY": "must require the updater signing key",
+    "WINDOWS_CERTIFICATE_BASE64": "must require the Windows signing certificate",
+    "APPLE_CERTIFICATE_BASE64": "must require the Apple signing certificate",
+    "--require-signature": "must require signed sidecar bundles",
+    "Get-AuthenticodeSignature": "must verify Windows Authenticode",
+    "xcrun stapler validate": "must validate macOS notarization",
+    "scripts/prepare_release.py prepare": "must build deterministic release metadata",
+    "scripts/prepare_release.py verify": "must verify release artifacts before upload",
+    "--draft": "must create a draft before publishing release assets",
+}
 
 
 def _relative(root: Path, path: Path) -> str:
@@ -195,6 +209,15 @@ def _check_repository_policy(root: Path, violations: list[str]) -> None:
             violations.append(
                 ".github/dependabot.yml: missing ecosystems " + ", ".join(missing)
             )
+
+    release_path = root / ".github" / "workflows" / "release.yml"
+    if not release_path.is_file():
+        violations.append(".github/workflows/release.yml: signed release workflow is missing")
+    else:
+        release = release_path.read_text(encoding="utf-8")
+        for marker, requirement in RELEASE_WORKFLOW_REQUIREMENTS.items():
+            if marker not in release:
+                violations.append(f".github/workflows/release.yml: {requirement}")
 
 
 def collect_violations(root: Path) -> list[str]:

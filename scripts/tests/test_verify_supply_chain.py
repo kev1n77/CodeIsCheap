@@ -22,6 +22,25 @@ class SupplyChainPolicyTests(unittest.TestCase):
         (root / ".github" / "workflows" / "ci.yml").write_text(
             f"steps:\n  - uses: actions/checkout@{PINNED_ACTION}\n", encoding="utf-8"
         )
+        (root / ".github" / "workflows" / "release.yml").write_text(
+            """on:
+  push:
+    tags:
+      - "v*"
+environment: release
+CODEISCHEAP_UPDATER_PUBLIC_KEY
+TAURI_SIGNING_PRIVATE_KEY
+WINDOWS_CERTIFICATE_BASE64
+APPLE_CERTIFICATE_BASE64
+--require-signature
+Get-AuthenticodeSignature
+xcrun stapler validate
+scripts/prepare_release.py prepare
+scripts/prepare_release.py verify
+--draft
+""",
+            encoding="utf-8",
+        )
         owners = "* @owner\n" + "\n".join(
             f"{path} @owner"
             for path in (
@@ -113,12 +132,16 @@ class SupplyChainPolicyTests(unittest.TestCase):
                 '[dependencies]\nexample = { git = "https://example.invalid/repo" }\n',
                 encoding="utf-8",
             )
+            (root / ".github" / "workflows" / "release.yml").write_text(
+                "on: workflow_dispatch\n", encoding="utf-8"
+            )
 
             violations = "\n".join(collect_violations(root))
             self.assertIn("action actions/checkout must use a full commit SHA", violations)
             self.assertIn("dependencies.react must use an exact version", violations)
             self.assertIn("requirement must use ==", violations)
             self.assertIn("git dependency must pin a full rev SHA", violations)
+            self.assertIn("must run from version tags", violations)
 
 
 if __name__ == "__main__":

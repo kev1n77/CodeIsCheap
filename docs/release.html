@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>签名发布与回滚 · CodeIsCheap</title>
+  <link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+  <header class="site-header"><div class="header-inner"><a class="brand" href="index.html"><span class="brand-mark">C</span>CodeIsCheap</a><nav class="site-nav" aria-label="文档导航"><a href="index.html">总览</a><a href="product.html">产品</a><a href="capture.html">采集</a><a href="architecture.html">架构</a><a href="security.html">安全</a><a href="experience.html">体验</a><a href="delivery.html">交付</a><a href="development-plan.html">计划</a><a href="release.html" aria-current="page">发布</a><a href="progress.html">进度</a></nav></div></header>
+  <div class="page">
+    <main>
+      <p class="eyebrow">09 · Release Operations</p>
+      <h1>签名发布与回滚</h1>
+      <p class="lead">发布只从已进入 main 的版本 tag 启动。Windows Authenticode、macOS Developer ID 与 notarization、Tauri updater 签名缺一不可。</p>
+
+      <div class="decision"><strong>失败关闭</strong>任何证书、私钥、平台签名、notarization、sidecar 签名、updater `.sig`、版本或哈希校验失败，都不得发布非草稿 Release。</div>
+
+      <h2 id="flow">发布链</h2>
+      <div class="flow" aria-label="签名发布流程">
+        <div class="flow-step">main 中创建 v&lt;semver&gt; tag</div><div class="flow-arrow">→</div>
+        <div class="flow-step">签名 sidecar</div><div class="flow-arrow">→</div>
+        <div class="flow-step">签名并 notarize 桌面包</div><div class="flow-arrow">→</div>
+        <div class="flow-step">校验 updater 与哈希</div><div class="flow-arrow">→</div>
+        <div class="flow-step">草稿上传后发布</div>
+      </div>
+
+      <h2 id="secrets">发布环境</h2>
+      <div class="table-wrap"><table><thead><tr><th>范围</th><th>GitHub Secret</th><th>用途</th></tr></thead><tbody>
+        <tr><td>Updater</td><td><code>CODEISCHEAP_UPDATER_PUBLIC_KEY</code><br /><code>TAURI_SIGNING_PRIVATE_KEY</code><br /><code>TAURI_SIGNING_PRIVATE_KEY_PASSWORD</code></td><td>编译可信公钥并生成 Tauri updater `.sig`</td></tr>
+        <tr><td>Windows</td><td><code>WINDOWS_CERTIFICATE_BASE64</code><br /><code>WINDOWS_CERTIFICATE_PASSWORD</code></td><td>签名 sidecar 与 NSIS 安装包，使用可信时间戳</td></tr>
+        <tr><td>macOS</td><td><code>APPLE_CERTIFICATE_BASE64</code><br /><code>APPLE_CERTIFICATE_PASSWORD</code><br /><code>APPLE_SIGNING_IDENTITY</code><br /><code>APPLE_ID</code><br /><code>APPLE_PASSWORD</code><br /><code>APPLE_TEAM_ID</code></td><td>Developer ID 签名、notarization 与 stapling</td></tr>
+      </tbody></table></div>
+      <p class="note">Secrets 仅配置在受保护的 <code>release</code> environment；不得写入仓库、构建日志、支持包或发布附件。</p>
+
+      <h2 id="trigger">触发与证据</h2>
+      <ol>
+        <li>同步 <code>tauri.conf.json</code>、桌面 <code>package.json</code> 和 Tauri <code>Cargo.toml</code> 的版本。</li>
+        <li>确认 main CI 全绿后创建并推送 <code>v&lt;semver&gt;</code> tag，或手动选择已存在 tag 运行 <strong>Signed release</strong>。</li>
+        <li>审批 <code>release</code> environment；工作流会拒绝不在 main 中的 tag。</li>
+        <li>保存工作流链接、<code>release-manifest.v0.1.json</code>、<code>latest.json</code>、安装包和 `.sig` 作为发布证据。</li>
+      </ol>
+
+      <h2 id="rollback">回滚演练</h2>
+      <ul class="checklist">
+        <li>在干净 Windows 与 macOS 设备安装上一稳定版并写入已知测试捕获。</li>
+        <li>从正式 Release 执行应用内更新，验证平台签名、updater 签名和版本切换。</li>
+        <li>使用测试迁移故障构建触发主库打开失败，确认只读恢复、搜索与脱敏导出可用。</li>
+        <li>确认主数据库未覆盖，系统代理已恢复，捕获、证书与二次更新控件均禁用。</li>
+        <li>重新安装稳定版并恢复主库；记录版本、平台、步骤、日志代码、截图和结果。</li>
+      </ul>
+      <p class="note">真实回滚演练必须基于正式签名制品与隔离测试数据。仓库测试只能证明机制，不能替代发布负责人签署的设备证据。</p>
+
+      <h2 id="artifacts">发布附件</h2>
+      <div class="two-column">
+        <section class="plain-panel"><h3>必须存在</h3><ul><li>Windows NSIS 安装包、updater archive 及 `.sig`</li><li>macOS DMG、app updater archive 及 `.sig`</li><li><code>latest.json</code></li><li><code>release-manifest.v0.1.json</code></li></ul></section>
+        <section class="plain-panel"><h3>必须验证</h3><ul><li>版本 tag 与三处 manifest 一致</li><li>Windows Authenticode 为 Valid</li><li>macOS notarization ticket 已 stapled</li><li>所有文件大小与 SHA-256 匹配</li></ul></section>
+      </div>
+
+      <footer class="doc-footer"><a href="development-plan.html">← 开发计划</a><a href="progress.html">下一篇：进度跟踪 →</a></footer>
+    </main>
+    <aside class="toc"><strong>本页</strong><a href="#flow">发布链</a><a href="#secrets">发布环境</a><a href="#trigger">触发与证据</a><a href="#rollback">回滚演练</a><a href="#artifacts">发布附件</a></aside>
+  </div>
+</body>
+</html>
