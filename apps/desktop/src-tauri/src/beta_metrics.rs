@@ -130,13 +130,14 @@ impl BetaMetricsTracker {
             ));
         }
         let Some(mut record) = self.record.clone() else {
-            return Err(BetaMetricsError::Invalid("active session record is missing"));
+            return Err(BetaMetricsError::Invalid(
+                "active session record is missing",
+            ));
         };
         let previous = record.first_capture_elapsed_ms;
         let eligible = record.first_capture_eligible;
         observe_first_capture(&mut record, capture_metrics.earliest_capture_at_unix_ms);
-        if record.first_capture_elapsed_ms != previous
-            || record.first_capture_eligible != eligible
+        if record.first_capture_elapsed_ms != previous || record.first_capture_eligible != eligible
         {
             self.persist(record)?;
         }
@@ -144,10 +145,9 @@ impl BetaMetricsTracker {
     }
 
     pub fn snapshot(&self) -> Result<BetaSessionMetrics, BetaMetricsError> {
-        let record = self
-            .record
-            .as_ref()
-            .ok_or(BetaMetricsError::Invalid("beta metrics have not initialized"))?;
+        let record = self.record.as_ref().ok_or(BetaMetricsError::Invalid(
+            "beta metrics have not initialized",
+        ))?;
         Ok(BetaSessionMetrics {
             first_capture_elapsed_ms: record.first_capture_elapsed_ms,
             completed_session_count: record.completed_session_count,
@@ -160,7 +160,9 @@ impl BetaMetricsTracker {
             return Ok(());
         }
         let Some(mut record) = self.record.clone() else {
-            return Err(BetaMetricsError::Invalid("active session record is missing"));
+            return Err(BetaMetricsError::Invalid(
+                "active session record is missing",
+            ));
         };
         if record.active_session_started_at_unix_ms.take().is_some() {
             record.completed_session_count = record
@@ -257,16 +259,23 @@ fn load_record(path: &Path) -> Result<Option<BetaMetricsRecord>, BetaMetricsErro
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error.into()),
     };
-    if !metadata.file_type().is_file() || metadata.len() == 0 || metadata.len() > MAX_BETA_METRICS_BYTES
+    if !metadata.file_type().is_file()
+        || metadata.len() == 0
+        || metadata.len() > MAX_BETA_METRICS_BYTES
     {
-        return Err(BetaMetricsError::Invalid("metrics slot is not a bounded file"));
+        return Err(BetaMetricsError::Invalid(
+            "metrics slot is not a bounded file",
+        ));
     }
     let record: BetaMetricsRecord = serde_json::from_slice(&fs::read(path)?)?;
     validate_record(&record, false)?;
     Ok(Some(record))
 }
 
-fn validate_record(record: &BetaMetricsRecord, allow_zero_generation: bool) -> Result<(), BetaMetricsError> {
+fn validate_record(
+    record: &BetaMetricsRecord,
+    allow_zero_generation: bool,
+) -> Result<(), BetaMetricsError> {
     if record.schema_version != BETA_METRICS_VERSION
         || (!allow_zero_generation && record.generation == 0)
         || record.first_launch_at_unix_ms == 0
@@ -281,9 +290,9 @@ fn validate_record(record: &BetaMetricsRecord, allow_zero_generation: bool) -> R
 
 fn remove_slot_for_rewrite(path: &Path) -> Result<(), BetaMetricsError> {
     match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_dir() => {
-            Err(BetaMetricsError::Invalid("metrics slot cannot be a directory"))
-        }
+        Ok(metadata) if metadata.file_type().is_dir() => Err(BetaMetricsError::Invalid(
+            "metrics slot cannot be a directory",
+        )),
         Ok(_) => fs::remove_file(path).map_err(Into::into),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error.into()),
@@ -311,8 +320,16 @@ mod tests {
             tracker
                 .begin_session(100, captures(None), true)
                 .expect("begin");
-            tracker.observe_capture(captures(Some(150))).expect("observe");
-            assert_eq!(tracker.snapshot().expect("snapshot").first_capture_elapsed_ms, Some(50));
+            tracker
+                .observe_capture(captures(Some(150)))
+                .expect("observe");
+            assert_eq!(
+                tracker
+                    .snapshot()
+                    .expect("snapshot")
+                    .first_capture_elapsed_ms,
+                Some(50)
+            );
             tracker.complete_session().expect("complete");
         }
         let mut tracker = BetaMetricsTracker::new(directory.path());
@@ -350,7 +367,9 @@ mod tests {
         tracker
             .begin_session(100, captures(None), true)
             .expect("begin");
-        tracker.observe_capture(captures(Some(150))).expect("observe");
+        tracker
+            .observe_capture(captures(Some(150)))
+            .expect("observe");
         std::mem::forget(tracker);
         fs::write(directory.path().join(BETA_METRICS_SLOT_A), b"broken")
             .expect("corrupt newest slot");
@@ -389,7 +408,10 @@ mod tests {
             .expect("observe capture");
 
         assert_eq!(
-            tracker.snapshot().expect("snapshot").first_capture_elapsed_ms,
+            tracker
+                .snapshot()
+                .expect("snapshot")
+                .first_capture_elapsed_ms,
             None
         );
     }

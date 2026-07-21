@@ -1215,7 +1215,9 @@ fn complete_beta_metrics_session(app: &AppHandle) {
             let Some(tracker) = tracker.as_mut() else {
                 return;
             };
-            tracker.complete_session().map_err(|error| error.to_string())
+            tracker
+                .complete_session()
+                .map_err(|error| error.to_string())
         }
         Err(_) => Err("beta metrics are temporarily unavailable".to_owned()),
     };
@@ -1266,11 +1268,7 @@ fn build_current_beta_metrics_preview(
     .map_err(|error| format!("beta metrics could not be encoded: {error}"))
 }
 
-fn record_beta_metrics_result(
-    app: &AppHandle,
-    state: &DesktopState,
-    result: Result<(), String>,
-) {
+fn record_beta_metrics_result(app: &AppHandle, state: &DesktopState, result: Result<(), String>) {
     match result {
         Ok(()) => {
             if let Ok(mut current) = state.beta_metrics_error.lock() {
@@ -3606,9 +3604,7 @@ mod tests {
             std::fs::read_to_string(&path).expect("evidence must be readable"),
             preview.content
         );
-        assert!(
-            write_beta_metrics_preview_file(&preview, &preview.content_sha256, &path).is_err()
-        );
+        assert!(write_beta_metrics_preview_file(&preview, &preview.content_sha256, &path).is_err());
     }
 
     #[test]
