@@ -7,6 +7,7 @@ import {
   previewBetaMetrics,
   previewSupportBundle,
   searchWorkspace,
+  updateCaptureProfile,
 } from "./workspace";
 
 describe("shared credential corpus", () => {
@@ -33,6 +34,23 @@ describe("shared credential corpus", () => {
 
     const workspace = await loadWorkspace();
     expect(workspace.requests).toHaveLength(fixture.requests.length);
+  });
+
+  it("updates and normalizes the browser capture Profile fixture", async () => {
+    const workspace = await updateCaptureProfile({
+      version: "0.1",
+      name: "  Private lab  ",
+      gatewayUpstream: "https://Gateway.Example.test/",
+      additionalHosts: [" Proxy.Example.test. ", "api.private.test"],
+    });
+
+    expect(workspace.captureProfile).toEqual({
+      version: "0.1",
+      name: "Private lab",
+      gatewayUpstream: "https://gateway.example.test",
+      additionalHosts: ["api.private.test", "proxy.example.test"],
+    });
+    expect(workspace.capture.profile).toBe("Private lab · Local Gateway");
   });
 
   it("redacts every declared browser fallback canary", async () => {

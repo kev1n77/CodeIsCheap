@@ -19,7 +19,7 @@
         <div class="meta-item"><span>工程进度</span><strong>85%</strong></div>
         <div class="meta-item"><span>当前阶段</span><strong>发布就绪与真实验收</strong></div>
         <div class="meta-item"><span>当前迭代</span><strong>S5 / S7 / S8 / S9 · 进行中</strong></div>
-        <div class="meta-item"><span>最后更新</span><strong>2026-07-21</strong></div>
+        <div class="meta-item"><span>最后更新</span><strong>2026-07-22</strong></div>
       </div>
 
       <div class="decision"><strong>当前结论</strong>产品功能、安全支持和发布机制已形成闭环；Beta 指标已具备本地无内容采集、随机去重 ID、严格离线聚合和最小样本门槛，但仍需真实参与者数据关闭 readiness。下一步完成真实取样、发布/回滚、管理员矩阵、屏幕阅读器和独立安全评审。</div>
@@ -58,7 +58,7 @@
       <h2 id="streams">4. 工作流进度</h2>
       <div class="table-wrap"><table><thead><tr><th>工作流</th><th>任务范围</th><th>进度</th><th>状态</th><th>Owner</th><th>本周重点</th></tr></thead><tbody>
         <tr><td>架构与工程基础</td><td>ARC-001~004</td><td>100%</td><td><span class="status done">Done</span></td><td>Codex / TBD</td><td>保持 schema、事件与 command 契约同步</td></tr>
-        <tr><td>Desktop / Frontend</td><td>APP-001~006</td><td>96%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>完成屏幕阅读器、首次捕获耗时与真实运行验收</td></tr>
+        <tr><td>Desktop / Frontend</td><td>APP-001~006</td><td>97%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>完成屏幕阅读器、首次捕获耗时与真实运行验收</td></tr>
         <tr><td>Capture / Network</td><td>CAP-001~007</td><td>88%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>完成 macOS helper 真实故障矩阵；生产签名随发布凭据补齐</td></tr>
         <tr><td>Prompt / Adapters</td><td>PAR-001~007</td><td>100%</td><td><span class="status done">Done</span></td><td>Codex / TBD</td><td>保持价格目录与 provider usage 映射可追溯</td></tr>
         <tr><td>Data / Security</td><td>DAT-001~002、SEC-001~004</td><td>95%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>继续 WASI 权限、正式签名制品与独立安全评审</td></tr>
@@ -77,7 +77,7 @@
         <tr><td class="task-id">APP-003</td><td>实时 Capture 工作台</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>本地 Gateway、暂停/恢复、增量刷新及响应状态完成；1,000 条虚拟列表、筛选、键盘滚动与焦点保持通过验收</td></tr>
         <tr><td class="task-id">APP-004</td><td>Request Inspector</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>Anatomy、Timeline、Raw 与元数据完成；JSON Pointer 和 SSE UTF-8 字节范围均可定位并高亮原始证据</td></tr>
         <tr><td class="task-id">APP-005</td><td>Compare 与搜索</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-17</td><td>SQLCipher FTS 接入桌面搜索；双请求基准选择、消息/工具/参数结构 diff、文本 diff、交换、筛选与键盘取消均通过回归</td></tr>
-        <tr><td class="task-id">APP-006</td><td>设置、诊断与首次连接</td><td><span class="status active">In progress</span></td><td>95%</td><td>Codex / TBD</td><td>2026-08-25</td><td>Connection/Metrics/Diagnostics、首次连接、兼容诊断和安全支持包已完成；Beta 指标仅保存聚合值，支持预览、复制和只新建导出，真实样本待收集</td></tr>
+        <tr><td class="task-id">APP-006</td><td>设置、诊断与首次连接</td><td><span class="status active">In progress</span></td><td>98%</td><td>Codex / TBD</td><td>2026-08-25</td><td>Connection/Profiles/Metrics/Diagnostics/Updates 已完成；Profile 仅允许在暂停的 Gateway 中修改，支持 origin、最多 16 个精确 host、恢复默认和后端规范化回填；真实首次捕获与 Beta 样本待收集</td></tr>
         <tr><td class="task-id">CAP-001</td><td>实现 Local AI Gateway</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>OpenAI-compatible 本地端点保持双向流式、取消传播、头清理与稳定 502</td></tr>
         <tr><td class="task-id">CAP-002</td><td>实现请求/响应 tee 与背压</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>有界前缀、非阻塞队列、截断/取消/降级指标和暂停控制通过集成测试</td></tr>
         <tr><td class="task-id">CAP-003</td><td>打包 mitmproxy sidecar 与最小 addon</td><td><span class="status active">In progress</span></td><td>96%</td><td>Codex / Release Owner TBD</td><td>2026-08-25</td><td>三平台 bundle、manifest、SBOM、原子安装、Tauri 资源、运行时校验、最小环境、独立 readiness token 与 Windows Job Object/Unix 进程组清理完成；正式 Authenticode/Developer ID 制品待发布凭据</td></tr>
@@ -87,7 +87,7 @@
         <tr><td class="task-id">CAP-007</td><td>进程/应用归因与兼容诊断</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-18</td><td>应用标签/User-Agent/捕获模式归因及兼容诊断树完成；Windows/macOS/Linux Gateway 与 Proxy 均通过操作系统 TCP 连接精确匹配 PID，失败不推断，sidecar PID 不受信且临时端点不进入 Envelope、持久化或导出</td></tr>
         <tr><td class="task-id">DAT-001</td><td>SQLCipher、迁移、WAL 与 OS 凭据库</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-21</td><td>schema v3 可从 v0/v1/v2 升级，新增加密应用设置；新版本仍可只读打开安装前的 v2 恢复快照，响应类型、状态码和耗时可查询；备份恢复、DB/WAL canary 与 OS 凭据库均通过</td></tr>
         <tr><td class="task-id">DAT-002</td><td>写入、查询、保留与磁盘压力</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>批量写入原子提交；默认保留 30 天/50,000 条并以 500 条事务清理；低于 256 MiB 或 SQLITE_FULL 时暂停记录但保持 Gateway 转发</td></tr>
-        <tr><td class="task-id">SEC-001</td><td>范围策略和凭据 scrubber</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / Security Reviewer TBD</td><td>2026-07-18</td><td>请求与响应 header/JSON body 双层脱敏；canary 在 DB、WAL、诊断日志、临时文件和支持包中零命中</td></tr>
+        <tr><td class="task-id">SEC-001</td><td>范围策略和凭据 scrubber</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / Security Reviewer TBD</td><td>2026-07-22</td><td>请求与响应 header/JSON body 双层脱敏；Profile 管理保持既有 method/path allowlist，仅扩展最多 16 个精确 host；canary 在 DB、WAL、诊断日志、临时文件和支持包中零命中</td></tr>
         <tr><td class="task-id">SEC-002</td><td>脱敏与导出</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / Security Reviewer TBD</td><td>2026-07-18</td><td>单请求、筛选批量及支持包均强制扫描、完整预览、SHA-256 防陈旧和只新建文件；版本化 corpus 以 36 个字段名、17 类文本 secret 及近似反例覆盖 Rust/Python/Web</td></tr>
         <tr><td class="task-id">SEC-003</td><td>本地 IPC 与插件隔离</td><td><span class="status active">In progress</span></td><td>97%</td><td>Codex / Security Reviewer TBD</td><td>2026-08-25</td><td>IPC 0.6 在 Windows 使用当前用户与 SYSTEM protected DACL、拒绝远端连接的随机 named pipe，创建后回读 owner/ACE 并逐连接核对 sidecar PID；macOS/Linux 使用当前 eUID `0700` 私有目录内 `0600` Unix socket，并逐连接核对 peer eUID/PID；统一使用 256-bit token、常量时间比较、1 KiB 认证帧、2 秒截止和 ACK，真实传输、超时恢复与旧 0.5 bundle 拒绝均有测试；仅插件启用后的 WASI 最小权限待完成</td></tr>
         <tr><td class="task-id">SEC-004</td><td>更新与供应链</td><td><span class="status active">In progress</span></td><td>96%</td><td>Codex / Release Owner TBD</td><td>2026-08-25</td><td>依赖、Action、所有权与高危漏洞门禁已接入。签名发布工作流仅接受 main 中版本 tag，要求 updater 私钥、Windows Authenticode、macOS Developer ID/notarization、已签名 sidecar，并在发布前复核版本、`.sig`、大小与 SHA-256；正式凭据和首批制品待发布负责人配置</td></tr>
@@ -244,6 +244,7 @@
         <tr><td>2026-07-21</td><td>Release / GA</td><td>REL-003 版本化 readiness 首段完成</td><td>发布说明、兼容矩阵和事故响应计划进入仓库；12 项 gate 使用严格 JSON 契约记录 reviewer、时间与证据，普通 CI 验证结构，签名发布要求全部通过并把 readiness 快照纳入制品哈希清单</td><td>Codex</td></tr>
         <tr><td>2026-07-21</td><td>Desktop / Beta Metrics</td><td>APP-006 / REL-003 本地证据采集完成</td><td>独立双槽文件记录首次捕获和干净/异常会话，SQLCipher 聚合声明支持端点的解析率；设置页可复核、复制和只新建导出，不包含 Prompt、请求标识、日志或自动上传</td><td>Codex</td></tr>
         <tr><td>2026-07-21</td><td>Release / Beta Evidence</td><td>REL-003 离线聚合链完成</td><td>每个安装使用随机 128-bit ID 防止重复贡献；严格验证器拒绝隐私异常、未知字段、重复、symlink、伪造率和错误版本，按 30 位贡献者与 1,000 请求/会话最小量计算三个 gate，最终报告不保留样本 ID</td><td>Codex</td></tr>
+        <tr><td>2026-07-22</td><td>Desktop / Capture Profiles</td><td>APP-006 / TM-02 Profile 管理闭环</td><td>设置页新增可访问的 Profiles 视图，编辑名称、无凭据 HTTP(S) Gateway origin 和最多 16 个逐行精确 host；活跃捕获或 Proxy 模式下失败关闭并提供 Pause/Return to Gateway，保存使用后端规范化结果回填，Restore defaults 可恢复内置 OpenAI 配置；桌面与 600×620 紧凑视口均无重叠或无意义溢出</td><td>Codex</td></tr>
         <tr><td colspan="5">后续范围、架构、日期或资源变化均在此追加，并链接对应 ADR/会议结论。</td></tr>
       </tbody></table></div>
 
