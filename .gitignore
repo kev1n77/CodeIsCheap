@@ -10,6 +10,8 @@ node_modules/
 *.tsbuildinfo
 /apps/desktop/dist/
 /apps/desktop/.vite/
+/apps/desktop/playwright-report/
+/apps/desktop/test-results/
 /apps/desktop/src-tauri/gen/
 /apps/desktop/src-tauri/target/
 /apps/desktop/src-tauri/resources/sidecar/*

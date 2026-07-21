@@ -24,12 +24,42 @@ export interface CaptureRuntimeError {
 }
 
 const MAX_BATCH_EXPORT_REQUESTS = 200;
+const MAX_DEVELOPMENT_FIXTURE_REQUESTS = 1_000;
+
+function browserFixture(): WorkspaceBootstrap {
+  const workspace = structuredClone(fixture) as unknown as WorkspaceBootstrap;
+  if (!import.meta.env.DEV) return workspace;
+
+  const requestedCount = Number.parseInt(
+    new URLSearchParams(window.location.search).get("fixtureRequests") ?? "",
+    10,
+  );
+  if (!Number.isInteger(requestedCount)
+    || requestedCount <= workspace.requests.length
+    || requestedCount > MAX_DEVELOPMENT_FIXTURE_REQUESTS) {
+    return workspace;
+  }
+
+  const templates = workspace.requests;
+  workspace.requests = Array.from({ length: requestedCount }, (_, index) => {
+    const template = templates[index % templates.length];
+    return {
+      ...structuredClone(template),
+      id: `synthetic-request-${index}`,
+      model: `${template.model}-fixture-${index}`,
+      promptPreview: `Synthetic request ${index}`,
+      observedAtUnixMs: templates[0].observedAtUnixMs - index,
+    };
+  });
+  workspace.capture = { ...workspace.capture, requestCount: requestedCount };
+  return workspace;
+}
 
 export async function loadWorkspace(): Promise<WorkspaceBootstrap> {
   if (window.__TAURI_INTERNALS__) {
     return invoke<WorkspaceBootstrap>("bootstrap_workspace");
   }
-  return fixture as unknown as WorkspaceBootstrap;
+  return browserFixture();
 }
 
 export async function searchWorkspace(query: string): Promise<CapturedRequest[]> {
@@ -37,8 +67,9 @@ export async function searchWorkspace(query: string): Promise<CapturedRequest[]>
     return invoke<CapturedRequest[]>("search_workspace", { query });
   }
   const normalized = query.trim().toLocaleLowerCase();
-  if (!normalized) return structuredClone(fixture.requests) as unknown as CapturedRequest[];
-  return (structuredClone(fixture.requests) as unknown as CapturedRequest[])
+  const requests = browserFixture().requests;
+  if (!normalized) return requests;
+  return requests
     .filter((request) => requestSearchText(request).includes(normalized));
 }
 
@@ -46,10 +77,10 @@ export async function setCaptureActive(active: boolean): Promise<WorkspaceBootst
   if (window.__TAURI_INTERNALS__) {
     return invoke<WorkspaceBootstrap>("set_capture_active", { active });
   }
-  const workspace = structuredClone(fixture) as unknown as WorkspaceBootstrap;
+  const workspace = browserFixture();
   workspace.capture.active = active;
   workspace.compatibility = active
-    ? structuredClone((fixture as unknown as WorkspaceBootstrap).compatibility)
+    ? structuredClone(browserFixture().compatibility)
     : {
         code: "capture_paused",
         status: "attention",
@@ -71,7 +102,7 @@ export async function setCaptureMode(mode: CaptureMode): Promise<WorkspaceBootst
   if (window.__TAURI_INTERNALS__) {
     return invoke<WorkspaceBootstrap>("set_capture_mode", { mode });
   }
-  const workspace = structuredClone(fixture) as unknown as WorkspaceBootstrap;
+  const workspace = browserFixture();
   workspace.capture = { ...workspace.capture, mode };
   return workspace;
 }
@@ -80,14 +111,14 @@ export async function installCertificateAuthorityTrust(): Promise<WorkspaceBoots
   if (window.__TAURI_INTERNALS__) {
     return invoke<WorkspaceBootstrap>("install_certificate_authority_trust");
   }
-  return structuredClone(fixture) as unknown as WorkspaceBootstrap;
+  return browserFixture();
 }
 
 export async function uninstallCertificateAuthorityTrust(): Promise<WorkspaceBootstrap> {
   if (window.__TAURI_INTERNALS__) {
     return invoke<WorkspaceBootstrap>("uninstall_certificate_authority_trust");
   }
-  return structuredClone(fixture) as unknown as WorkspaceBootstrap;
+  return browserFixture();
 }
 
 export async function previewCaptureExport(
@@ -97,7 +128,7 @@ export async function previewCaptureExport(
   if (window.__TAURI_INTERNALS__) {
     return invoke<ExportPreview>("preview_capture_export", { captureId, profile });
   }
-  const workspace = fixture as unknown as WorkspaceBootstrap;
+  const workspace = browserFixture();
   const request = workspace.requests.find((candidate) => candidate.id === captureId);
   if (!request) throw new Error(`Capture ${captureId} is unavailable for export.`);
   return fixtureExportPreview(request, profile);
@@ -142,7 +173,7 @@ export async function previewBatchCaptureExport(
   if (window.__TAURI_INTERNALS__) {
     return invoke<ExportPreview>("preview_batch_capture_export", { captureIds, profile });
   }
-  const workspace = fixture as unknown as WorkspaceBootstrap;
+  const workspace = browserFixture();
   const requests = captureIds.map((captureId) => {
     const request = workspace.requests.find((candidate) => candidate.id === captureId);
     if (!request) throw new Error(`Capture ${captureId} is unavailable for export.`);
