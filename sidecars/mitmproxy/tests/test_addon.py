@@ -395,6 +395,58 @@ class AddonTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "loopback"):
                 IpcConfig.from_env()
 
+    @unittest.skipUnless(os.name == "posix" and hasattr(socket, "AF_UNIX"), "Unix only")
+    def test_ipc_sends_frames_over_an_absolute_unix_socket(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / "capture.sock")
+            listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            listener.bind(path)
+            listener.listen(1)
+            received: list[bytes] = []
+
+            def accept() -> None:
+                connection, _ = listener.accept()
+                with connection:
+                    stream = connection.makefile("rb")
+                    received.extend([stream.readline(), stream.readline()])
+                    connection.sendall(b'{"status":"accepted"}\n')
+
+            worker = threading.Thread(target=accept)
+            worker.start()
+            with patch.dict(
+                os.environ,
+                {
+                    "CIC_CAPTURE_IPC_ADDR": f"unix:{path}",
+                    "CIC_CAPTURE_IPC_TOKEN": "synthetic-token",
+                },
+                clear=False,
+            ):
+                config = IpcConfig.from_env()
+            if config is None:
+                self.fail("Unix IPC configuration must load")
+            envelope = build_envelope(FakeFlow())
+            send_envelope(config, envelope)
+            worker.join(timeout=2)
+            listener.close()
+
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(json.loads(received[0])["version"], "0.5")
+            self.assertEqual(json.loads(received[1]), envelope)
+
+    @unittest.skipUnless(os.name == "posix", "Unix only")
+    def test_ipc_rejects_relative_and_oversized_unix_socket_paths(self) -> None:
+        for path in ["capture.sock", "/" + "a" * 104]:
+            with self.subTest(path=path), patch.dict(
+                os.environ,
+                {
+                    "CIC_CAPTURE_IPC_ADDR": f"unix:{path}",
+                    "CIC_CAPTURE_IPC_TOKEN": "synthetic-token",
+                },
+                clear=False,
+            ):
+                with self.assertRaisesRegex(ValueError, "Unix socket path"):
+                    IpcConfig.from_env()
+
     def test_transport_context_accepts_only_exact_loopback_endpoints(self) -> None:
         self.assertEqual(
             build_transport_context(FakeFlow()),
@@ -438,7 +490,7 @@ class AddonTests(unittest.TestCase):
         self.assertFalse(worker.is_alive())
         auth = json.loads(received[0])
         captured = json.loads(received[1])
-        self.assertEqual(auth["version"], "0.4")
+        self.assertEqual(auth["version"], "0.5")
         self.assertEqual(auth["origin"], "mitmproxy")
         self.assertEqual(auth["token"], "synthetic-token")
         self.assertEqual(auth["transport"], transport)

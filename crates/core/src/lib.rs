@@ -400,7 +400,7 @@ fn persist_outcome(
 mod tests {
     use codeischeap_capture_ipc::{
         CAPTURE_ENVELOPE_VERSION, CaptureEnvelope, CaptureSource, CapturedBody, CapturedBodyState,
-        CapturedField, CapturedRequest,
+        CapturedField, CapturedRequest, IPC_PROTOCOL_VERSION,
     };
     use codeischeap_capture_policy::PolicyError;
     use codeischeap_storage::DatabaseKey;
@@ -444,7 +444,7 @@ mod tests {
         let (mut writer, reader) = tokio::io::duplex(16 * 1024);
         let auth = serde_json::json!({
             "protocol": "codeischeap.capture-ipc",
-            "version": "0.4",
+            "version": IPC_PROTOCOL_VERSION,
             "origin": "mitmproxy",
             "token": token,
         });

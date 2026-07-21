@@ -2212,7 +2212,7 @@ mod tests {
             .expect("IPC client must connect");
         let auth = serde_json::json!({
             "protocol": "codeischeap.capture-ipc",
-            "version": "0.4",
+            "version": codeischeap_capture_ipc::IPC_PROTOCOL_VERSION,
             "origin": "mitmproxy",
             "token": token,
             "transport": transport,

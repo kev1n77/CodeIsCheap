@@ -16,7 +16,8 @@ from urllib.parse import parse_qsl, urlsplit
 
 
 IPC_PROTOCOL = "codeischeap.capture-ipc"
-IPC_PROTOCOL_VERSION = "0.4"
+IPC_PROTOCOL_VERSION = "0.5"
+MAX_UNIX_SOCKET_PATH_BYTES = 103
 IPC_ORIGIN = "mitmproxy"
 STARTUP_PROBE_HOST = "codeischeap.invalid"
 STARTUP_PROBE_PATH = "/.well-known/codeischeap/ready"
@@ -483,11 +484,19 @@ def build_failure_envelope(flow: Any) -> dict[str, Any]:
 
 
 class IpcConfig:
-    def __init__(self, host: str, port: int, token: str, timeout_seconds: float = 2.0) -> None:
+    def __init__(
+        self,
+        host: str | None,
+        port: int | None,
+        token: str,
+        timeout_seconds: float = 2.0,
+        unix_path: str | None = None,
+    ) -> None:
         self.host = host
         self.port = port
         self.token = token
         self.timeout_seconds = timeout_seconds
+        self.unix_path = unix_path
 
     @classmethod
     def from_env(cls) -> IpcConfig | None:
@@ -495,9 +504,25 @@ class IpcConfig:
         token = os.getenv("CIC_CAPTURE_IPC_TOKEN")
         if not address or not token:
             return None
+        if address.startswith("unix:"):
+            path = address.removeprefix("unix:")
+            if os.name != "posix" or not hasattr(socket, "AF_UNIX"):
+                raise ValueError("capture IPC Unix sockets are unsupported on this platform")
+            if (
+                not os.path.isabs(path)
+                or not os.path.basename(path)
+                or b"\0" in os.fsencode(path)
+                or len(os.fsencode(path)) > MAX_UNIX_SOCKET_PATH_BYTES
+            ):
+                raise ValueError(
+                    "capture IPC Unix socket path must be absolute, non-empty, and at most 103 bytes"
+                )
+            return cls(host=None, port=None, token=token, unix_path=path)
         host, separator, port_text = address.rpartition(":")
         if not separator or not host or not port_text:
-            raise ValueError("CIC_CAPTURE_IPC_ADDR must be an IP address and port")
+            raise ValueError(
+                "CIC_CAPTURE_IPC_ADDR must be a loopback IP address and port or unix:/absolute/path"
+            )
         host = host.removeprefix("[").removesuffix("]")
         if not ipaddress.ip_address(host).is_loopback:
             raise ValueError("capture IPC address must be loopback")
@@ -505,6 +530,22 @@ class IpcConfig:
         if not 1 <= port <= 65535:
             raise ValueError("capture IPC port is invalid")
         return cls(host=host, port=port, token=token)
+
+    def connect(self) -> socket.socket:
+        if self.unix_path is not None:
+            connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            connection.settimeout(self.timeout_seconds)
+            try:
+                connection.connect(self.unix_path)
+            except OSError:
+                connection.close()
+                raise
+            return connection
+        if self.host is None or self.port is None:
+            raise ValueError("capture IPC TCP endpoint is incomplete")
+        return socket.create_connection(
+            (self.host, self.port), timeout=self.timeout_seconds
+        )
 
 
 def _socket_address(value: Any) -> tuple[str, int] | None:
@@ -567,7 +608,7 @@ def send_envelope(
         + json.dumps(envelope, ensure_ascii=True, separators=(",", ":"))
         + "\n"
     ).encode("utf-8")
-    with socket.create_connection((config.host, config.port), timeout=config.timeout_seconds) as connection:
+    with config.connect() as connection:
         connection.sendall(frames)
         acknowledgement = bytearray()
         while len(acknowledgement) < 256 and b"\n" not in acknowledgement:

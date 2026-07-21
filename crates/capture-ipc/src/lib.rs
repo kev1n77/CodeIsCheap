@@ -13,13 +13,15 @@ use std::time::Duration;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq as _;
-use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
+#[cfg(unix)]
+use tokio::net::UnixListener;
 use tokio::time::timeout;
 
 pub const CAPTURE_ENVELOPE_VERSION: &str = "0.1";
 pub const IPC_PROTOCOL: &str = "codeischeap.capture-ipc";
-pub const IPC_PROTOCOL_VERSION: &str = "0.4";
+pub const IPC_PROTOCOL_VERSION: &str = "0.5";
 pub const IPC_ORIGIN_MITMPROXY: &str = "mitmproxy";
 pub const CLIENT_LABEL_HEADER: &str = "x-codeischeap-client";
 pub const MAX_AUTH_FRAME_BYTES: usize = 1024;
@@ -344,13 +346,47 @@ where
         if !verify_peer(peer, server).await {
             return Err(IpcError::UnauthorizedPeer);
         }
-        let mut reader = BufReader::new(stream);
-        let capture = receive_from_reader_with_transport(&mut reader, expected_token).await?;
-        reader.get_mut().write_all(ACCEPTED_FRAME).await?;
-        Ok(capture)
+        receive_from_stream(stream, expected_token).await
     })
     .await
     .map_err(|_| IpcError::ConnectionDeadlineExceeded)?
+}
+
+#[cfg(unix)]
+pub async fn receive_one_unix_with_transport(
+    listener: &UnixListener,
+    expected_token: &str,
+) -> Result<ReceivedCapture, IpcError> {
+    receive_one_unix_with_transport_deadline(listener, expected_token, DEFAULT_CONNECTION_DEADLINE)
+        .await
+}
+
+#[cfg(unix)]
+pub async fn receive_one_unix_with_transport_deadline(
+    listener: &UnixListener,
+    expected_token: &str,
+    connection_deadline: Duration,
+) -> Result<ReceivedCapture, IpcError> {
+    let (stream, _) = listener.accept().await?;
+    timeout(
+        connection_deadline,
+        receive_from_stream(stream, expected_token),
+    )
+    .await
+    .map_err(|_| IpcError::ConnectionDeadlineExceeded)?
+}
+
+async fn receive_from_stream<S>(
+    stream: S,
+    expected_token: &str,
+) -> Result<ReceivedCapture, IpcError>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let mut reader = BufReader::new(stream);
+    let capture = receive_from_reader_with_transport(&mut reader, expected_token).await?;
+    reader.get_mut().write_all(ACCEPTED_FRAME).await?;
+    Ok(capture)
 }
 
 pub async fn receive_from_reader<R>(
