@@ -1,11 +1,13 @@
-#[cfg(unix)]
-use codeischeap_capture_ipc::receive_one_unix_with_transport_deadline;
 use codeischeap_capture_ipc::{
     CAPTURE_ENVELOPE_VERSION, CaptureEnvelope, CaptureOutcome, CaptureSource, CaptureTransport,
     CapturedBody, CapturedBodyState, CapturedField, CapturedRequest, CapturedResponse,
     IPC_ORIGIN_MITMPROXY, IPC_PROTOCOL, IPC_PROTOCOL_VERSION, IpcError, MAX_AUTH_FRAME_BYTES,
     ResponseCompleteness, receive_from_reader, receive_from_reader_with_transport,
     receive_one_with_deadline, receive_one_with_transport_verified,
+};
+#[cfg(unix)]
+use codeischeap_capture_ipc::{
+    receive_one_unix_with_transport_deadline, receive_one_unix_with_transport_verified,
 };
 use schemars::schema_for;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -371,6 +373,33 @@ async fn unix_socket_transport_preserves_auth_frames_and_acknowledgement() {
     sender.await.expect("Unix sender must complete");
     assert_eq!(received.envelope, expected);
     assert_eq!(received.transport, None);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn unix_socket_rejects_an_unexpected_peer_before_reading_auth() {
+    let directory = tempfile::tempdir().expect("temporary directory must exist");
+    let path = directory.path().join("capture.sock");
+    let listener = UnixListener::bind(&path).expect("Unix listener must bind");
+    let sender = tokio::spawn(async move {
+        UnixStream::connect(path)
+            .await
+            .expect("unauthorized Unix peer must connect")
+    });
+
+    let expected_pid = i32::try_from(std::process::id()).expect("test PID must fit in i32");
+    let error = receive_one_unix_with_transport_verified(
+        &listener,
+        "synthetic-token",
+        move |_, process_id| {
+            assert_eq!(process_id, Some(expected_pid));
+            false
+        },
+    )
+    .await
+    .expect_err("unexpected Unix peer must be rejected");
+    let _stream = sender.await.expect("Unix sender must complete");
+    assert!(matches!(error, IpcError::UnauthorizedPeer));
 }
 
 #[test]
