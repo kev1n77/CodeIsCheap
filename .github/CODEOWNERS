@@ -1,0 +1,12 @@
+* @kev1n77
+
+# Security boundaries require an explicit owner even though the repository has a default owner.
+/.github/ @kev1n77
+/apps/desktop/src-tauri/ @kev1n77
+/crates/capture-ipc/ @kev1n77
+/crates/capture-policy/ @kev1n77
+/crates/proxy-recovery/ @kev1n77
+/crates/sidecar-runtime/ @kev1n77
+/crates/storage/ @kev1n77
+/policies/ @kev1n77
+/sidecars/ @kev1n77
