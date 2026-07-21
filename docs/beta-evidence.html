@@ -29,7 +29,10 @@
   --policy release/beta-metrics-policy.v0.1.json \
   --input-directory path/to/reviewed-exports \
   --output path/to/new-beta-report.json \
-  --require-ready</code></pre>
+  --require-ready
+python scripts/verify_readiness_evidence.py verify-beta \
+  --repository-root . \
+  --evidence path/to/new-beta-report.json</code></pre>
       <p>工具拒绝重复样本、重复 JSON key、symlink、超限文件、错误版本、非目标平台、未知字段、不安全隐私声明、伪造率和违反子集关系的计数。输出必须是新文件。</p>
 
       <h2 id="review">审核</h2>
@@ -37,7 +40,7 @@
         <li>确认输入目录只含每位参与者最新且主动提交的一份导出。</li>
         <li>保存聚合命令、策略版本、最终报告与受控原始证据位置。</li>
         <li>由 Release Owner 审核三个 gate；未达标时继续取样或修复产品。</li>
-        <li>通过后仅将无样本 ID 的报告加入 readiness evidence；原始文件不进入仓库。</li>
+        <li>通过后将无样本 ID 的报告作为三个 Beta gate 的首项 readiness evidence；原始文件不进入仓库。</li>
       </ol>
 
       <footer class="doc-footer"><a href="release.html">← 签名发布</a><a href="progress.html">下一篇：进度跟踪 →</a></footer>

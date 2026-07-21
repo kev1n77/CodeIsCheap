@@ -18,6 +18,7 @@ from prepare_release import (
     verify_release,
 )
 from verify_release_readiness import REQUIRED_GATE_IDS
+from verify_readiness_evidence import BETA_GATE_IDS, MANUAL_GATE_IDS, build_manual_template
 
 
 class ReleasePreparationTests(unittest.TestCase):
@@ -40,6 +41,103 @@ class ReleasePreparationTests(unittest.TestCase):
         notes = repository / "release" / "notes" / f"v{version}.md"
         notes.parent.mkdir(parents=True)
         notes.write_text(f"# CodeIsCheap {version}\n", encoding="utf-8")
+        (repository / "release/beta-metrics-policy.v0.1.json").write_text(
+            json.dumps(
+                {
+                    "schemaVersion": "0.1",
+                    "releaseVersion": version,
+                    "allowedPlatforms": ["macos", "windows"],
+                    "minimums": {
+                        "contributors": 3,
+                        "firstCaptureSamples": 3,
+                        "supportedCaptures": 6,
+                        "completedSessions": 6,
+                    },
+                    "thresholds": {
+                        "firstCaptureP50MaxMs": 500,
+                        "endpointParseRateMinBasisPointsExclusive": 9500,
+                        "crashFreeRateMinBasisPointsExclusive": 9950,
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        structured: dict[str, str] = {}
+        if "-" not in version:
+            evidence_directory = repository / "evidence"
+            evidence_directory.mkdir()
+            for gate_id in MANUAL_GATE_IDS:
+                packet = build_manual_template(gate_id, version)
+                packet.update(
+                    {
+                        "completedAt": "2026-07-20T00:00:00Z",
+                        "executor": "qa-executor",
+                        "reviewer": "release-owner",
+                        "summary": f"{gate_id} acceptance completed.",
+                    }
+                )
+                for scenario in packet["scenarios"]:
+                    attachment = evidence_directory / f'{gate_id}-{scenario["id"]}.txt'
+                    attachment.write_text("reviewed result", encoding="utf-8")
+                    scenario.update(
+                        {
+                            "architecture": "cross-platform",
+                            "environment": "isolated acceptance environment",
+                            "status": "passed",
+                            "evidence": [f"evidence/{attachment.name}"],
+                            "notes": "Expected behavior observed.",
+                        }
+                    )
+                packet_path = evidence_directory / f"{gate_id}.json"
+                packet_path.write_text(json.dumps(packet), encoding="utf-8")
+                structured[gate_id] = f"evidence/{packet_path.name}"
+            beta_report = {
+                "schemaVersion": "0.1",
+                "releaseVersion": version,
+                "generatedAtUnixMs": 1,
+                "privacy": {
+                    "sourceContentIncluded": False,
+                    "sampleIdsIncluded": False,
+                    "automaticUpload": False,
+                },
+                "cohort": {
+                    "contributorCount": 3,
+                    "platformCounts": {"macos": 1, "windows": 2},
+                    "sourceSha256": [f"{value:064x}" for value in range(1, 4)],
+                },
+                "metrics": {
+                    "firstCaptureSampleCount": 3,
+                    "firstCaptureP50Ms": 200,
+                    "supportedCaptureCount": 100,
+                    "parsedCaptureCount": 99,
+                    "parseRateBasisPoints": 9900,
+                    "completedSessionCount": 1000,
+                    "uncleanSessionCount": 0,
+                    "crashFreeRateBasisPoints": 10000,
+                },
+                "gates": {
+                    "firstCaptureP50": {
+                        "status": "passed",
+                        "actual": 200,
+                        "requirement": "under 500 ms",
+                    },
+                    "endpointParseRate": {
+                        "status": "passed",
+                        "actual": 9900,
+                        "requirement": "over 9500 basis points",
+                    },
+                    "crashFreeSessions": {
+                        "status": "passed",
+                        "actual": 10000,
+                        "requirement": "over 9950 basis points",
+                    },
+                },
+                "ready": True,
+            }
+            beta_path = evidence_directory / "beta-report.json"
+            beta_path.write_text(json.dumps(beta_report), encoding="utf-8")
+            for gate_id in BETA_GATE_IDS:
+                structured[gate_id] = "evidence/beta-report.json"
         readiness = {
             "schemaVersion": "0.1",
             "releaseVersion": version,
@@ -48,10 +146,26 @@ class ReleasePreparationTests(unittest.TestCase):
             "gates": [
                 {
                     "id": gate_id,
-                    "status": "passed",
-                    "reviewer": "release-owner",
-                    "completedAt": "2026-07-21T00:00:00Z",
-                    "evidence": ["docs/release-evidence.html"],
+                    "status": (
+                        "pending"
+                        if "-" in version and gate_id in MANUAL_GATE_IDS | BETA_GATE_IDS
+                        else "passed"
+                    ),
+                    "reviewer": (
+                        None
+                        if "-" in version and gate_id in MANUAL_GATE_IDS | BETA_GATE_IDS
+                        else "release-owner"
+                    ),
+                    "completedAt": (
+                        None
+                        if "-" in version and gate_id in MANUAL_GATE_IDS | BETA_GATE_IDS
+                        else "2026-07-21T00:00:00Z"
+                    ),
+                    "evidence": (
+                        []
+                        if "-" in version and gate_id in MANUAL_GATE_IDS | BETA_GATE_IDS
+                        else [structured.get(gate_id, "docs/release-evidence.html")]
+                    ),
                 }
                 for gate_id in sorted(REQUIRED_GATE_IDS)
             ],

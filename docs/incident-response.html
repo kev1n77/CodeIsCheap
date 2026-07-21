@@ -31,7 +31,7 @@
     <ul><li>使用 <a href="support.html">支持包验证器</a>生成摘要；不得把原始 Prompt、Raw、私钥或日志详情写入工单。</li><li>发布事故保存 workflow URL、tag、manifest、文件哈希和签名结果。</li><li>数据库问题先复制加密文件并限制访问；不得要求用户提供 OS 凭据库中的 key。</li><li>证据到期按案件策略删除；安全事件只保留完成复盘所需的最小集合。</li></ul>
 
     <h2 id="drill">GA 演练</h2>
-    <ol><li>在隔离 Windows 与 macOS 设备分别模拟 sidecar 强杀、应用强杀和 owner 断连，确认网络恢复。</li><li>使用签名候选版本模拟迁移失败，确认只读历史、搜索和脱敏导出。</li><li>模拟 updater manifest 哈希或签名不匹配，确认不会公开或安装。</li><li>记录负责人、时间线、检测/缓解时间、证据链接和改进项；由非执行者复核。</li><li>将演练证据写入 <code>release/readiness.v0.1.json</code> 后，发布门禁才可通过。</li></ol>
+    <ol><li>在隔离 Windows 与 macOS 设备分别模拟 sidecar 强杀、应用强杀和 owner 断连，确认网络恢复。</li><li>使用签名候选版本模拟迁移失败，确认只读历史、搜索和脱敏导出。</li><li>模拟 updater manifest 哈希或签名不匹配，确认不会公开或安装。</li><li>记录负责人、时间线、检测/缓解时间、证据链接和改进项；由非执行者复核。</li><li>用 <code>verify_readiness_evidence.py init-manual --gate incident_response_drill</code> 创建场景包；完成并校验后作为该 gate 的首项证据。</li></ol>
     <footer class="doc-footer"><a href="support.html">← 支持处理</a><a href="progress.html">下一篇：进度跟踪 →</a></footer>
   </main><aside class="toc"><strong>本页</strong><a href="#severity">分级</a><a href="#flow">响应链</a><a href="#playbooks">Playbook</a><a href="#evidence">证据边界</a><a href="#drill">GA 演练</a></aside></div>
 </body></html>

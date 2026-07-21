@@ -37,12 +37,15 @@
       <h2 id="trigger">触发与证据</h2>
       <ol>
         <li>同步 <code>tauri.conf.json</code>、桌面 <code>package.json</code> 和 Tauri <code>Cargo.toml</code> 的版本。</li>
-        <li>提交 <code>release/notes/v&lt;version&gt;.md</code>，并在 <code>release/readiness.v0.1.json</code> 中附上全部人工验收证据。</li>
+        <li>提交 <code>release/notes/v&lt;version&gt;.md</code>；人工 gate 的首项证据使用 <code>verify_readiness_evidence.py init-manual</code> 生成并完成，Beta gate 引用已通过策略的聚合报告。</li>
         <li>签名 RC 可保留 pending 人工 gate，并以 GitHub prerelease 发布供隔离设备演练；稳定版必须零 pending。</li>
         <li>确认 main CI 全绿后创建并推送 <code>v&lt;semver&gt;</code> tag，或手动选择已存在 tag 运行 <strong>Signed release</strong>。</li>
         <li>审批 <code>release</code> environment；工作流会拒绝不在 main 中的 tag。</li>
         <li>保存工作流链接、<code>release-manifest.v0.1.json</code>、<code>latest.json</code>、安装包和 `.sig` 作为发布证据。</li>
       </ol>
+      <pre><code>python scripts/verify_readiness_evidence.py verify-manual --repository-root . --evidence path/to/completed-evidence.json
+python scripts/verify_readiness_evidence.py verify-beta --repository-root . --evidence path/to/beta-report.json
+python scripts/verify_release_readiness.py --repository-root . --tag v0.1.0</code></pre>
 
       <h2 id="rollback">回滚演练</h2>
       <ul class="checklist">
