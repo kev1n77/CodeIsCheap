@@ -24,6 +24,11 @@ use codeischeap_capture_ipc::{
     CaptureEnvelope, CaptureTransport, receive_one_with_transport,
     receive_one_with_transport_verified,
 };
+#[cfg(windows)]
+use codeischeap_capture_ipc::{
+    OwnerOnlyNamedPipeListener, named_pipe_client_process_id, named_pipe_is_owner_only,
+    receive_one_named_pipe_with_transport_verified,
+};
 use codeischeap_capture_policy::CapturePolicy;
 use codeischeap_core::{
     GatewayCaptureError, GatewayCaptureOutcome, IngestError, ingest_envelope, persist_capture,
@@ -128,6 +133,8 @@ enum ProxyCaptureListener {
     Tcp(TcpListener),
     #[cfg(unix)]
     Unix(PrivateUnixCaptureListener),
+    #[cfg(windows)]
+    NamedPipe(OwnerOnlyNamedPipeListener),
 }
 
 struct CaptureIpcBinding {
@@ -1270,7 +1277,7 @@ async fn ensure_proxy(app: &AppHandle, state: &DesktopState) -> Result<(), Strin
     Ok(())
 }
 
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 async fn bind_capture_ipc(_token: &str) -> Result<CaptureIpcBinding, String> {
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
         .await
@@ -1282,6 +1289,27 @@ async fn bind_capture_ipc(_token: &str) -> Result<CaptureIpcBinding, String> {
         listener: ProxyCaptureListener::Tcp(listener),
         endpoint: CaptureIpcEndpoint::Tcp(address),
     })
+}
+
+#[cfg(windows)]
+async fn bind_capture_ipc(_token: &str) -> Result<CaptureIpcBinding, String> {
+    let name = private_capture_ipc_pipe_name()?;
+    let listener = OwnerOnlyNamedPipeListener::bind(name.clone())
+        .map_err(|error| format!("capture IPC named pipe could not bind securely: {error}"))?;
+    Ok(CaptureIpcBinding {
+        listener: ProxyCaptureListener::NamedPipe(listener),
+        endpoint: CaptureIpcEndpoint::NamedPipe(name),
+    })
+}
+
+#[cfg(windows)]
+fn private_capture_ipc_pipe_name() -> Result<String, String> {
+    let random = generate_ipc_token()?;
+    Ok(format!(
+        r"\\.\pipe\CodeIsCheap-capture-{}-{}",
+        std::process::id(),
+        &random[..24]
+    ))
 }
 
 #[cfg(unix)]
@@ -1567,7 +1595,10 @@ fn generate_ipc_token() -> Result<String, String> {
     Ok(token)
 }
 
-async fn process_proxy_events(context: ProxyCaptureContext, mut shutdown: oneshot::Receiver<()>) {
+async fn process_proxy_events(
+    mut context: ProxyCaptureContext,
+    mut shutdown: oneshot::Receiver<()>,
+) {
     let adapters = AdapterRegistry::default();
     let mut captures_since_retention = 0_usize;
     let mut session = ProxyCaptureSession::new(context.sidecar_process_id);
@@ -1575,7 +1606,7 @@ async fn process_proxy_events(context: ProxyCaptureContext, mut shutdown: onesho
         let result = tokio::select! {
             _ = &mut shutdown => break,
             result = receive_and_persist_proxy_capture(
-                &context.listener,
+                &mut context.listener,
                 &context.token,
                 &context.policy,
                 &adapters,
@@ -1620,7 +1651,7 @@ async fn process_proxy_events(context: ProxyCaptureContext, mut shutdown: onesho
 }
 
 async fn receive_and_persist_proxy_capture(
-    listener: &ProxyCaptureListener,
+    listener: &mut ProxyCaptureListener,
     token: &str,
     policy: &CapturePolicy,
     adapters: &AdapterRegistry,
@@ -1647,6 +1678,14 @@ async fn receive_and_persist_proxy_capture(
                 }
                 received
             }
+        }
+        #[cfg(windows)]
+        ProxyCaptureListener::NamedPipe(listener) => {
+            let expected_process_id = session.sidecar_process_id;
+            receive_one_named_pipe_with_transport_verified(listener, token, move |connected| {
+                named_pipe_client_process_id(connected).ok() == Some(expected_process_id)
+            })
+            .await
         }
         #[cfg(unix)]
         ProxyCaptureListener::Unix(binding) => {
@@ -1994,6 +2033,8 @@ mod tests {
     use tokio::net::TcpStream;
     #[cfg(unix)]
     use tokio::net::UnixStream;
+    #[cfg(windows)]
+    use tokio::net::windows::named_pipe::ClientOptions;
 
     use super::*;
 
@@ -2240,7 +2281,7 @@ mod tests {
     #[tokio::test]
     async fn unix_capture_binding_authenticates_the_sidecar_peer_and_acknowledges_frames() {
         let token = generate_ipc_token().expect("IPC token must generate");
-        let binding = bind_capture_ipc(&token)
+        let mut binding = bind_capture_ipc(&token)
             .await
             .expect("private Unix IPC must bind");
         let path = match &binding.endpoint {
@@ -2260,7 +2301,7 @@ mod tests {
         let (acknowledged, result) = tokio::join!(
             send_unix_ipc_capture(path, &token, &request),
             receive_and_persist_proxy_capture(
-                &binding.listener,
+                &mut binding.listener,
                 &token,
                 &policy,
                 &adapters,
@@ -2271,6 +2312,77 @@ mod tests {
         );
         assert!(acknowledged);
         assert_eq!(result.expect("paused Unix capture must be accepted"), None);
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn windows_capture_binding_enforces_dacl_pid_auth_and_acknowledges_frames() {
+        let token = generate_ipc_token().expect("IPC token must generate");
+        let mut binding = bind_capture_ipc(&token)
+            .await
+            .expect("private named pipe IPC must bind");
+        let name = match (&binding.listener, &binding.endpoint) {
+            (
+                ProxyCaptureListener::NamedPipe(listener),
+                CaptureIpcEndpoint::NamedPipe(endpoint_name),
+            ) => {
+                assert_eq!(listener.name(), endpoint_name);
+                assert!(
+                    named_pipe_is_owner_only(listener.pending_server())
+                        .expect("named pipe DACL must be readable")
+                );
+                endpoint_name.clone()
+            }
+            _ => panic!("Windows builds must use a named pipe capture endpoint"),
+        };
+        let request: CaptureEnvelope = serde_json::from_str(include_str!(
+            "../../../../crates/capture-ipc/tests/fixtures/mitmproxy-request.json"
+        ))
+        .expect("request fixture must parse");
+        let policy = CapturePolicy::load_default().expect("capture policy must load");
+        let adapters = AdapterRegistry::default();
+        let store = Arc::new(Mutex::new(None));
+        let active = AtomicBool::new(false);
+
+        let mut rejected_session = ProxyCaptureSession::new(u32::MAX);
+        let (acknowledged, result) = tokio::join!(
+            send_named_pipe_ipc_capture(name.clone(), &token, &request),
+            receive_and_persist_proxy_capture(
+                &mut binding.listener,
+                &token,
+                &policy,
+                &adapters,
+                &store,
+                &active,
+                &mut rejected_session,
+            )
+        );
+        assert!(!acknowledged);
+        assert!(matches!(
+            result,
+            Err(ProxyCaptureError::Ingest(IngestError::Ipc(
+                IpcError::UnauthorizedPeer
+            )))
+        ));
+
+        let mut session = ProxyCaptureSession::new(std::process::id());
+        let (acknowledged, result) = tokio::join!(
+            send_named_pipe_ipc_capture(name, &token, &request),
+            receive_and_persist_proxy_capture(
+                &mut binding.listener,
+                &token,
+                &policy,
+                &adapters,
+                &store,
+                &active,
+                &mut session,
+            )
+        );
+        assert!(acknowledged);
+        assert_eq!(
+            result.expect("paused named pipe capture must be accepted"),
+            None
+        );
     }
 
     #[cfg(unix)]
@@ -2324,7 +2436,7 @@ mod tests {
             .await
             .expect("IPC listener must bind");
         let address = listener.local_addr().expect("IPC address must exist");
-        let listener = ProxyCaptureListener::Tcp(listener);
+        let mut listener = ProxyCaptureListener::Tcp(listener);
         let token = generate_ipc_token().expect("IPC token must generate");
         let policy = CapturePolicy::load_default().expect("capture policy must load");
         let adapters = AdapterRegistry::default();
@@ -2355,7 +2467,7 @@ mod tests {
             let (acknowledged, result) = tokio::join!(
                 send_ipc_capture(address, &token, &request, Some(transport)),
                 receive_and_persist_proxy_capture(
-                    &listener,
+                    &mut listener,
                     &token,
                     &policy,
                     &adapters,
@@ -2376,7 +2488,7 @@ mod tests {
         let (acknowledged, result) = tokio::join!(
             send_ipc_capture(address, &token, &request, Some(transport)),
             receive_and_persist_proxy_capture(
-                &listener,
+                &mut listener,
                 &token,
                 &policy,
                 &adapters,
@@ -2406,7 +2518,7 @@ mod tests {
         let (acknowledged, result) = tokio::join!(
             send_ipc_capture(address, &token, &response, None),
             receive_and_persist_proxy_capture(
-                &listener,
+                &mut listener,
                 &token,
                 &policy,
                 &adapters,
@@ -2424,7 +2536,7 @@ mod tests {
         let (acknowledged, result) = tokio::join!(
             send_ipc_capture(address, &token, &paused, None),
             receive_and_persist_proxy_capture(
-                &listener,
+                &mut listener,
                 &token,
                 &policy,
                 &adapters,
@@ -2506,6 +2618,37 @@ mod tests {
             .expect("Unix IPC frames must write");
         let mut acknowledgement = String::new();
         if BufReader::new(stream)
+            .read_line(&mut acknowledgement)
+            .await
+            .is_err()
+        {
+            return false;
+        }
+        serde_json::from_str::<serde_json::Value>(&acknowledgement).ok()
+            == Some(serde_json::json!({"status": "accepted"}))
+    }
+
+    #[cfg(windows)]
+    async fn send_named_pipe_ipc_capture(
+        name: String,
+        token: &str,
+        envelope: &CaptureEnvelope,
+    ) -> bool {
+        let mut client = ClientOptions::new()
+            .open(name)
+            .expect("named pipe IPC client must connect");
+        let auth = serde_json::json!({
+            "protocol": "codeischeap.capture-ipc",
+            "version": codeischeap_capture_ipc::IPC_PROTOCOL_VERSION,
+            "origin": "mitmproxy",
+            "token": token,
+        });
+        client
+            .write_all(format!("{auth}\n{}\n", serde_json::to_string(envelope).unwrap()).as_bytes())
+            .await
+            .expect("named pipe IPC frames must write");
+        let mut acknowledgement = String::new();
+        if BufReader::new(client)
             .read_line(&mut acknowledgement)
             .await
             .is_err()

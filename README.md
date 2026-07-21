@@ -59,7 +59,7 @@ cargo run -p codeischeap-desktop-api --bin export-desktop-contract
 
 捕获范围与敏感字段由 `policies/capture-policy.v0.1.json` 定义，公开 schema 位于 `schemas/capture-policy/v0.1.schema.json`。Python sidecar 在 IPC 前执行策略，`crates/core` 在进入持久化前再次拒绝越界请求并删除遗漏凭据。
 
-sidecar IPC 协议为 `0.5`：Windows 桌面继续使用 loopback TCP；macOS/Linux 桌面改用 POSIX 绝对 Unix socket，socket 位于当前 eUID 所有的 `0700` 私有目录、权限固定为 `0600`，并对每次连接核对 sidecar eUID 与 PID。每次 Proxy 会话重新生成 256-bit token，认证帧限制为 1 KiB，并要求 `mitmproxy` 来源声明；认证、数据帧和服务端 ACK 共用 2 秒截止时间，sidecar 在收到 ACK 前保持连接。桌面另生成独立 256-bit readiness token，只有返回该 token 的打包 sidecar 才会被视为启动成功，普通端口占用者不会被误认。认证帧可携带严格校验的临时 loopback 端点用于被代理应用的进程归因，该端点不会进入 CaptureEnvelope、持久化或导出。sidecar manifest 分别声明 IPC、Envelope 和 Policy 版本，不兼容 bundle 会在启动前被拒绝。
+sidecar IPC 协议为 `0.6`：Windows 桌面使用随机命名、拒绝远端连接且 DACL 仅允许当前用户与 SYSTEM 的 named pipe；macOS/Linux 使用当前 eUID 所有的 `0700` 私有目录内、权限固定为 `0600` 的 POSIX Unix socket。Windows 每条连接从内核读取客户端 PID，Unix 每条连接读取 peer eUID/PID，并与已启动 sidecar 严格匹配。每次 Proxy 会话重新生成 256-bit token，认证帧限制为 1 KiB，并要求 `mitmproxy` 来源声明；认证、数据帧和服务端 ACK 共用 2 秒截止时间，sidecar 在收到 ACK 前保持连接。桌面另生成独立 256-bit readiness token，只有返回该 token 的打包 sidecar 才会被视为启动成功。认证帧可携带严格校验的临时 loopback 端点用于被代理应用的进程归因，该端点不会进入 CaptureEnvelope、持久化或导出。sidecar manifest 分别声明 IPC、Envelope 和 Policy 版本，不兼容 bundle 会在启动前被拒绝。
 
 Gateway 和 Proxy 捕获会按显式客户端标签、User-Agent 规则或捕获模式回退生成带置信度的应用归因。Gateway 客户端可设置 `x-codeischeap-client: <application>` 提供高置信度标签；该内部请求头会在持久化和转发上游前删除。Windows、macOS 与 Linux 上的 Gateway 和 Proxy 会用操作系统 TCP 连接表精确匹配客户端 PID，查询失败时保持未知，不做启发式推断；Linux 通过 `/proc/net/tcp{,6}` 的精确四元组定位 socket inode，并只接受唯一进程 owner。sidecar 自报 PID 会被忽略，用于匹配的临时 socket 端点不会进入持久化或导出。未知客户端会明确显示为低置信度的 `Gateway client` 或 `Proxy client`。
 

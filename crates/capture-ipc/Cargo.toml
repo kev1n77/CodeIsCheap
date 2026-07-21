@@ -12,6 +12,9 @@ serde_json.workspace = true
 subtle.workspace = true
 tokio.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Pipes", "Win32_System_Threading"] }
+
 [dev-dependencies]
 tempfile.workspace = true
 tokio.workspace = true

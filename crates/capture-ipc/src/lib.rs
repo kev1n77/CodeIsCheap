@@ -10,6 +10,15 @@ use std::io;
 use std::net::SocketAddr;
 use std::time::Duration;
 
+#[cfg(windows)]
+use std::ffi::OsStr;
+#[cfg(windows)]
+use std::mem::size_of;
+#[cfg(windows)]
+use std::os::windows::ffi::OsStrExt as _;
+#[cfg(windows)]
+use std::os::windows::io::{AsRawHandle as _, FromRawHandle as _, OwnedHandle};
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq as _;
@@ -17,17 +26,47 @@ use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWrite
 use tokio::net::TcpListener;
 #[cfg(unix)]
 use tokio::net::UnixListener;
+#[cfg(windows)]
+use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
 use tokio::time::timeout;
+
+#[cfg(windows)]
+use windows_sys::Win32::Foundation::{GENERIC_ALL, HANDLE, LocalFree};
+#[cfg(windows)]
+use windows_sys::Win32::Security::Authorization::{
+    ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, GetSecurityInfo,
+    SDDL_REVISION_1, SE_KERNEL_OBJECT,
+};
+#[cfg(windows)]
+use windows_sys::Win32::Security::{
+    ACCESS_ALLOWED_ACE, ACL, CreateWellKnownSid, DACL_SECURITY_INFORMATION, EqualSid, GetAce,
+    GetLengthSid, GetSecurityDescriptorControl, GetTokenInformation, INHERITED_ACE,
+    OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, SE_DACL_PROTECTED, SECURITY_ATTRIBUTES,
+    SECURITY_MAX_SID_SIZE, TOKEN_QUERY, TOKEN_USER, TokenUser, WinLocalSystemSid,
+};
+#[cfg(windows)]
+use windows_sys::Win32::Storage::FileSystem::FILE_ALL_ACCESS;
+#[cfg(windows)]
+use windows_sys::Win32::System::Pipes::GetNamedPipeClientProcessId;
+#[cfg(windows)]
+use windows_sys::Win32::System::SystemServices::ACCESS_ALLOWED_ACE_TYPE;
+#[cfg(windows)]
+use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
 pub const CAPTURE_ENVELOPE_VERSION: &str = "0.1";
 pub const IPC_PROTOCOL: &str = "codeischeap.capture-ipc";
-pub const IPC_PROTOCOL_VERSION: &str = "0.5";
+pub const IPC_PROTOCOL_VERSION: &str = "0.6";
 pub const IPC_ORIGIN_MITMPROXY: &str = "mitmproxy";
 pub const CLIENT_LABEL_HEADER: &str = "x-codeischeap-client";
 pub const MAX_AUTH_FRAME_BYTES: usize = 1024;
 pub const MAX_FRAME_BYTES: usize = 4 * 1024 * 1024;
 pub const DEFAULT_CONNECTION_DEADLINE: Duration = Duration::from_secs(2);
 const ACCEPTED_FRAME: &[u8] = b"{\"status\":\"accepted\"}\n";
+
+#[cfg(windows)]
+const NAMED_PIPE_PREFIX: &str = r"\\.\pipe\CodeIsCheap-capture-";
+#[cfg(windows)]
+const MAX_NAMED_PIPE_NAME_CHARS: usize = 256;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -262,6 +301,297 @@ impl From<io::Error> for IpcError {
     }
 }
 
+#[cfg(windows)]
+struct LocalAllocation(*mut core::ffi::c_void);
+
+#[cfg(windows)]
+impl Drop for LocalAllocation {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            unsafe {
+                LocalFree(self.0);
+            }
+        }
+    }
+}
+
+#[cfg(windows)]
+struct OwnedSid(Vec<u32>);
+
+#[cfg(windows)]
+impl OwnedSid {
+    fn copy_from(source: PSID) -> io::Result<Self> {
+        let byte_len = unsafe { GetLengthSid(source) };
+        if byte_len == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let mut words = vec![
+            0u32;
+            usize::try_from(byte_len)
+                .unwrap()
+                .div_ceil(size_of::<u32>())
+        ];
+        if unsafe {
+            windows_sys::Win32::Security::CopySid(byte_len, words.as_mut_ptr().cast(), source)
+        } == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(Self(words))
+    }
+
+    fn current_user() -> io::Result<Self> {
+        let mut raw_token: HANDLE = std::ptr::null_mut();
+        if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut raw_token) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let token = unsafe { OwnedHandle::from_raw_handle(raw_token.cast()) };
+        let mut required = 0u32;
+        unsafe {
+            GetTokenInformation(
+                token.as_raw_handle().cast(),
+                TokenUser,
+                std::ptr::null_mut(),
+                0,
+                &mut required,
+            );
+        }
+        if required == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let mut buffer = vec![
+            0usize;
+            usize::try_from(required)
+                .unwrap()
+                .div_ceil(size_of::<usize>())
+        ];
+        if unsafe {
+            GetTokenInformation(
+                token.as_raw_handle().cast(),
+                TokenUser,
+                buffer.as_mut_ptr().cast(),
+                required,
+                &mut required,
+            )
+        } == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        let token_user = unsafe { &*buffer.as_ptr().cast::<TOKEN_USER>() };
+        Self::copy_from(token_user.User.Sid)
+    }
+
+    fn local_system() -> io::Result<Self> {
+        let mut byte_len = SECURITY_MAX_SID_SIZE;
+        let mut words = vec![
+            0u32;
+            usize::try_from(byte_len)
+                .unwrap()
+                .div_ceil(size_of::<u32>())
+        ];
+        if unsafe {
+            CreateWellKnownSid(
+                WinLocalSystemSid,
+                std::ptr::null_mut(),
+                words.as_mut_ptr().cast(),
+                &mut byte_len,
+            )
+        } == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(Self(words))
+    }
+
+    fn as_psid(&self) -> PSID {
+        self.0.as_ptr().cast_mut().cast()
+    }
+
+    fn to_string(&self) -> io::Result<String> {
+        let mut raw = std::ptr::null_mut();
+        if unsafe { ConvertSidToStringSidW(self.as_psid(), &mut raw) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let allocation = LocalAllocation(raw.cast());
+        let mut len = 0usize;
+        while unsafe { *raw.add(len) } != 0 {
+            len += 1;
+        }
+        let value = String::from_utf16(unsafe { std::slice::from_raw_parts(raw, len) })
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+        drop(allocation);
+        Ok(value)
+    }
+}
+
+#[cfg(windows)]
+fn owner_only_security_descriptor() -> io::Result<LocalAllocation> {
+    let user_sid = OwnedSid::current_user()?.to_string()?;
+    let sddl = format!("O:{user_sid}D:P(A;;GA;;;SY)(A;;GA;;;{user_sid})");
+    let encoded = OsStr::new(&sddl)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
+    if unsafe {
+        ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            encoded.as_ptr(),
+            SDDL_REVISION_1,
+            &mut descriptor,
+            std::ptr::null_mut(),
+        )
+    } == 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(LocalAllocation(descriptor))
+}
+
+#[cfg(windows)]
+fn valid_named_pipe_name(name: &str) -> bool {
+    let Some(suffix) = name.strip_prefix(NAMED_PIPE_PREFIX) else {
+        return false;
+    };
+    !suffix.is_empty()
+        && name.encode_utf16().count() <= MAX_NAMED_PIPE_NAME_CHARS
+        && suffix
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+}
+
+#[cfg(windows)]
+pub struct OwnerOnlyNamedPipeListener {
+    name: String,
+    pending: NamedPipeServer,
+}
+
+#[cfg(windows)]
+impl OwnerOnlyNamedPipeListener {
+    pub fn bind(name: impl Into<String>) -> io::Result<Self> {
+        let name = name.into();
+        let pending = create_owner_only_named_pipe_instance(&name, true)?;
+        Ok(Self { name, pending })
+    }
+
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    #[must_use]
+    pub fn pending_server(&self) -> &NamedPipeServer {
+        &self.pending
+    }
+}
+
+#[cfg(windows)]
+fn create_owner_only_named_pipe_instance(
+    name: &str,
+    first_instance: bool,
+) -> io::Result<NamedPipeServer> {
+    if !valid_named_pipe_name(name) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "capture IPC named pipe has an invalid local name",
+        ));
+    }
+    let descriptor = owner_only_security_descriptor()?;
+    let mut attributes = SECURITY_ATTRIBUTES {
+        nLength: u32::try_from(size_of::<SECURITY_ATTRIBUTES>()).unwrap(),
+        lpSecurityDescriptor: descriptor.0,
+        bInheritHandle: 0,
+    };
+    let mut options = ServerOptions::new();
+    options
+        .first_pipe_instance(first_instance)
+        .reject_remote_clients(true)
+        .max_instances(2);
+    let server = unsafe {
+        options
+            .create_with_security_attributes_raw(name, std::ptr::from_mut(&mut attributes).cast())?
+    };
+    if !named_pipe_is_owner_only(&server)? {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "capture IPC named pipe DACL is not owner-only",
+        ));
+    }
+    Ok(server)
+}
+
+#[cfg(windows)]
+pub fn named_pipe_is_owner_only(server: &NamedPipeServer) -> io::Result<bool> {
+    let mut owner: PSID = std::ptr::null_mut();
+    let mut dacl: *mut ACL = std::ptr::null_mut();
+    let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
+    let status = unsafe {
+        GetSecurityInfo(
+            server.as_raw_handle().cast(),
+            SE_KERNEL_OBJECT,
+            OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+            &mut owner,
+            std::ptr::null_mut(),
+            &mut dacl,
+            std::ptr::null_mut(),
+            &mut descriptor,
+        )
+    };
+    if status != 0 {
+        return Err(io::Error::from_raw_os_error(status as i32));
+    }
+    let _descriptor = LocalAllocation(descriptor);
+    if owner.is_null() || dacl.is_null() {
+        return Ok(false);
+    }
+    let current_user = OwnedSid::current_user()?;
+    let local_system = OwnedSid::local_system()?;
+    if unsafe { EqualSid(owner, current_user.as_psid()) } == 0 {
+        return Ok(false);
+    }
+    let mut control = 0u16;
+    let mut revision = 0u32;
+    if unsafe { GetSecurityDescriptorControl(descriptor, &mut control, &mut revision) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if control & SE_DACL_PROTECTED == 0 || unsafe { (*dacl).AceCount } != 2 {
+        return Ok(false);
+    }
+
+    let mut user_allowed = false;
+    let mut system_allowed = false;
+    for index in 0..2 {
+        let mut raw_ace = std::ptr::null_mut();
+        if unsafe { GetAce(dacl, index, &mut raw_ace) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let ace = unsafe { &*raw_ace.cast::<ACCESS_ALLOWED_ACE>() };
+        if ace.Header.AceType != ACCESS_ALLOWED_ACE_TYPE as u8
+            || ace.Header.AceFlags & INHERITED_ACE as u8 != 0
+            || !matches!(ace.Mask, GENERIC_ALL | FILE_ALL_ACCESS)
+        {
+            return Ok(false);
+        }
+        let sid = std::ptr::addr_of!(ace.SidStart).cast_mut().cast();
+        if unsafe { EqualSid(sid, current_user.as_psid()) } != 0 {
+            user_allowed = true;
+        } else if unsafe { EqualSid(sid, local_system.as_psid()) } != 0 {
+            system_allowed = true;
+        } else {
+            return Ok(false);
+        }
+    }
+    Ok(user_allowed && system_allowed)
+}
+
+#[cfg(windows)]
+pub fn named_pipe_client_process_id(server: &NamedPipeServer) -> io::Result<u32> {
+    let mut process_id = 0u32;
+    if unsafe { GetNamedPipeClientProcessId(server.as_raw_handle().cast(), &mut process_id) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(process_id)
+}
+
 pub async fn receive_one(
     listener: &TcpListener,
     expected_token: &str,
@@ -350,6 +680,70 @@ where
     })
     .await
     .map_err(|_| IpcError::ConnectionDeadlineExceeded)?
+}
+
+#[cfg(windows)]
+pub async fn receive_one_named_pipe_with_transport_verified<F>(
+    listener: &mut OwnerOnlyNamedPipeListener,
+    expected_token: &str,
+    verify_peer: F,
+) -> Result<ReceivedCapture, IpcError>
+where
+    F: FnOnce(&NamedPipeServer) -> bool,
+{
+    receive_one_named_pipe_with_transport_verifier_deadline(
+        listener,
+        expected_token,
+        DEFAULT_CONNECTION_DEADLINE,
+        verify_peer,
+    )
+    .await
+}
+
+#[cfg(windows)]
+pub async fn receive_one_named_pipe_with_transport_deadline(
+    listener: &mut OwnerOnlyNamedPipeListener,
+    expected_token: &str,
+    connection_deadline: Duration,
+) -> Result<ReceivedCapture, IpcError> {
+    receive_one_named_pipe_with_transport_verifier_deadline(
+        listener,
+        expected_token,
+        connection_deadline,
+        |_| true,
+    )
+    .await
+}
+
+#[cfg(windows)]
+async fn receive_one_named_pipe_with_transport_verifier_deadline<F>(
+    listener: &mut OwnerOnlyNamedPipeListener,
+    expected_token: &str,
+    connection_deadline: Duration,
+    verify_peer: F,
+) -> Result<ReceivedCapture, IpcError>
+where
+    F: FnOnce(&NamedPipeServer) -> bool,
+{
+    listener.pending.connect().await?;
+    let replacement = match create_owner_only_named_pipe_instance(&listener.name, false) {
+        Ok(replacement) => replacement,
+        Err(error) => {
+            let _ = listener.pending.disconnect();
+            return Err(IpcError::Io(error));
+        }
+    };
+    let mut connected = std::mem::replace(&mut listener.pending, replacement);
+    let received = timeout(connection_deadline, async {
+        if !verify_peer(&connected) {
+            return Err(IpcError::UnauthorizedPeer);
+        }
+        receive_from_stream(&mut connected, expected_token).await
+    })
+    .await
+    .unwrap_or(Err(IpcError::ConnectionDeadlineExceeded));
+    drop(connected);
+    received
 }
 
 #[cfg(unix)]

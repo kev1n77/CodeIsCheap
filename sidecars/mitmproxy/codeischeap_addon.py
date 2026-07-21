@@ -16,8 +16,10 @@ from urllib.parse import parse_qsl, urlsplit
 
 
 IPC_PROTOCOL = "codeischeap.capture-ipc"
-IPC_PROTOCOL_VERSION = "0.5"
+IPC_PROTOCOL_VERSION = "0.6"
 MAX_UNIX_SOCKET_PATH_BYTES = 103
+MAX_NAMED_PIPE_NAME_CHARS = 256
+NAMED_PIPE_PREFIX = r"\\.\pipe\CodeIsCheap-capture-"
 IPC_ORIGIN = "mitmproxy"
 STARTUP_PROBE_HOST = "codeischeap.invalid"
 STARTUP_PROBE_PATH = "/.well-known/codeischeap/ready"
@@ -483,6 +485,31 @@ def build_failure_envelope(flow: Any) -> dict[str, Any]:
     return envelope
 
 
+class _NamedPipeConnection:
+    def __init__(self, path: str) -> None:
+        self._stream = open(path, "r+b", buffering=0)
+
+    def sendall(self, data: bytes) -> None:
+        remaining = memoryview(data)
+        while remaining:
+            written = self._stream.write(remaining)
+            if not written:
+                raise OSError("capture IPC named pipe write failed")
+            remaining = remaining[written:]
+
+    def recv(self, size: int) -> bytes:
+        return self._stream.read(size)
+
+    def close(self) -> None:
+        self._stream.close()
+
+    def __enter__(self) -> _NamedPipeConnection:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
+
+
 class IpcConfig:
     def __init__(
         self,
@@ -491,12 +518,14 @@ class IpcConfig:
         token: str,
         timeout_seconds: float = 2.0,
         unix_path: str | None = None,
+        named_pipe_path: str | None = None,
     ) -> None:
         self.host = host
         self.port = port
         self.token = token
         self.timeout_seconds = timeout_seconds
         self.unix_path = unix_path
+        self.named_pipe_path = named_pipe_path
 
     @classmethod
     def from_env(cls) -> IpcConfig | None:
@@ -518,10 +547,28 @@ class IpcConfig:
                     "capture IPC Unix socket path must be absolute, non-empty, and at most 103 bytes"
                 )
             return cls(host=None, port=None, token=token, unix_path=path)
+        if address.startswith("pipe:"):
+            path = address.removeprefix("pipe:")
+            suffix = path.removeprefix(NAMED_PIPE_PREFIX)
+            if (
+                os.name != "nt"
+                or not path.startswith(NAMED_PIPE_PREFIX)
+                or not suffix
+                or len(path) > MAX_NAMED_PIPE_NAME_CHARS
+                or any(
+                    not (
+                        character.isascii()
+                        and (character.isalnum() or character == "-")
+                    )
+                    for character in suffix
+                )
+            ):
+                raise ValueError("capture IPC named pipe name is invalid or unsupported")
+            return cls(host=None, port=None, token=token, named_pipe_path=path)
         host, separator, port_text = address.rpartition(":")
         if not separator or not host or not port_text:
             raise ValueError(
-                "CIC_CAPTURE_IPC_ADDR must be a loopback IP address and port or unix:/absolute/path"
+                "CIC_CAPTURE_IPC_ADDR must be loopback TCP, unix:/absolute/path, or a local pipe name"
             )
         host = host.removeprefix("[").removesuffix("]")
         if not ipaddress.ip_address(host).is_loopback:
@@ -531,7 +578,7 @@ class IpcConfig:
             raise ValueError("capture IPC port is invalid")
         return cls(host=host, port=port, token=token)
 
-    def connect(self) -> socket.socket:
+    def connect(self) -> Any:
         if self.unix_path is not None:
             connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             connection.settimeout(self.timeout_seconds)
@@ -541,6 +588,8 @@ class IpcConfig:
                 connection.close()
                 raise
             return connection
+        if self.named_pipe_path is not None:
+            return _NamedPipeConnection(self.named_pipe_path)
         if self.host is None or self.port is None:
             raise ValueError("capture IPC TCP endpoint is incomplete")
         return socket.create_connection(

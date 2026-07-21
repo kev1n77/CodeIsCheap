@@ -5,20 +5,39 @@ use codeischeap_capture_ipc::{
     ResponseCompleteness, receive_from_reader, receive_from_reader_with_transport,
     receive_one_with_deadline, receive_one_with_transport_verified,
 };
+#[cfg(windows)]
+use codeischeap_capture_ipc::{
+    OwnerOnlyNamedPipeListener, named_pipe_client_process_id, named_pipe_is_owner_only,
+    receive_one_named_pipe_with_transport_deadline, receive_one_named_pipe_with_transport_verified,
+};
 #[cfg(unix)]
 use codeischeap_capture_ipc::{
     receive_one_unix_with_transport_deadline, receive_one_unix_with_transport_verified,
 };
 use schemars::schema_for;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+#[cfg(windows)]
+use tokio::net::windows::named_pipe::ClientOptions;
 use tokio::net::{TcpListener, TcpStream};
 #[cfg(unix)]
 use tokio::net::{UnixListener, UnixStream};
 
+#[cfg(windows)]
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 const CHECKED_IN_SCHEMA: &str = include_str!("../../../schemas/capture-envelope/v0.1.schema.json");
 const MITMPROXY_FIXTURE: &str = include_str!("fixtures/mitmproxy-request.json");
+
+#[cfg(windows)]
+fn named_pipe_name(label: &str) -> String {
+    static NEXT_PIPE: AtomicU64 = AtomicU64::new(1);
+    format!(
+        r"\\.\pipe\CodeIsCheap-capture-test-{}-{label}-{}",
+        std::process::id(),
+        NEXT_PIPE.fetch_add(1, Ordering::Relaxed)
+    )
+}
 
 fn sample_envelope() -> CaptureEnvelope {
     CaptureEnvelope {
@@ -105,7 +124,7 @@ async fn rejects_the_previous_transport_protocol() {
     let mut reader = framed_reader_with_auth(
         "synthetic-token",
         IPC_ORIGIN_MITMPROXY,
-        "0.4",
+        "0.5",
         &expected,
         None,
     )
@@ -325,6 +344,145 @@ async fn rejects_an_unauthorized_peer_before_reading_auth() {
     let _stream = sender.await.expect("sender task must complete");
 
     assert!(matches!(error, IpcError::UnauthorizedPeer));
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn owner_only_named_pipe_preserves_auth_frames_pid_and_acknowledgement() {
+    let name = named_pipe_name("frames");
+    let mut listener = OwnerOnlyNamedPipeListener::bind(&name).expect("named pipe must bind");
+    assert!(
+        named_pipe_is_owner_only(listener.pending_server())
+            .expect("named pipe DACL must be readable")
+    );
+    let expected = sample_envelope();
+    let expected_for_sender = expected.clone();
+    let sender = tokio::spawn(async move {
+        let mut client = ClientOptions::new()
+            .open(name)
+            .expect("named pipe client must connect");
+        let auth = serde_json::json!({
+            "protocol": IPC_PROTOCOL,
+            "version": IPC_PROTOCOL_VERSION,
+            "origin": IPC_ORIGIN_MITMPROXY,
+            "token": "synthetic-token",
+        });
+        client
+            .write_all(
+                format!(
+                    "{auth}\n{}\n",
+                    serde_json::to_string(&expected_for_sender).expect("envelope must encode")
+                )
+                .as_bytes(),
+            )
+            .await
+            .expect("named pipe frames must write");
+        let mut acknowledgement = String::new();
+        BufReader::new(client)
+            .read_line(&mut acknowledgement)
+            .await
+            .expect("named pipe acknowledgement must read");
+        assert_eq!(acknowledgement, "{\"status\":\"accepted\"}\n");
+    });
+
+    let received = receive_one_named_pipe_with_transport_verified(
+        &mut listener,
+        "synthetic-token",
+        |connected| {
+            named_pipe_client_process_id(connected).expect("client PID must be available")
+                == std::process::id()
+        },
+    )
+    .await
+    .expect("named pipe capture must be accepted");
+    sender.await.expect("named pipe sender must complete");
+    assert_eq!(received.envelope, expected);
+    assert_eq!(received.transport, None);
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn named_pipe_rejects_an_unexpected_peer_before_reading_auth() {
+    let name = named_pipe_name("peer");
+    let mut listener = OwnerOnlyNamedPipeListener::bind(&name).expect("named pipe must bind");
+    let sender = tokio::spawn(async move {
+        ClientOptions::new()
+            .open(name)
+            .expect("unexpected named pipe client must connect")
+    });
+
+    let error = receive_one_named_pipe_with_transport_verified(
+        &mut listener,
+        "synthetic-token",
+        |connected| {
+            assert_eq!(
+                named_pipe_client_process_id(connected).expect("client PID must be available"),
+                std::process::id()
+            );
+            false
+        },
+    )
+    .await
+    .expect_err("unexpected named pipe peer must be rejected");
+    let _client = sender.await.expect("named pipe sender must complete");
+    assert!(matches!(error, IpcError::UnauthorizedPeer));
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn stalled_named_pipe_connection_expires_and_can_be_reused() {
+    let name = named_pipe_name("deadline");
+    let mut listener = OwnerOnlyNamedPipeListener::bind(&name).expect("named pipe must bind");
+    let stalled = ClientOptions::new()
+        .open(&name)
+        .expect("stalled named pipe client must connect");
+    let error = receive_one_named_pipe_with_transport_deadline(
+        &mut listener,
+        "synthetic-token",
+        Duration::from_millis(20),
+    )
+    .await
+    .expect_err("stalled named pipe client must expire");
+    assert!(matches!(error, IpcError::ConnectionDeadlineExceeded));
+    drop(stalled);
+
+    let expected = sample_envelope();
+    let expected_for_sender = expected.clone();
+    let sender = tokio::spawn(async move {
+        let mut client = ClientOptions::new()
+            .open(name)
+            .expect("next named pipe client must connect");
+        let auth = serde_json::json!({
+            "protocol": IPC_PROTOCOL,
+            "version": IPC_PROTOCOL_VERSION,
+            "origin": IPC_ORIGIN_MITMPROXY,
+            "token": "synthetic-token",
+        });
+        client
+            .write_all(
+                format!(
+                    "{auth}\n{}\n",
+                    serde_json::to_string(&expected_for_sender).expect("envelope must encode")
+                )
+                .as_bytes(),
+            )
+            .await
+            .expect("next named pipe frames must write");
+        let mut acknowledgement = String::new();
+        BufReader::new(client)
+            .read_line(&mut acknowledgement)
+            .await
+            .expect("next acknowledgement must read");
+    });
+    let received = receive_one_named_pipe_with_transport_deadline(
+        &mut listener,
+        "synthetic-token",
+        Duration::from_secs(1),
+    )
+    .await
+    .expect("named pipe must accept a client after timeout");
+    sender.await.expect("next named pipe sender must complete");
+    assert_eq!(received.envelope, expected);
 }
 
 #[cfg(unix)]
