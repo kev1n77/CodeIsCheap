@@ -31,6 +31,11 @@ SENSITIVE_OWNER_PATHS = (
     "/sidecars/",
 )
 DEPENDABOT_ECOSYSTEMS = {"cargo", "npm", "pip", "github-actions"}
+DESKTOP_CAPABILITY_PERMISSIONS = {
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "dialog:allow-save",
+}
 RELEASE_WORKFLOW_REQUIREMENTS = {
     'tags:\n      - "v*"': "must run from version tags",
     "environment: release": "must use the protected release environment",
@@ -226,6 +231,39 @@ def _check_repository_policy(root: Path, violations: list[str]) -> None:
                 violations.append(f".github/workflows/release.yml: {requirement}")
 
 
+def _check_desktop_capability(root: Path, violations: list[str]) -> None:
+    capability_path = root / "apps" / "desktop" / "src-tauri" / "capabilities" / "default.json"
+    if not capability_path.is_file():
+        violations.append("apps/desktop/src-tauri/capabilities/default.json: capability is missing")
+        return
+    try:
+        capability = json.loads(capability_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        violations.append("apps/desktop/src-tauri/capabilities/default.json: capability is invalid")
+        return
+    if not isinstance(capability, dict):
+        violations.append("apps/desktop/src-tauri/capabilities/default.json: capability must be an object")
+        return
+    if capability.get("identifier") != "default":
+        violations.append("apps/desktop/src-tauri/capabilities/default.json: identifier must be default")
+    if capability.get("windows") != ["main"]:
+        violations.append("apps/desktop/src-tauri/capabilities/default.json: only the main window may match")
+    if "remote" in capability:
+        violations.append("apps/desktop/src-tauri/capabilities/default.json: remote origins are forbidden")
+    if capability.get("local", True) is not True:
+        violations.append("apps/desktop/src-tauri/capabilities/default.json: local app access is required")
+    permissions = capability.get("permissions")
+    if (
+        not isinstance(permissions, list)
+        or any(not isinstance(permission, str) for permission in permissions)
+        or set(permissions) != DESKTOP_CAPABILITY_PERMISSIONS
+    ):
+        violations.append(
+            "apps/desktop/src-tauri/capabilities/default.json: permissions must be limited to "
+            + ", ".join(sorted(DESKTOP_CAPABILITY_PERMISSIONS))
+        )
+
+
 def collect_violations(root: Path) -> list[str]:
     root = root.resolve()
     violations: list[str] = []
@@ -234,6 +272,7 @@ def collect_violations(root: Path) -> list[str]:
     _check_python(root, violations)
     _check_rust(root, violations)
     _check_repository_policy(root, violations)
+    _check_desktop_capability(root, violations)
     return violations
 
 
