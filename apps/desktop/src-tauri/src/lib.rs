@@ -38,7 +38,7 @@ use codeischeap_core::{
 use codeischeap_desktop_api::{
     CaptureMode, CapturedRequest, CertificateAuthority, CertificateAuthorityState,
     CertificatePrivateMaterial, CertificateTrust, DesktopApiError, DiagnosticEvent, ExportPreview,
-    ExportProfile, ExportReceipt, SupportBundlePreview, WorkspaceBootstrap,
+    ExportProfile, ExportReceipt, SupportBundlePreview, UpdateStatus, WorkspaceBootstrap,
     build_batch_export_preview, build_export_preview, build_support_bundle_preview,
     diagnose_capture_compatibility, load_request, load_workspace, search_requests,
 };
@@ -68,6 +68,7 @@ use serde::Serialize;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
+use tauri_plugin_updater::{Updater, UpdaterExt};
 use tokio::net::TcpListener;
 #[cfg(unix)]
 use tokio::net::UnixListener;
@@ -83,6 +84,7 @@ const DEFAULT_GATEWAY_ADDRESS: &str = "127.0.0.1:8787";
 const DEFAULT_OPENAI_UPSTREAM: &str = "https://api.openai.com";
 const CAPTURE_UPDATED_EVENT: &str = "capture-updated";
 const CAPTURE_RUNTIME_ERROR_EVENT: &str = "capture-runtime-error";
+const UPDATE_DOWNLOAD_PROGRESS_EVENT: &str = "update-download-progress";
 const MAX_PENDING_CAPTURE_OUTCOMES: usize = 256;
 const CAPTURES_PER_RETENTION_RUN: usize = 100;
 const MAX_BATCH_EXPORT_REQUESTS: usize = 200;
@@ -92,6 +94,12 @@ const PROXY_RECOVERY_JOURNAL_FILENAME: &str = "proxy-recovery.v0.1.json";
 const DIAGNOSTIC_JOURNAL_FILENAME: &str = "diagnostics.v0.1.jsonl";
 const MAX_DIAGNOSTIC_JOURNAL_BYTES: u64 = 256 * 1024;
 const MAX_SUPPORT_DIAGNOSTIC_EVENTS: usize = 100;
+const UPDATER_ENDPOINT: &str =
+    "https://github.com/kev1n77/CodeIsCheap/releases/latest/download/latest.json";
+const UPDATE_CHECK_TIMEOUT: Duration = Duration::from_secs(30);
+const UPDATE_RECOVERY_DIRECTORY: &str = "update-recovery";
+const UPDATE_RECOVERY_BACKUP_FILENAME: &str = "captures.pre-update.db";
+const UPDATE_RECOVERY_JOURNAL_FILENAME: &str = "pending.v0.1.json";
 
 type SharedStore = Arc<Mutex<Option<EncryptedStore>>>;
 
@@ -313,6 +321,25 @@ struct CaptureUpdated {
 struct CaptureRuntimeError {
     code: &'static str,
     detail: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateDownloadProgress {
+    downloaded_bytes: u64,
+    total_bytes: Option<u64>,
+    finished: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateRecoveryJournal {
+    schema_version: &'static str,
+    source_version: String,
+    target_version: String,
+    backup_file: &'static str,
+    backup_bytes: u64,
+    created_at_unix_ms: u64,
 }
 
 #[tauri::command]
@@ -552,9 +579,95 @@ async fn write_support_bundle(
     .map_err(|error| format!("support bundle write task failed: {error}"))?
 }
 
+#[tauri::command]
+async fn check_for_update(app: AppHandle) -> Result<UpdateStatus, String> {
+    let current_version = app.package_info().version.to_string();
+    let Some(public_key) = updater_public_key(option_env!("CODEISCHEAP_UPDATER_PUBLIC_KEY")) else {
+        return Ok(UpdateStatus::unconfigured(current_version));
+    };
+    let update = build_updater(&app, public_key)?
+        .check()
+        .await
+        .map_err(|error| format!("signed update metadata could not be checked: {error}"))?;
+    Ok(match update {
+        Some(update) => UpdateStatus::available(
+            current_version,
+            update.version,
+            update.body.map(bounded_update_notes),
+            update.date.map(|date| date.to_string()),
+        ),
+        None => UpdateStatus::current(current_version),
+    })
+}
+
+#[tauri::command]
+async fn install_update(
+    expected_version: String,
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+) -> Result<(), String> {
+    if expected_version.is_empty() || expected_version.len() > 64 {
+        return Err("the expected update version is invalid".to_owned());
+    }
+    let public_key = updater_public_key(option_env!("CODEISCHEAP_UPDATER_PUBLIC_KEY"))
+        .ok_or_else(|| "the signed update channel is not configured for this build".to_owned())?;
+    let update = build_updater(&app, public_key)?
+        .check()
+        .await
+        .map_err(|error| format!("signed update metadata could not be checked: {error}"))?
+        .ok_or_else(|| "no signed update is currently available".to_owned())?;
+    if update.version != expected_version {
+        return Err("the available update changed; check again before installing".to_owned());
+    }
+
+    ensure_proxy_recovery(&app, &state).await?;
+    ensure_gateway(&app, &state).await?;
+    switch_capture_mode(&app, &state, CaptureMode::Gateway).await?;
+    initialize_store(&app, &state.store)?;
+    prepare_update_recovery_snapshot(&app, &state.store, &update.version).await?;
+
+    let progress_app = app.clone();
+    let downloaded_bytes = Arc::new(AtomicU64::new(0));
+    let progress_counter = downloaded_bytes.clone();
+    update
+        .download_and_install(
+            move |chunk_bytes, total_bytes| {
+                let chunk_bytes = u64::try_from(chunk_bytes).unwrap_or(u64::MAX);
+                let downloaded_bytes = progress_counter
+                    .fetch_add(chunk_bytes, Ordering::AcqRel)
+                    .saturating_add(chunk_bytes);
+                let _ = progress_app.emit(
+                    UPDATE_DOWNLOAD_PROGRESS_EVENT,
+                    UpdateDownloadProgress {
+                        downloaded_bytes,
+                        total_bytes,
+                        finished: false,
+                    },
+                );
+            },
+            {
+                let app = app.clone();
+                move || {
+                    let _ = app.emit(
+                        UPDATE_DOWNLOAD_PROGRESS_EVENT,
+                        UpdateDownloadProgress {
+                            downloaded_bytes: downloaded_bytes.load(Ordering::Acquire),
+                            total_bytes: None,
+                            finished: true,
+                        },
+                    );
+                }
+            },
+        )
+        .await
+        .map_err(|error| format!("signed update could not be installed: {error}"))?;
+    app.restart();
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let (sidecar_bundle, sidecar_error) =
                 optional_sidecar(open_application_sidecar(app.handle()));
@@ -605,7 +718,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             bootstrap_workspace,
+            check_for_update,
             install_certificate_authority_trust,
+            install_update,
             preview_batch_capture_export,
             preview_capture_export,
             preview_support_bundle,
@@ -645,6 +760,109 @@ fn open_application_sidecar(app: &AppHandle) -> Result<Option<Arc<SidecarBundle>
         BundleRequirements::release()
     };
     Ok(Some(Arc::new(SidecarBundle::load(bundle, requirements)?)))
+}
+
+fn updater_public_key(value: Option<&'static str>) -> Option<&'static str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
+}
+
+fn bounded_update_notes(notes: String) -> String {
+    notes.chars().take(2_000).collect()
+}
+
+fn build_updater(app: &AppHandle, public_key: &str) -> Result<Updater, String> {
+    let endpoint = Url::parse(UPDATER_ENDPOINT)
+        .map_err(|error| format!("the signed update endpoint is invalid: {error}"))?;
+    app.updater_builder()
+        .pubkey(public_key)
+        .endpoints(vec![endpoint])
+        .map_err(|error| format!("the signed update endpoint was rejected: {error}"))?
+        .timeout(UPDATE_CHECK_TIMEOUT)
+        .build()
+        .map_err(|error| format!("the signed updater could not initialize: {error}"))
+}
+
+async fn prepare_update_recovery_snapshot(
+    app: &AppHandle,
+    store: &SharedStore,
+    target_version: &str,
+) -> Result<(), String> {
+    let directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("application data directory is unavailable: {error}"))?
+        .join(UPDATE_RECOVERY_DIRECTORY);
+    let source_version = app.package_info().version.to_string();
+    let target_version = target_version.to_owned();
+    let created_at_unix_ms = current_unix_ms()?;
+    let store = store.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        write_update_recovery_snapshot(
+            &store,
+            &directory,
+            source_version,
+            target_version,
+            created_at_unix_ms,
+        )
+    })
+    .await
+    .map_err(|error| format!("pre-update recovery snapshot task failed: {error}"))?
+}
+
+fn write_update_recovery_snapshot(
+    store: &SharedStore,
+    directory: &Path,
+    source_version: String,
+    target_version: String,
+    created_at_unix_ms: u64,
+) -> Result<(), String> {
+    fs::create_dir_all(directory)
+        .map_err(|error| format!("update recovery directory could not be created: {error}"))?;
+    #[cfg(unix)]
+    fs::set_permissions(directory, fs::Permissions::from_mode(0o700)).map_err(|error| {
+        format!("update recovery directory permissions could not be set: {error}")
+    })?;
+
+    let backup_path = directory.join(UPDATE_RECOVERY_BACKUP_FILENAME);
+    {
+        let store = store
+            .lock()
+            .map_err(|_| "encrypted workspace is temporarily unavailable".to_owned())?;
+        store
+            .as_ref()
+            .ok_or_else(|| "encrypted workspace has not initialized".to_owned())?
+            .backup_to(&backup_path)
+            .map_err(|error| format!("pre-update encrypted backup failed: {error}"))?;
+    }
+    let backup_bytes = fs::metadata(&backup_path)
+        .map_err(|error| format!("pre-update encrypted backup could not be inspected: {error}"))?
+        .len();
+    let journal = UpdateRecoveryJournal {
+        schema_version: "0.1",
+        source_version,
+        target_version,
+        backup_file: UPDATE_RECOVERY_BACKUP_FILENAME,
+        backup_bytes,
+        created_at_unix_ms,
+    };
+    let mut encoded = serde_json::to_vec_pretty(&journal)
+        .map_err(|error| format!("update recovery journal could not be encoded: {error}"))?;
+    encoded.push(b'\n');
+    let journal_path = directory.join(UPDATE_RECOVERY_JOURNAL_FILENAME);
+    let mut options = OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    let mut file = options
+        .open(&journal_path)
+        .map_err(|error| format!("update recovery journal could not be opened: {error}"))?;
+    #[cfg(unix)]
+    fs::set_permissions(&journal_path, fs::Permissions::from_mode(0o600))
+        .map_err(|error| format!("update recovery journal permissions failed: {error}"))?;
+    file.write_all(&encoded)
+        .map_err(|error| format!("update recovery journal could not be written: {error}"))?;
+    file.sync_all()
+        .map_err(|error| format!("update recovery journal could not be synced: {error}"))
 }
 
 fn sidecar_resource_path(resource_dir: &Path, manifest_dir: &Path, development: bool) -> PathBuf {
@@ -2100,6 +2318,61 @@ mod tests {
                 "desktop workspace must not contain credential marker {forbidden}"
             );
         }
+    }
+
+    #[test]
+    fn updater_configuration_rejects_missing_public_keys() {
+        assert_eq!(updater_public_key(None), None);
+        assert_eq!(updater_public_key(Some("   ")), None);
+        assert_eq!(
+            updater_public_key(Some(" trusted-key ")),
+            Some("trusted-key")
+        );
+        assert_eq!(bounded_update_notes("a".repeat(2_001)).len(), 2_000);
+    }
+
+    #[test]
+    fn pre_update_snapshot_is_encrypted_restorable_and_versioned() {
+        let directory = tempdir().expect("temp directory must be created");
+        let mut store = EncryptedStore::open(
+            directory.path().join("captures.db"),
+            DatabaseKey::from_bytes([0x69; 32]),
+        )
+        .expect("encrypted store must open");
+        seed_demo_capture(&mut store).expect("demo capture must seed");
+        let store = Arc::new(Mutex::new(Some(store)));
+        let recovery = directory.path().join("update-recovery");
+
+        write_update_recovery_snapshot(
+            &store,
+            &recovery,
+            "0.1.0".to_owned(),
+            "0.2.0".to_owned(),
+            42,
+        )
+        .expect("pre-update snapshot must succeed");
+
+        let journal: serde_json::Value = serde_json::from_slice(
+            &fs::read(recovery.join(UPDATE_RECOVERY_JOURNAL_FILENAME))
+                .expect("recovery journal must exist"),
+        )
+        .expect("recovery journal must parse");
+        assert_eq!(journal["schemaVersion"], "0.1");
+        assert_eq!(journal["sourceVersion"], "0.1.0");
+        assert_eq!(journal["targetVersion"], "0.2.0");
+        assert_eq!(journal["createdAtUnixMs"], 42);
+        assert!(!files_contain(&recovery, b"Fix the failing parser test."));
+
+        let restored = EncryptedStore::restore_from(
+            recovery.join(UPDATE_RECOVERY_BACKUP_FILENAME),
+            directory.path().join("restored.db"),
+            DatabaseKey::from_bytes([0x69; 32]),
+        )
+        .expect("pre-update backup must restore");
+        restored
+            .integrity_check()
+            .expect("restored backup must be healthy");
+        assert_eq!(restored.capture_count().expect("capture count"), 1);
     }
 
     #[test]

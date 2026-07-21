@@ -2,6 +2,7 @@
 
 mod compatibility;
 mod export;
+mod update;
 
 pub use compatibility::{
     CaptureCompatibility, CaptureCompatibilityCode, CaptureCompatibilityStatus,
@@ -14,6 +15,7 @@ pub use export::{
     ExportReceipt, ExportRedaction, SUPPORT_BUNDLE_FORMAT_VERSION, SupportBundlePreview,
     build_batch_export_preview, build_export_preview, build_support_bundle_preview,
 };
+pub use update::UpdateStatus;
 
 use std::{fmt, ops::Range};
 

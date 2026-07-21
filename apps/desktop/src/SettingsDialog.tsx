@@ -9,20 +9,30 @@ import {
   Pause,
   Play,
   RotateCcw,
+  RefreshCw,
   ShieldCheck,
   Stethoscope,
+  UploadCloud,
   X,
 } from "lucide-react";
 import type {
   CaptureMode,
   CertificateAuthority,
   SupportBundlePreview,
+  UpdateStatus,
   WorkspaceBootstrap,
 } from "./types";
-import { previewSupportBundle, saveSupportBundle } from "./workspace";
+import {
+  checkForUpdate,
+  installUpdate,
+  previewSupportBundle,
+  saveSupportBundle,
+  subscribeToUpdateProgress,
+  type UpdateDownloadProgress,
+} from "./workspace";
 import { handleTabListKeyDown, useModalDialog } from "./accessibility";
 
-type SettingsTab = "connection" | "diagnostics";
+type SettingsTab = "connection" | "diagnostics" | "updates";
 
 export function SettingsDialog({ workspace, active, runtimeError, certificateError, modeChanging, certificateChanging, onToggleCapture, onModeChange, onCertificateTrustChange, onClose }: {
   workspace: WorkspaceBootstrap;
@@ -43,6 +53,11 @@ export function SettingsDialog({ workspace, active, runtimeError, certificateErr
   const [supportError, setSupportError] = useState("");
   const [supportSaving, setSupportSaving] = useState(false);
   const [supportSavedPath, setSupportSavedPath] = useState("");
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
+  const [updateProgress, setUpdateProgress] = useState<UpdateDownloadProgress | null>(null);
+  const [updateChecking, setUpdateChecking] = useState(false);
+  const [updateInstalling, setUpdateInstalling] = useState(false);
+  const [updateError, setUpdateError] = useState("");
   const { dialogRef, initialFocusRef } = useModalDialog(onClose);
   const certificate = workspace.capture.certificateAuthority;
   const compatibility = workspace.compatibility;
@@ -71,6 +86,26 @@ export function SettingsDialog({ workspace, active, runtimeError, certificateErr
     return () => { cancelled = true; };
   }, [runtimeError, tab, workspace]);
 
+  useEffect(() => {
+    if (tab !== "updates") return;
+    let cancelled = false;
+    let unlisten = () => {};
+    subscribeToUpdateProgress((progress) => {
+      if (!cancelled) setUpdateProgress(progress);
+    }).then((dispose) => {
+      if (cancelled) dispose();
+      else unlisten = dispose;
+    }).catch((reason: unknown) => {
+      if (!cancelled) {
+        setUpdateError(reason instanceof Error ? reason.message : "Update progress is unavailable.");
+      }
+    });
+    return () => {
+      cancelled = true;
+      unlisten();
+    };
+  }, [tab]);
+
   const copyReport = async () => {
     if (!supportPreview) return;
     try {
@@ -96,6 +131,32 @@ export function SettingsDialog({ workspace, active, runtimeError, certificateErr
       .finally(() => setSupportSaving(false));
   };
 
+  const checkUpdates = () => {
+    if (updateChecking || updateInstalling) return;
+    setUpdateChecking(true);
+    setUpdateError("");
+    setUpdateProgress(null);
+    setUpdateStatus(null);
+    checkForUpdate()
+      .then(setUpdateStatus)
+      .catch((reason: unknown) => {
+        setUpdateError(reason instanceof Error ? reason.message : "Signed updates could not be checked.");
+      })
+      .finally(() => setUpdateChecking(false));
+  };
+
+  const installAvailableUpdate = () => {
+    if (!updateStatus?.availableVersion || updateInstalling) return;
+    setUpdateInstalling(true);
+    setUpdateError("");
+    setUpdateProgress({ downloadedBytes: 0, totalBytes: null, finished: false });
+    installUpdate(updateStatus.availableVersion)
+      .catch((reason: unknown) => {
+        setUpdateError(reason instanceof Error ? reason.message : "Signed update installation failed.");
+        setUpdateInstalling(false);
+      });
+  };
+
   return (
     <div className="dialog-backdrop">
       <section ref={dialogRef} className="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title" tabIndex={-1}>
@@ -106,6 +167,7 @@ export function SettingsDialog({ workspace, active, runtimeError, certificateErr
         <div className="settings-tabs" role="tablist" aria-label="Settings views" onKeyDown={handleTabListKeyDown}>
           <button id="settings-tab-connection" role="tab" aria-controls="settings-panel-connection" aria-selected={tab === "connection"} tabIndex={tab === "connection" ? 0 : -1} onClick={() => setTab("connection")}><Network size={14} />Connection</button>
           <button id="settings-tab-diagnostics" role="tab" aria-controls="settings-panel-diagnostics" aria-selected={tab === "diagnostics"} tabIndex={tab === "diagnostics" ? 0 : -1} onClick={() => setTab("diagnostics")}><Stethoscope size={14} />Diagnostics</button>
+          <button id="settings-tab-updates" role="tab" aria-controls="settings-panel-updates" aria-selected={tab === "updates"} tabIndex={tab === "updates" ? 0 : -1} onClick={() => setTab("updates")}><UploadCloud size={14} />Updates</button>
         </div>
         {tab === "connection" && <div id="settings-panel-connection" className="settings-content" role="tabpanel" aria-labelledby="settings-tab-connection" tabIndex={0}>
           <section className="settings-band">
@@ -169,9 +231,43 @@ export function SettingsDialog({ workspace, active, runtimeError, certificateErr
           {supportSavedPath && <div className="diagnostics-saved" role="status"><CheckCircle2 size={14} /><span>Support bundle saved</span><code title={supportSavedPath}>{supportSavedPath}</code></div>}
           <pre className="diagnostics-preview" aria-label="Diagnostic report preview">{supportPreview?.content ?? "Generating support bundle preview"}</pre>
         </div>}
+        {tab === "updates" && <div id="settings-panel-updates" className="settings-content updates-content" role="tabpanel" aria-labelledby="settings-tab-updates" tabIndex={0}>
+          <section className="settings-band">
+            <div><span>Installed version</span><strong>{updateStatus?.currentVersion ?? "Current build"}</strong><small>Stable channel · signed packages only</small></div>
+            <button className="settings-command" disabled={updateChecking || updateInstalling} onClick={checkUpdates}>{updateChecking ? <LoaderCircle className="is-spinning" size={14} /> : <RefreshCw size={14} />}Check</button>
+          </section>
+          {updateStatus && <section className="settings-band update-release-band">
+            <div>
+              <span>Update channel</span>
+              <strong>{updateStatus.configured ? updateStatus.availableVersion ? `Version ${updateStatus.availableVersion}` : "Up to date" : "Not configured"}</strong>
+              <small>{updateStatus.configured ? updateStatus.notes || updateStatus.publishedAt || "No newer signed release is available." : "This build does not contain a trusted update public key."}</small>
+            </div>
+            {updateStatus.availableVersion && <button className="settings-command" disabled={updateInstalling} onClick={installAvailableUpdate}>{updateInstalling ? <LoaderCircle className="is-spinning" size={14} /> : <Download size={14} />}Install & restart</button>}
+          </section>}
+          {updateInstalling && <section className="update-progress" aria-live="polite">
+            <div><span>{updateProgress?.finished ? "Verifying signed package" : "Downloading update"}</span><strong>{formatUpdateProgress(updateProgress)}</strong></div>
+            <progress aria-label="Update download progress" value={updateProgress?.downloadedBytes ?? 0} max={updateProgress?.totalBytes ?? Math.max(updateProgress?.downloadedBytes ?? 0, 1)} />
+            <small>Capture is in Gateway mode and managed system proxy settings have been restored.</small>
+          </section>}
+          {updateError && <span className="settings-error update-error" role="alert">{updateError}</span>}
+          <p className="update-safety-note">Before installation, CodeIsCheap returns capture to the local Gateway and writes an encrypted recovery snapshot.</p>
+        </div>}
       </section>
     </div>
   );
+}
+
+function formatUpdateProgress(progress: UpdateDownloadProgress | null) {
+  if (!progress) return "Preparing";
+  if (progress.finished) return "Downloaded";
+  if (!progress.totalBytes) return `${formatBytes(progress.downloadedBytes)} received`;
+  return `${Math.min(100, Math.round((progress.downloadedBytes / progress.totalBytes) * 100))}%`;
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
 function CompatibilityCommand({ action, disabled, onResume, onTrust, onGateway }: {
