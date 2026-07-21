@@ -39,7 +39,7 @@
         <tr><td>范围</td><td><span class="status done">Green</span></td><td>MVP 边界与非目标明确</td><td>变更必须进入范围评审</td></tr>
         <tr><td>进度</td><td><span class="status active">Amber</span></td><td>显式代理协议矩阵完成，团队与完整排期未确认</td><td>推进 CAP-005 证书生命周期</td></tr>
         <tr><td>质量</td><td><span class="status done">Green</span></td><td>本地与 Windows、macOS、Linux CI 全部通过</td><td>继续保持 fmt、test、clippy 为 PR 门槛</td></tr>
-        <tr><td>安全</td><td><span class="status active">Amber</span></td><td>SEC-001/002 已闭环，Threat Model v1 待独立评审</td><td>指定 reviewer；推进 IPC ACL 与供应链控制</td></tr>
+        <tr><td>安全</td><td><span class="status active">Amber</span></td><td>SEC-001/002 已闭环，IPC ACL 与仓库供应链门禁已落地，Threat Model v1 待独立评审</td><td>指定 reviewer；完成签名更新与发布验收</td></tr>
         <tr><td>资源</td><td><span class="status active">Amber</span></td><td>角色建议明确，实际 owner 未确认</td><td>启动前完成角色分配</td></tr>
       </tbody></table></div>
 
@@ -61,14 +61,14 @@
         <tr><td>Desktop / Frontend</td><td>APP-001~006</td><td>96%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>完成屏幕阅读器、首次捕获耗时与真实运行验收</td></tr>
         <tr><td>Capture / Network</td><td>CAP-001~007</td><td>88%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>完成 macOS helper 真实故障矩阵；生产签名随发布凭据补齐</td></tr>
         <tr><td>Prompt / Adapters</td><td>PAR-001~007</td><td>100%</td><td><span class="status done">Done</span></td><td>Codex / TBD</td><td>保持价格目录与 provider usage 映射可追溯</td></tr>
-        <tr><td>Data / Security</td><td>DAT-001~002、SEC-001~004</td><td>85%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>继续 WASI 权限、供应链控制与独立安全评审</td></tr>
+        <tr><td>Data / Security</td><td>DAT-001~002、SEC-001~004</td><td>92%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>继续 WASI 权限、签名更新与独立安全评审</td></tr>
         <tr><td>Test / Release</td><td>TST-001~004、REL-001~003</td><td>68%</td><td><span class="status active">In progress</span></td><td>Codex / TBD</td><td>继续 TST-002 协议一致性、屏幕阅读器与支持处理流程</td></tr>
       </tbody></table></div>
 
       <h2 id="current-sprint">5. 当前迭代：S5 / S6</h2>
       <p><strong>目标：</strong>完成恢复与安全闭环；协议、token、搜索和 Compare 已完成。</p>
       <div class="table-wrap"><table><thead><tr><th>ID</th><th>任务</th><th>状态</th><th>进度</th><th>Owner</th><th>目标日期</th><th>备注</th></tr></thead><tbody>
-        <tr><td class="task-id">ARC-001</td><td>建立仓库与模块边界</td><td><span class="status active">In progress</span></td><td>80%</td><td>Codex / TBD</td><td>2026-07-28</td><td>Prompt IR、Gateway、Core、Desktop API、Capture IPC、sidecar 与恢复边界已建立</td></tr>
+        <tr><td class="task-id">ARC-001</td><td>建立仓库与模块边界</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-21</td><td>Prompt IR、Gateway、Core、Desktop API、Capture IPC、sidecar 与恢复边界已建立；CODEOWNERS 明确安全敏感目录责任人</td></tr>
         <tr><td class="task-id">ARC-002</td><td>建立 Windows/macOS CI</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-14</td><td>Windows、macOS、Linux PR 检查通过</td></tr>
         <tr><td class="task-id">ARC-003</td><td>IPC、事件模型与 command schema</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>请求、响应、失败、完整度、耗时、乱序重放、生成式 schema 与桌面增量事件均已闭环</td></tr>
         <tr><td class="task-id">ARC-004</td><td>完成关键 ADR</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-14</td><td><a href="decisions.html">Tauri、sidecar、SQLCipher、Prompt IR 与代理策略</a></td></tr>
@@ -90,6 +90,7 @@
         <tr><td class="task-id">SEC-001</td><td>范围策略和凭据 scrubber</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / Security Reviewer TBD</td><td>2026-07-18</td><td>请求与响应 header/JSON body 双层脱敏；canary 在 DB、WAL、诊断日志、临时文件和支持包中零命中</td></tr>
         <tr><td class="task-id">SEC-002</td><td>脱敏与导出</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / Security Reviewer TBD</td><td>2026-07-18</td><td>单请求、筛选批量及支持包均强制扫描、完整预览、SHA-256 防陈旧和只新建文件；版本化 corpus 以 36 个字段名、17 类文本 secret 及近似反例覆盖 Rust/Python/Web</td></tr>
         <tr><td class="task-id">SEC-003</td><td>本地 IPC 与插件隔离</td><td><span class="status active">In progress</span></td><td>97%</td><td>Codex / Security Reviewer TBD</td><td>2026-08-25</td><td>IPC 0.6 在 Windows 使用当前用户与 SYSTEM protected DACL、拒绝远端连接的随机 named pipe，创建后回读 owner/ACE 并逐连接核对 sidecar PID；macOS/Linux 使用当前 eUID `0700` 私有目录内 `0600` Unix socket，并逐连接核对 peer eUID/PID；统一使用 256-bit token、常量时间比较、1 KiB 认证帧、2 秒截止和 ACK，真实传输、超时恢复与旧 0.5 bundle 拒绝均有测试；仅插件启用后的 WASI 最小权限待完成</td></tr>
+        <tr><td class="task-id">SEC-004</td><td>更新与供应链</td><td><span class="status active">In progress</span></td><td>75%</td><td>Codex / Release Owner TBD</td><td>2026-08-25</td><td>CI Action 固定完整 commit SHA；PR 执行高危依赖审查；Dependabot 覆盖 Cargo、npm、pip 与 GitHub Actions；仓库策略脚本校验精确版本、锁文件、hash 来源与 CODEOWNERS。正式平台签名、更新器及回滚待完成</td></tr>
         <tr><td class="task-id">PAR-001</td><td>Prompt IR v0.1 与首批 fixtures</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-14</td><td>OpenAI/Anthropic fixtures、校验与 schema 完成</td></tr>
         <tr><td class="task-id">PAR-002</td><td>解析器注册表与检测链</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>置信度排序、错误/panic 隔离、IR 校验、partial issues 与 Raw fallback 完成</td></tr>
         <tr><td class="task-id">PAR-003</td><td>OpenAI-compatible 适配器</td><td><span class="status done">Done</span></td><td>100%</td><td>Codex / TBD</td><td>2026-07-15</td><td>Responses、Chat、Completions、多模态与 tools golden fixtures 通过</td></tr>
@@ -127,7 +128,7 @@
         <tr><td>S5</td><td>CAP-006/007、SEC-002/003、APP-006、TST-003</td><td><span class="status active">In progress</span></td><td>SEC-002、CAP-007 完成，IPC 抗阻塞、双模式 OS PID 归因、Unix owner-only socket、Windows owner-only named pipe、readiness 身份校验、PAC/CA 拒绝恢复、macOS 授权 helper 和兼容诊断树已接入；继续真实故障验收与 WASI 最小权限</td></tr>
         <tr><td>S6</td><td>PAR-005~007、APP-005</td><td><span class="status done">Done</span></td><td>四厂商适配器、token/成本/指纹、全文搜索和结构/文本 Compare 全部完成</td></tr>
         <tr><td>S7</td><td>TST-004、性能、可访问性、诊断与保留</td><td><span class="status active">In progress</span></td><td>axe、键盘与焦点、双主题截图、千条列表预算及 Gateway P95 门禁完成；继续屏幕阅读器和 Beta 真实环境测量</td></tr>
-        <tr><td>S8</td><td>SEC-004、REL-001/002、安全评审</td><td><span class="status active">In progress</span></td><td>code-only 诊断与支持包已接入；签名更新、安装回滚、支持流程与安全评审待推进</td></tr>
+        <tr><td>S8</td><td>SEC-004、REL-001/002、安全评审</td><td><span class="status active">In progress</span></td><td>仓库供应链门禁及 code-only 诊断与支持包已接入；签名更新、安装回滚、支持流程与安全评审待推进</td></tr>
         <tr><td>S9</td><td>REL-003、完整回归与发布演练</td><td><span class="status">Not started</span></td><td>阻断项清零</td></tr>
       </tbody></table></div>
 
@@ -231,6 +232,7 @@
         <tr><td>2026-07-21</td><td>Security / IPC</td><td>SEC-003 Unix transport 合同完成</td><td>IPC 0.5 将 sidecar endpoint 扩展为 loopback TCP 或 POSIX 绝对 Unix socket；Rust 与 Python 共同拒绝相对、空文件名和超过 103 字节的路径，真实 Unix socket 测试证明认证帧、Envelope 与服务端 ACK 不变；旧 0.4 bundle 由 manifest 合同在启动前拒绝，桌面激活与权限设置留待下一阶段</td><td>Codex</td></tr>
         <tr><td>2026-07-21</td><td>Security / IPC</td><td>SEC-003 Unix 用户级 ACL 激活</td><td>macOS/Linux 桌面 IPC 改用 eUID 私有 `0700` 目录内的 `0600` Unix socket；路径带进程与会话随机前缀，超过 103 字节时回退短 `/tmp` 根，symlink、错误 owner 和宽权限均失败关闭；每条连接由内核 peer credential 同时核对 sidecar eUID/PID，listener Drop 删除 socket；Tauri 级测试覆盖权限、清理、peer 身份、认证帧、ACK 与暂停丢弃</td><td>Codex</td></tr>
         <tr><td>2026-07-21</td><td>Security / IPC</td><td>SEC-003 Windows named pipe DACL 激活</td><td>IPC 升级至 0.6；Windows 桌面使用 96-bit 随机名、拒绝远端客户端的 named pipe，protected DACL 仅含当前用户与 SYSTEM，创建后从内核回读 owner、ACE、继承标记和权限；每条连接核对 sidecar PID，每个连接独占 instance 且提前创建下一实例，超时不复用 overlapped handle；Rust、Tauri 与 Python raw Win32 pipe 测试覆盖 DACL、PID、帧、ACK、拒绝与恢复，旧 0.5 bundle 启动前拒绝</td><td>Codex</td></tr>
+        <tr><td>2026-07-21</td><td>Security / Supply chain</td><td>ARC-001 完成，SEC-004 仓库门禁落地</td><td>CODEOWNERS 覆盖安全边界；CI Action 固定完整 SHA，并通过依赖审查拒绝新增高危漏洞；Dependabot 覆盖四类依赖生态；确定性脚本与单测校验 npm、pip、Cargo、锁文件和仓库策略</td><td>Codex</td></tr>
         <tr><td colspan="5">后续范围、架构、日期或资源变化均在此追加，并链接对应 ADR/会议结论。</td></tr>
       </tbody></table></div>
 
