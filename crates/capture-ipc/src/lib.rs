@@ -357,8 +357,31 @@ pub async fn receive_one_unix_with_transport(
     listener: &UnixListener,
     expected_token: &str,
 ) -> Result<ReceivedCapture, IpcError> {
-    receive_one_unix_with_transport_deadline(listener, expected_token, DEFAULT_CONNECTION_DEADLINE)
-        .await
+    receive_one_unix_with_transport_verifier_deadline(
+        listener,
+        expected_token,
+        DEFAULT_CONNECTION_DEADLINE,
+        |_, _| true,
+    )
+    .await
+}
+
+#[cfg(unix)]
+pub async fn receive_one_unix_with_transport_verified<F>(
+    listener: &UnixListener,
+    expected_token: &str,
+    verify_peer: F,
+) -> Result<ReceivedCapture, IpcError>
+where
+    F: FnOnce(u32, Option<i32>) -> bool,
+{
+    receive_one_unix_with_transport_verifier_deadline(
+        listener,
+        expected_token,
+        DEFAULT_CONNECTION_DEADLINE,
+        verify_peer,
+    )
+    .await
 }
 
 #[cfg(unix)]
@@ -367,11 +390,33 @@ pub async fn receive_one_unix_with_transport_deadline(
     expected_token: &str,
     connection_deadline: Duration,
 ) -> Result<ReceivedCapture, IpcError> {
-    let (stream, _) = listener.accept().await?;
-    timeout(
+    receive_one_unix_with_transport_verifier_deadline(
+        listener,
+        expected_token,
         connection_deadline,
-        receive_from_stream(stream, expected_token),
+        |_, _| true,
     )
+    .await
+}
+
+#[cfg(unix)]
+async fn receive_one_unix_with_transport_verifier_deadline<F>(
+    listener: &UnixListener,
+    expected_token: &str,
+    connection_deadline: Duration,
+    verify_peer: F,
+) -> Result<ReceivedCapture, IpcError>
+where
+    F: FnOnce(u32, Option<i32>) -> bool,
+{
+    let (stream, _) = listener.accept().await?;
+    let credentials = stream.peer_cred()?;
+    timeout(connection_deadline, async move {
+        if !verify_peer(credentials.uid(), credentials.pid()) {
+            return Err(IpcError::UnauthorizedPeer);
+        }
+        receive_from_stream(stream, expected_token).await
+    })
     .await
     .map_err(|_| IpcError::ConnectionDeadlineExceeded)?
 }

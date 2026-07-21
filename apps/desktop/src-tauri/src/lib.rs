@@ -10,13 +10,20 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[cfg(unix)]
-use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
+use std::os::unix::fs::{
+    DirBuilderExt as _, FileTypeExt as _, MetadataExt as _, OpenOptionsExt as _,
+    PermissionsExt as _,
+};
+#[cfg(unix)]
+use std::os::unix::ffi::OsStrExt as _;
 
 use codeischeap_adapters::AdapterRegistry;
 use codeischeap_capture_ipc::{
     CaptureEnvelope, CaptureTransport, receive_one_with_transport,
     receive_one_with_transport_verified,
 };
+#[cfg(unix)]
+use codeischeap_capture_ipc::receive_one_unix_with_transport_verified;
 use codeischeap_capture_policy::CapturePolicy;
 use codeischeap_core::{
     GatewayCaptureError, GatewayCaptureOutcome, IngestError, ingest_envelope, persist_capture,
@@ -41,9 +48,9 @@ use codeischeap_proxy_recovery::{
 use codeischeap_proxy_recovery::{ProxySession, ProxySettings, WindowsProxyBackend};
 use codeischeap_sidecar_runtime::{
     BundleRequirements, CertificateAuthorityState as SidecarCertificateAuthorityState,
-    CertificateTrustState as SidecarCertificateTrustState, MANIFEST_FILENAME,
-    PrivateMaterialState as SidecarPrivateMaterialState, SidecarBundle, SidecarLaunchConfig,
-    SidecarProcess, inspect_certificate_authority,
+    CaptureIpcEndpoint, CertificateTrustState as SidecarCertificateTrustState,
+    MANIFEST_FILENAME, PrivateMaterialState as SidecarPrivateMaterialState, SidecarBundle,
+    SidecarLaunchConfig, SidecarProcess, inspect_certificate_authority,
     install_certificate_authority as install_ca_trust,
     uninstall_certificate_authority as uninstall_ca_trust,
 };
@@ -55,6 +62,8 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
 use tokio::net::TcpListener;
+#[cfg(unix)]
+use tokio::net::UnixListener;
 use tokio::sync::{Mutex as AsyncMutex, mpsc, oneshot};
 use url::Url;
 
@@ -114,12 +123,36 @@ struct ProxyRuntime {
     shutdown: Option<oneshot::Sender<()>>,
 }
 
+enum ProxyCaptureListener {
+    Tcp(TcpListener),
+    #[cfg(unix)]
+    Unix(PrivateUnixCaptureListener),
+}
+
+struct CaptureIpcBinding {
+    listener: ProxyCaptureListener,
+    endpoint: CaptureIpcEndpoint,
+}
+
+#[cfg(unix)]
+struct PrivateUnixCaptureListener {
+    listener: UnixListener,
+    path: PathBuf,
+}
+
+#[cfg(unix)]
+impl Drop for PrivateUnixCaptureListener {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
 struct ProxyCaptureContext {
     app: AppHandle,
     store: SharedStore,
     capture_active: Arc<AtomicBool>,
     session_event_count: Arc<AtomicU64>,
-    listener: TcpListener,
+    listener: ProxyCaptureListener,
     token: String,
     policy: CapturePolicy,
     sidecar_process_id: u32,
@@ -1175,22 +1208,20 @@ async fn ensure_proxy(app: &AppHandle, state: &DesktopState) -> Result<(), Strin
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect();
-    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
-        .await
-        .map_err(|error| format!("capture IPC could not bind to loopback: {error}"))?;
-    let ipc_addr = listener
-        .local_addr()
-        .map_err(|error| format!("capture IPC address is unavailable: {error}"))?;
     let listen_addr = reserve_loopback_address()?;
     let token = generate_ipc_token()?;
+    let CaptureIpcBinding {
+        listener,
+        endpoint: ipc_endpoint,
+    } = bind_capture_ipc(&token).await?;
     let startup_token = generate_ipc_token()?;
     let confdir = app
         .path()
         .app_data_dir()
         .map_err(|error| error.to_string())?
         .join("mitmproxy");
-    let config = SidecarLaunchConfig::new(
-        ipc_addr,
+    let config = SidecarLaunchConfig::new_with_endpoint(
+        ipc_endpoint,
         token.clone(),
         startup_token,
         target_hosts,
@@ -1235,6 +1266,126 @@ async fn ensure_proxy(app: &AppHandle, state: &DesktopState) -> Result<(), Strin
     *runtime = Some(next_runtime);
     drop(runtime);
     tauri::async_runtime::spawn(monitor_proxy_process(app.clone(), generation));
+    Ok(())
+}
+
+#[cfg(not(unix))]
+async fn bind_capture_ipc(_token: &str) -> Result<CaptureIpcBinding, String> {
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+        .await
+        .map_err(|error| format!("capture IPC could not bind to loopback: {error}"))?;
+    let address = listener
+        .local_addr()
+        .map_err(|error| format!("capture IPC address is unavailable: {error}"))?;
+    Ok(CaptureIpcBinding {
+        listener: ProxyCaptureListener::Tcp(listener),
+        endpoint: CaptureIpcEndpoint::Tcp(address),
+    })
+}
+
+#[cfg(unix)]
+async fn bind_capture_ipc(token: &str) -> Result<CaptureIpcBinding, String> {
+    let path = private_capture_ipc_socket_path(token)?;
+    let listener = PrivateUnixCaptureListener::bind(path.clone())?;
+    Ok(CaptureIpcBinding {
+        listener: ProxyCaptureListener::Unix(listener),
+        endpoint: CaptureIpcEndpoint::Unix(path),
+    })
+}
+
+#[cfg(unix)]
+impl PrivateUnixCaptureListener {
+    fn bind(path: PathBuf) -> Result<Self, String> {
+        let listener = UnixListener::bind(&path)
+            .map_err(|error| format!("capture IPC Unix socket could not bind: {error}"))?;
+        let secured = fs::set_permissions(&path, fs::Permissions::from_mode(0o600))
+            .map_err(|error| format!("capture IPC Unix socket permissions failed: {error}"))
+            .and_then(|()| validate_private_unix_socket(&path));
+        if let Err(error) = secured {
+            drop(listener);
+            let _ = fs::remove_file(&path);
+            return Err(error);
+        }
+        Ok(Self { listener, path })
+    }
+}
+
+#[cfg(unix)]
+fn private_capture_ipc_socket_path(token: &str) -> Result<PathBuf, String> {
+    let token_prefix = token
+        .get(..12)
+        .ok_or_else(|| "capture IPC token is too short for a socket name".to_owned())?;
+    let user_id = unsafe { libc::geteuid() };
+    let directory_name = format!("codeischeap-{user_id}");
+    let file_name = format!("capture-{}-{token_prefix}.sock", std::process::id());
+    let temporary = std::env::temp_dir();
+    let candidates = [temporary.as_path(), Path::new("/tmp")];
+
+    for root in candidates {
+        let directory = root.join(&directory_name);
+        let path = directory.join(&file_name);
+        if path.as_os_str().as_bytes().len() > 103 {
+            continue;
+        }
+        ensure_private_unix_directory(&directory, user_id)?;
+        return Ok(path);
+    }
+    Err("capture IPC Unix socket path exceeds the platform limit".to_owned())
+}
+
+#[cfg(unix)]
+fn ensure_private_unix_directory(path: &Path, expected_user_id: u32) -> Result<(), String> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            if metadata.file_type().is_symlink()
+                || !metadata.is_dir()
+                || metadata.uid() != expected_user_id
+            {
+                return Err("capture IPC directory is not owned by the current user".to_owned());
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let mut builder = fs::DirBuilder::new();
+            builder.mode(0o700);
+            if let Err(error) = builder.create(path)
+                && error.kind() != std::io::ErrorKind::AlreadyExists
+            {
+                return Err(format!(
+                    "capture IPC directory could not be created: {error}"
+                ));
+            }
+        }
+        Err(error) => {
+            return Err(format!(
+                "capture IPC directory could not be inspected: {error}"
+            ));
+        }
+    }
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700))
+        .map_err(|error| format!("capture IPC directory permissions failed: {error}"))?;
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|error| format!("capture IPC directory could not be verified: {error}"))?;
+    if metadata.file_type().is_symlink()
+        || !metadata.is_dir()
+        || metadata.uid() != expected_user_id
+        || metadata.mode() & 0o077 != 0
+    {
+        return Err("capture IPC directory is not private to the current user".to_owned());
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn validate_private_unix_socket(path: &Path) -> Result<(), String> {
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|error| format!("capture IPC Unix socket could not be verified: {error}"))?;
+    let expected_user_id = unsafe { libc::geteuid() };
+    if !metadata.file_type().is_socket()
+        || metadata.uid() != expected_user_id
+        || metadata.mode() & 0o777 != 0o600
+    {
+        return Err("capture IPC Unix socket is not owner-only".to_owned());
+    }
     Ok(())
 }
 
@@ -1468,7 +1619,7 @@ async fn process_proxy_events(context: ProxyCaptureContext, mut shutdown: onesho
 }
 
 async fn receive_and_persist_proxy_capture(
-    listener: &TcpListener,
+    listener: &ProxyCaptureListener,
     token: &str,
     policy: &CapturePolicy,
     adapters: &AdapterRegistry,
@@ -1476,19 +1627,41 @@ async fn receive_and_persist_proxy_capture(
     capture_active: &AtomicBool,
     session: &mut ProxyCaptureSession,
 ) -> Result<Option<String>, ProxyCaptureError> {
-    let received = if session.peer_verified {
-        receive_one_with_transport(listener, token).await
-    } else {
-        let expected_process_id = session.sidecar_process_id;
-        let received =
-            receive_one_with_transport_verified(listener, token, move |peer, server| async move {
-                sidecar_peer_matches(peer, server, expected_process_id).await
-            })
-            .await;
-        if received.is_ok() {
-            session.peer_verified = true;
+    let received = match listener {
+        ProxyCaptureListener::Tcp(listener) => {
+            if session.peer_verified {
+                receive_one_with_transport(listener, token).await
+            } else {
+                let expected_process_id = session.sidecar_process_id;
+                let received = receive_one_with_transport_verified(
+                    listener,
+                    token,
+                    move |peer, server| async move {
+                        sidecar_peer_matches(peer, server, expected_process_id).await
+                    },
+                )
+                .await;
+                if received.is_ok() {
+                    session.peer_verified = true;
+                }
+                received
+            }
         }
-        received
+        #[cfg(unix)]
+        ProxyCaptureListener::Unix(binding) => {
+            let expected_user_id = unsafe { libc::geteuid() };
+            let expected_process_id = i32::try_from(session.sidecar_process_id).ok();
+            receive_one_unix_with_transport_verified(
+                &binding.listener,
+                token,
+                move |user_id, process_id| {
+                    user_id == expected_user_id
+                        && expected_process_id.is_some()
+                        && process_id == expected_process_id
+                },
+            )
+            .await
+        }
     }
     .map_err(IngestError::from)?;
     let mut envelope = received.envelope;
@@ -1818,6 +1991,8 @@ mod tests {
     use tempfile::tempdir;
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     use tokio::net::TcpStream;
+    #[cfg(unix)]
+    use tokio::net::UnixStream;
 
     use super::*;
 
@@ -2032,6 +2207,91 @@ mod tests {
         assert_ne!(first, second);
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn unix_capture_binding_is_owner_only_and_removes_the_socket_on_drop() {
+        let token = generate_ipc_token().expect("IPC token must generate");
+        let binding = bind_capture_ipc(&token)
+            .await
+            .expect("private Unix IPC must bind");
+        let path = match (&binding.listener, &binding.endpoint) {
+            (
+                ProxyCaptureListener::Unix(listener),
+                CaptureIpcEndpoint::Unix(endpoint_path),
+            ) => {
+                assert_eq!(&listener.path, endpoint_path);
+                endpoint_path.clone()
+            }
+            _ => panic!("Unix builds must use a Unix capture endpoint"),
+        };
+        let directory = fs::symlink_metadata(path.parent().expect("socket parent must exist"))
+            .expect("socket directory must exist");
+        let socket = fs::symlink_metadata(&path).expect("socket must exist");
+        let expected_user_id = unsafe { libc::geteuid() };
+        assert_eq!(directory.uid(), expected_user_id);
+        assert_eq!(directory.mode() & 0o777, 0o700);
+        assert!(socket.file_type().is_socket());
+        assert_eq!(socket.uid(), expected_user_id);
+        assert_eq!(socket.mode() & 0o777, 0o600);
+
+        drop(binding);
+        assert!(!path.exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn unix_capture_binding_authenticates_the_sidecar_peer_and_acknowledges_frames() {
+        let token = generate_ipc_token().expect("IPC token must generate");
+        let binding = bind_capture_ipc(&token)
+            .await
+            .expect("private Unix IPC must bind");
+        let path = match &binding.endpoint {
+            CaptureIpcEndpoint::Unix(path) => path.clone(),
+            _ => panic!("Unix builds must use a Unix capture endpoint"),
+        };
+        let request: CaptureEnvelope = serde_json::from_str(include_str!(
+            "../../../../crates/capture-ipc/tests/fixtures/mitmproxy-request.json"
+        ))
+        .expect("request fixture must parse");
+        let policy = CapturePolicy::load_default().expect("capture policy must load");
+        let adapters = AdapterRegistry::default();
+        let store = Arc::new(Mutex::new(None));
+        let active = AtomicBool::new(false);
+        let mut session = ProxyCaptureSession::new(std::process::id());
+
+        let (acknowledged, result) = tokio::join!(
+            send_unix_ipc_capture(path, &token, &request),
+            receive_and_persist_proxy_capture(
+                &binding.listener,
+                &token,
+                &policy,
+                &adapters,
+                &store,
+                &active,
+                &mut session,
+            )
+        );
+        assert!(acknowledged);
+        assert_eq!(
+            result.expect("paused Unix capture must be accepted"),
+            None
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_unix_directory_rejects_a_symlink() {
+        let root = tempdir().expect("temporary directory must exist");
+        let target = root.path().join("target");
+        fs::create_dir(&target).expect("target directory must exist");
+        let link = root.path().join("capture");
+        std::os::unix::fs::symlink(&target, &link).expect("test symlink must exist");
+
+        let error = ensure_private_unix_directory(&link, unsafe { libc::geteuid() })
+            .expect_err("symlinked IPC directory must be rejected");
+        assert!(error.contains("not owned"));
+    }
+
     #[test]
     fn sidecar_resources_follow_the_tauri_bundle_layout() {
         let resource_dir = Path::new("application-resources");
@@ -2069,6 +2329,7 @@ mod tests {
             .await
             .expect("IPC listener must bind");
         let address = listener.local_addr().expect("IPC address must exist");
+        let listener = ProxyCaptureListener::Tcp(listener);
         let token = generate_ipc_token().expect("IPC token must generate");
         let policy = CapturePolicy::load_default().expect("capture policy must load");
         let adapters = AdapterRegistry::default();
@@ -2221,6 +2482,37 @@ mod tests {
             .write_all(format!("{auth}\n{}\n", serde_json::to_string(envelope).unwrap()).as_bytes())
             .await
             .expect("IPC frames must write");
+        let mut acknowledgement = String::new();
+        if BufReader::new(stream)
+            .read_line(&mut acknowledgement)
+            .await
+            .is_err()
+        {
+            return false;
+        }
+        serde_json::from_str::<serde_json::Value>(&acknowledgement).ok()
+            == Some(serde_json::json!({"status": "accepted"}))
+    }
+
+    #[cfg(unix)]
+    async fn send_unix_ipc_capture(
+        path: PathBuf,
+        token: &str,
+        envelope: &CaptureEnvelope,
+    ) -> bool {
+        let mut stream = UnixStream::connect(path)
+            .await
+            .expect("Unix IPC client must connect");
+        let auth = serde_json::json!({
+            "protocol": "codeischeap.capture-ipc",
+            "version": codeischeap_capture_ipc::IPC_PROTOCOL_VERSION,
+            "origin": "mitmproxy",
+            "token": token,
+        });
+        stream
+            .write_all(format!("{auth}\n{}\n", serde_json::to_string(envelope).unwrap()).as_bytes())
+            .await
+            .expect("Unix IPC frames must write");
         let mut acknowledgement = String::new();
         if BufReader::new(stream)
             .read_line(&mut acknowledgement)

@@ -6,7 +6,7 @@ The parent process must provide:
 
 ```text
 CIC_CAPTURE_IPC_ADDR=127.0.0.1:<ephemeral-port>
-# POSIX transport contract (desktop activation follows in SEC-003):
+# POSIX desktop transport:
 CIC_CAPTURE_IPC_ADDR=unix:/absolute/private/path/capture.sock
 CIC_CAPTURE_IPC_TOKEN=<random-per-launch-token>
 CIC_CAPTURE_STARTUP_TOKEN=<independent-random-per-launch-token>
