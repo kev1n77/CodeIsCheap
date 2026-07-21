@@ -337,7 +337,17 @@ pub fn run_macos_proxy_helper_session<B: ProxyBackend>(
     let _ = fs::remove_file(status_path);
     stream.set_read_timeout(None)?;
 
-    let command: Option<ControlFrame> = read_frame(&mut stream)?;
+    // After attachment, a transport error means the owner channel is gone and must restore.
+    let command: Option<ControlFrame> = match read_frame(&mut stream) {
+        Ok(command) => command,
+        Err(RecoveryError::Io(_)) => None,
+        Err(error) => {
+            return match session.restore() {
+                Ok(()) => Err(error),
+                Err(restore_error) => Err(restore_error),
+            };
+        }
+    };
     match command {
         None => session.restore(),
         Some(command) if validate_command(&command, ControlCommand::Restore).is_ok() => {
