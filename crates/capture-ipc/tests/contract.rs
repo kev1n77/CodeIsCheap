@@ -1,3 +1,5 @@
+#[cfg(unix)]
+use codeischeap_capture_ipc::receive_one_unix_with_transport_deadline;
 use codeischeap_capture_ipc::{
     CAPTURE_ENVELOPE_VERSION, CaptureEnvelope, CaptureOutcome, CaptureSource, CaptureTransport,
     CapturedBody, CapturedBodyState, CapturedField, CapturedRequest, CapturedResponse,
@@ -8,6 +10,8 @@ use codeischeap_capture_ipc::{
 use schemars::schema_for;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
+#[cfg(unix)]
+use tokio::net::{UnixListener, UnixStream};
 
 use std::time::Duration;
 
@@ -99,7 +103,7 @@ async fn rejects_the_previous_transport_protocol() {
     let mut reader = framed_reader_with_auth(
         "synthetic-token",
         IPC_ORIGIN_MITMPROXY,
-        "0.3",
+        "0.4",
         &expected,
         None,
     )
@@ -319,6 +323,54 @@ async fn rejects_an_unauthorized_peer_before_reading_auth() {
     let _stream = sender.await.expect("sender task must complete");
 
     assert!(matches!(error, IpcError::UnauthorizedPeer));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn unix_socket_transport_preserves_auth_frames_and_acknowledgement() {
+    let directory = tempfile::tempdir().expect("temporary directory must exist");
+    let path = directory.path().join("capture.sock");
+    let listener = UnixListener::bind(&path).expect("Unix listener must bind");
+    let expected = sample_envelope();
+    let expected_for_sender = expected.clone();
+    let sender = tokio::spawn(async move {
+        let mut stream = UnixStream::connect(path)
+            .await
+            .expect("Unix sidecar must connect");
+        let auth = serde_json::json!({
+            "protocol": IPC_PROTOCOL,
+            "version": IPC_PROTOCOL_VERSION,
+            "origin": IPC_ORIGIN_MITMPROXY,
+            "token": "synthetic-token",
+        });
+        stream
+            .write_all(
+                format!(
+                    "{auth}\n{}\n",
+                    serde_json::to_string(&expected_for_sender).expect("envelope must encode")
+                )
+                .as_bytes(),
+            )
+            .await
+            .expect("Unix frames must write");
+        let mut acknowledgement = String::new();
+        BufReader::new(stream)
+            .read_line(&mut acknowledgement)
+            .await
+            .expect("Unix acknowledgement must read");
+        assert_eq!(acknowledgement, "{\"status\":\"accepted\"}\n");
+    });
+
+    let received = receive_one_unix_with_transport_deadline(
+        &listener,
+        "synthetic-token",
+        Duration::from_secs(1),
+    )
+    .await
+    .expect("Unix capture must be accepted");
+    sender.await.expect("Unix sender must complete");
+    assert_eq!(received.envelope, expected);
+    assert_eq!(received.transport, None);
 }
 
 #[test]

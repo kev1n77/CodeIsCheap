@@ -320,7 +320,7 @@ def main() -> None:
             "max_bytes": MAX_ACCEPTABLE_BYTES,
         },
         "capture_contract": {
-            "ipc_protocol": "0.4",
+            "ipc_protocol": "0.5",
             "envelope": "0.1",
             "policy": "0.1",
             "policy_file": POLICY_FILENAME,

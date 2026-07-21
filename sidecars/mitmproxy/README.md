@@ -6,12 +6,14 @@ The parent process must provide:
 
 ```text
 CIC_CAPTURE_IPC_ADDR=127.0.0.1:<ephemeral-port>
+# POSIX transport contract (desktop activation follows in SEC-003):
+CIC_CAPTURE_IPC_ADDR=unix:/absolute/private/path/capture.sock
 CIC_CAPTURE_IPC_TOKEN=<random-per-launch-token>
 CIC_CAPTURE_STARTUP_TOKEN=<independent-random-per-launch-token>
 CIC_CAPTURE_HOSTS=api.openai.com,api.anthropic.com
 ```
 
-The addon loads `policies/capture-policy.v0.1.json` and only records exact target hosts, approved POST paths, and methods. `CIC_CAPTURE_HOSTS` can opt an OpenAI-compatible host into the same approved path set; it does not disable path checks. The addon removes credential headers, sensitive query fields, and recursively named JSON secret fields before sending an authenticated NDJSON envelope. Unsupported request body formats are omitted. The original network request is not modified.
+The addon loads `policies/capture-policy.v0.1.json` and only records exact target hosts, approved POST paths, and methods. `CIC_CAPTURE_HOSTS` can opt an OpenAI-compatible host into the same approved path set; it does not disable path checks. The addon removes credential headers, sensitive query fields, and recursively named JSON secret fields before sending an authenticated NDJSON envelope. Unsupported request body formats are omitted. The original network request is not modified. IPC 0.5 accepts a non-zero loopback TCP address on every platform and a bounded absolute Unix socket path on POSIX systems. Relative paths, paths longer than 103 filesystem bytes, and Unix endpoints on unsupported platforms fail closed.
 
 Startup is authenticated separately from capture IPC. The reserved `codeischeap.invalid` readiness route is always terminated inside the addon and returns the per-launch startup token only for the versioned probe. The desktop rejects a listener that merely occupies the selected port, returns the wrong token, or runs an older addon.
 

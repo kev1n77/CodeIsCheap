@@ -1,7 +1,7 @@
 //! Verified loading and least-environment process lifecycle for capture sidecars.
 
 use std::collections::BTreeSet;
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
@@ -34,7 +34,7 @@ use security_framework_sys::{
 #[cfg(windows)]
 use std::mem::size_of;
 #[cfg(unix)]
-use std::os::unix::process::CommandExt as _;
+use std::os::unix::{ffi::OsStrExt as _, process::CommandExt as _};
 #[cfg(windows)]
 use std::os::windows::{
     ffi::OsStrExt as _,
@@ -84,7 +84,7 @@ use windows_sys::Win32::System::SystemServices::{
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
 pub const SIDECAR_MANIFEST_VERSION: &str = "0.1";
-pub const CAPTURE_IPC_PROTOCOL_VERSION: &str = "0.4";
+pub const CAPTURE_IPC_PROTOCOL_VERSION: &str = "0.5";
 pub const CAPTURE_ENVELOPE_VERSION: &str = "0.1";
 pub const CAPTURE_POLICY_VERSION: &str = "0.1";
 pub const MITMPROXY_VERSION: &str = "12.2.3";
@@ -1282,7 +1282,10 @@ impl SidecarBundle {
             }
         }
         command
-            .env("CIC_CAPTURE_IPC_ADDR", config.ipc_addr.to_string())
+            .env(
+                "CIC_CAPTURE_IPC_ADDR",
+                config.ipc_endpoint.environment_value(),
+            )
             .env("CIC_CAPTURE_IPC_TOKEN", &config.ipc_token)
             .env("CIC_CAPTURE_STARTUP_TOKEN", &config.startup_token)
             .env("CIC_CAPTURE_HOSTS", config.target_hosts.join(","))
@@ -1465,8 +1468,64 @@ impl Drop for SidecarProcess {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CaptureIpcEndpoint {
+    Tcp(SocketAddr),
+    #[cfg(unix)]
+    Unix(PathBuf),
+}
+
+impl CaptureIpcEndpoint {
+    fn environment_value(&self) -> OsString {
+        match self {
+            Self::Tcp(address) => OsString::from(address.to_string()),
+            #[cfg(unix)]
+            Self::Unix(path) => {
+                let mut value = OsString::from("unix:");
+                value.push(path);
+                value
+            }
+        }
+    }
+
+    fn validate(&self) -> Result<(), SidecarError> {
+        match self {
+            Self::Tcp(address) => {
+                if address.ip().is_loopback() && address.port() != 0 {
+                    Ok(())
+                } else {
+                    Err(SidecarError::InvalidLaunchConfig(
+                        "capture IPC TCP endpoint must use a non-zero loopback address".to_owned(),
+                    ))
+                }
+            }
+            #[cfg(unix)]
+            Self::Unix(path) => {
+                let bytes = path.as_os_str().as_bytes();
+                if !path.is_absolute()
+                    || path.file_name().is_none()
+                    || bytes.contains(&0)
+                    || bytes.len() > 103
+                {
+                    return Err(SidecarError::InvalidLaunchConfig(
+                        "capture IPC Unix socket path must be absolute, non-empty, and at most 103 bytes"
+                            .to_owned(),
+                    ));
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+impl From<SocketAddr> for CaptureIpcEndpoint {
+    fn from(address: SocketAddr) -> Self {
+        Self::Tcp(address)
+    }
+}
+
 pub struct SidecarLaunchConfig {
-    pub ipc_addr: SocketAddr,
+    pub ipc_endpoint: CaptureIpcEndpoint,
     ipc_token: String,
     startup_token: String,
     pub target_hosts: Vec<String>,
@@ -1484,8 +1543,27 @@ impl SidecarLaunchConfig {
         listen_addr: SocketAddr,
         confdir: impl Into<PathBuf>,
     ) -> Self {
+        Self::new_with_endpoint(
+            CaptureIpcEndpoint::Tcp(ipc_addr),
+            ipc_token,
+            startup_token,
+            target_hosts,
+            listen_addr,
+            confdir,
+        )
+    }
+
+    #[must_use]
+    pub fn new_with_endpoint(
+        ipc_endpoint: CaptureIpcEndpoint,
+        ipc_token: impl Into<String>,
+        startup_token: impl Into<String>,
+        target_hosts: Vec<String>,
+        listen_addr: SocketAddr,
+        confdir: impl Into<PathBuf>,
+    ) -> Self {
         Self {
-            ipc_addr,
+            ipc_endpoint,
             ipc_token: ipc_token.into(),
             startup_token: startup_token.into(),
             target_hosts,
@@ -1495,11 +1573,7 @@ impl SidecarLaunchConfig {
     }
 
     fn validate(&self) -> Result<(), SidecarError> {
-        if !self.ipc_addr.ip().is_loopback() || self.ipc_addr.port() == 0 {
-            return Err(SidecarError::InvalidLaunchConfig(
-                "capture IPC must use a non-zero loopback address".to_owned(),
-            ));
-        }
+        self.ipc_endpoint.validate()?;
         if !self.listen_addr.ip().is_loopback() || self.listen_addr.port() == 0 {
             return Err(SidecarError::InvalidLaunchConfig(
                 "proxy listener must use a non-zero loopback address".to_owned(),
@@ -1576,7 +1650,7 @@ impl fmt::Debug for SidecarLaunchConfig {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("SidecarLaunchConfig")
-            .field("ipc_addr", &self.ipc_addr)
+            .field("ipc_endpoint", &self.ipc_endpoint)
             .field("ipc_token", &"[REDACTED]")
             .field("startup_token", &"[REDACTED]")
             .field("target_hosts", &self.target_hosts)
@@ -2339,7 +2413,7 @@ MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
                 "max_bytes": 1024
             },
             "capture_contract": {
-                "ipc_protocol": "0.4",
+                "ipc_protocol": "0.5",
                 "envelope": "0.1",
                 "policy": "0.1",
                 "policy_file": "capture-policy.v0.1.json",
@@ -2392,7 +2466,7 @@ MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
         let mut manifest: serde_json::Value =
             serde_json::from_slice(&fs::read(&manifest_path).expect("manifest must be readable"))
                 .expect("manifest must decode");
-        manifest["capture_contract"]["ipc_protocol"] = json!("0.1");
+        manifest["capture_contract"]["ipc_protocol"] = json!("0.4");
         fs::write(
             manifest_path,
             serde_json::to_vec(&manifest).expect("manifest must encode"),
@@ -2447,6 +2521,10 @@ MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
             .map(|(name, value)| (name.to_owned(), value.to_owned()))
             .collect::<BTreeMap<OsString, OsString>>();
         assert_eq!(
+            environment.get(OsStr::new("CIC_CAPTURE_IPC_ADDR")),
+            Some(&OsString::from("127.0.0.1:41001"))
+        );
+        assert_eq!(
             environment.get(OsStr::new("CIC_CAPTURE_IPC_TOKEN")),
             Some(&OsString::from("synthetic-token-123456"))
         );
@@ -2485,6 +2563,59 @@ MAoGCCqGSM49BAMCA0gAMEUCIQC1PB8+NumezrQf5unFGhVeufUcyw/sjH6p1aqs
         );
         assert!(!format!("{config:?}").contains("synthetic-token-123456"));
         assert!(!format!("{config:?}").contains(&"ab".repeat(32)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn command_accepts_a_bounded_absolute_unix_capture_endpoint() {
+        let (_directory, root) = bundle("unsigned");
+        let loaded = SidecarBundle::load(&root, BundleRequirements::development()).unwrap();
+        let socket_path = root.join("capture.sock");
+        let config = SidecarLaunchConfig::new_with_endpoint(
+            CaptureIpcEndpoint::Unix(socket_path.clone()),
+            "synthetic-token-123456",
+            "ab".repeat(32),
+            vec!["api.openai.com".to_owned()],
+            "127.0.0.1:41002".parse().unwrap(),
+            root.join("conf"),
+        );
+
+        let command = loaded
+            .command(&config)
+            .expect("Unix endpoint must validate");
+        let environment = command
+            .get_envs()
+            .filter_map(|(name, value)| value.map(|value| (name, value)))
+            .map(|(name, value)| (name.to_owned(), value.to_owned()))
+            .collect::<BTreeMap<OsString, OsString>>();
+        let mut expected = OsString::from("unix:");
+        expected.push(socket_path);
+        assert_eq!(
+            environment.get(OsStr::new("CIC_CAPTURE_IPC_ADDR")),
+            Some(&expected)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_capture_endpoint_rejects_relative_and_oversized_paths() {
+        for path in [
+            PathBuf::from("capture.sock"),
+            PathBuf::from(format!("/{}", "a".repeat(104))),
+        ] {
+            let config = SidecarLaunchConfig::new_with_endpoint(
+                CaptureIpcEndpoint::Unix(path),
+                "synthetic-token-123456",
+                "ab".repeat(32),
+                vec!["api.openai.com".to_owned()],
+                "127.0.0.1:41002".parse().unwrap(),
+                std::env::temp_dir(),
+            );
+            assert!(matches!(
+                config.validate(),
+                Err(SidecarError::InvalidLaunchConfig(_))
+            ));
+        }
     }
 
     #[test]
