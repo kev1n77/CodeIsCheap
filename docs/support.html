@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>支持处理 · CodeIsCheap</title><link rel="stylesheet" href="assets/styles.css" /></head>
+<body>
+  <header class="site-header"><div class="header-inner"><a class="brand" href="index.html"><span class="brand-mark">C</span>CodeIsCheap</a><nav class="site-nav" aria-label="文档导航"><a href="index.html">总览</a><a href="product.html">产品</a><a href="capture.html">采集</a><a href="architecture.html">架构</a><a href="security.html">安全</a><a href="experience.html">体验</a><a href="delivery.html">交付</a><a href="release.html">发布</a><a href="support.html" aria-current="page">支持</a><a href="progress.html">进度</a></nav></div></header>
+  <div class="page"><main>
+    <p class="eyebrow">Support Operations</p><h1>支持处理</h1>
+    <p class="lead">支持包只用于判断运行环境、健康状态和兼容路径。它不是请求导出物，不应包含 Prompt、Raw、请求标识或日志详情。</p>
+
+    <div class="decision"><strong>接收原则</strong>先在隔离目录验证，再生成无内容摘要；验证失败的文件不得进入工单、聊天或长期存储。</div>
+
+    <h2 id="intake">接收流程</h2>
+    <div class="flow" aria-label="支持包接收流程"><div class="flow-step">用户预览并导出</div><div class="flow-arrow">→</div><div class="flow-step">隔离目录接收</div><div class="flow-arrow">→</div><div class="flow-step">格式与秘密扫描</div><div class="flow-arrow">→</div><div class="flow-step">生成诊断摘要</div><div class="flow-arrow">→</div><div class="flow-step">分级处理并删除</div></div>
+    <pre><code>python scripts/inspect_support_bundle.py validate path/to/support.json
+python scripts/inspect_support_bundle.py summarize path/to/support.json
+python scripts/inspect_support_bundle.py summarize path/to/support.json --json</code></pre>
+    <p class="note">工具拒绝超过 512 KiB、非普通文件、重复 JSON 键、未知版本、异常隐私声明、请求内容字段、凭据模式和可写恢复状态。摘要不会输出 endpoint、证书指纹、运行时详情或请求内容。</p>
+
+    <h2 id="triage">诊断分流</h2>
+    <div class="table-wrap"><table><thead><tr><th>摘要信号</th><th>处理</th><th>升级条件</th></tr></thead><tbody>
+      <tr><td><code>gateway_unavailable</code></td><td>确认本地端口冲突、运行时启动事件和重试结果</td><td>同版本可稳定复现或影响历史数据</td></tr>
+      <tr><td><code>proxy_bundle_unavailable</code> / <code>proxy_unavailable</code></td><td>核对安装来源与已签名 sidecar；先回退 Gateway</td><td>正式签名制品校验失败</td></tr>
+      <tr><td><code>certificate_*</code></td><td>按 UI 建议检查 CA 状态；不索取私钥，不绕过 pinning</td><td>用户级安装或卸载破坏系统信任状态</td></tr>
+      <tr><td><code>proxy_capture_unobserved</code></td><td>确认应用是否使用系统代理；建议 Gateway 对照</td><td>代理路径可证实经过但仍无捕获事件</td></tr>
+      <tr><td><code>recovery_read_only</code></td><td>保留只读历史并导出必要请求；停止捕获和系统变更</td><td>主库迁移失败、备份不可读或版本不匹配</td></tr>
+      <tr><td>验证器发现凭据或内容字段</td><td>立即拒收并删除副本，请用户从应用重新生成</td><td>按安全事件处理，必要时轮换已暴露凭据</td></tr>
+    </tbody></table></div>
+
+    <h2 id="severity">分级与证据</h2>
+    <div class="two-column">
+      <section class="plain-panel"><h3>P0 / P1</h3><ul><li>代理残留导致断网</li><li>凭据、Prompt 或私钥泄露</li><li>升级导致主库不可用且恢复失败</li><li>签名或制品完整性异常</li></ul></section>
+      <section class="plain-panel"><h3>P2 / P3</h3><ul><li>单应用代理兼容问题</li><li>解析降级 Raw 或字段缺失</li><li>界面、性能和可访问性问题</li><li>不影响捕获的诊断提示</li></ul></section>
+    </div>
+    <p>工单只记录摘要、应用版本、操作系统、复现步骤和处理结论。需要请求样本时，由用户另行生成对应等级的脱敏导出，不得把支持包当作请求数据通道。</p>
+
+    <h2 id="retention">保留与关闭</h2>
+    <ol><li>原始支持包仅存放在访问受控的案件目录，默认最多保留 14 天。</li><li>工单使用验证器生成的摘要；不得粘贴原始 JSON 或运行时错误详情。</li><li>案件关闭后删除原始包；安全事件按事件响应策略保留最小证据。</li><li>记录根因、修复版本、回归证据和是否需要更新兼容矩阵。</li></ol>
+
+    <footer class="doc-footer"><a href="release.html">← 签名发布</a><a href="progress.html">下一篇：进度跟踪 →</a></footer>
+  </main><aside class="toc"><strong>本页</strong><a href="#intake">接收流程</a><a href="#triage">诊断分流</a><a href="#severity">分级与证据</a><a href="#retention">保留与关闭</a></aside></div>
+</body></html>

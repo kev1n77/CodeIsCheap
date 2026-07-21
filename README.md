@@ -6,6 +6,8 @@
 
 开发执行参考 [`docs/development-plan.html`](./docs/development-plan.html)，日常状态维护在 [`docs/progress.html`](./docs/progress.html)。
 
+支持包接收与分流见 [`docs/support.html`](./docs/support.html)。接收端必须先执行 `python scripts/inspect_support_bundle.py validate <file>`，再使用 `summarize` 生成不含请求内容的工单摘要。
+
 ## 当前实现
 
 当前实现包含版本化 Prompt IR、隔离式 OpenAI-compatible 适配器注册表、共享捕获策略、可信 Core 入口、SQLCipher 加密存储、可双向流式转发的本地 AI Gateway，以及 React + Tauri 桌面工作台。
