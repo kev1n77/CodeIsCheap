@@ -3,6 +3,7 @@
 mod beta;
 mod compatibility;
 mod export;
+mod profile;
 mod update;
 
 pub use beta::{
@@ -13,6 +14,10 @@ pub use compatibility::{
     CaptureCompatibility, CaptureCompatibilityCode, CaptureCompatibilityStatus,
     CompatibilityAction, CompatibilityConfidence, CompatibilityStep, CompatibilityStepStatus,
     diagnose_capture_compatibility, recovery_read_only_compatibility,
+};
+pub use profile::{
+    CAPTURE_PROFILE_VERSION, CaptureProfile, CaptureProfileError, DEFAULT_CAPTURE_PROFILE_NAME,
+    DEFAULT_GATEWAY_UPSTREAM, MAX_CAPTURE_PROFILE_NAME_BYTES,
 };
 
 pub use export::{
@@ -45,6 +50,7 @@ pub const DESKTOP_API_VERSION: &str = "0.1";
 pub struct WorkspaceBootstrap {
     pub api_version: String,
     pub source: WorkspaceSource,
+    pub capture_profile: CaptureProfile,
     pub capture: CaptureState,
     pub compatibility: CaptureCompatibility,
     pub requests: Vec<CapturedRequest>,
@@ -314,6 +320,7 @@ pub fn load_workspace(store: &EncryptedStore) -> Result<WorkspaceBootstrap, Desk
     Ok(WorkspaceBootstrap {
         api_version: DESKTOP_API_VERSION.to_owned(),
         source: WorkspaceSource::EncryptedLocal,
+        capture_profile: CaptureProfile::default(),
         capture,
         compatibility,
         requests,

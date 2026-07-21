@@ -9,6 +9,7 @@ export type { CaptureCompatibility } from "./generated/desktop-api/CaptureCompat
 export type { CaptureCompatibilityCode } from "./generated/desktop-api/CaptureCompatibilityCode";
 export type { CaptureCompatibilityStatus } from "./generated/desktop-api/CaptureCompatibilityStatus";
 export type { CaptureMode } from "./generated/desktop-api/CaptureMode";
+export type { CaptureProfile } from "./generated/desktop-api/CaptureProfile";
 export type { CaptureState } from "./generated/desktop-api/CaptureState";
 export type { CaptureStatus } from "./generated/desktop-api/CaptureStatus";
 export type { CertificateAuthority } from "./generated/desktop-api/CertificateAuthority";

@@ -7,6 +7,7 @@ description = "Versioned desktop command DTOs for CodeIsCheap"
 
 [dependencies]
 codeischeap-capture-ipc = { path = "../capture-ipc" }
+codeischeap-capture-policy = { path = "../capture-policy" }
 codeischeap-prompt-ir = { path = "../prompt-ir" }
 codeischeap-storage = { path = "../storage" }
 regex.workspace = true
@@ -15,7 +16,7 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 ts-rs.workspace = true
+url.workspace = true
 
 [dev-dependencies]
-codeischeap-capture-policy = { path = "../capture-policy" }
 tempfile.workspace = true

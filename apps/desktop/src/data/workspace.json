@@ -1,6 +1,12 @@
 {
   "apiVersion": "0.1",
   "source": "synthetic_fixture",
+  "captureProfile": {
+    "version": "0.1",
+    "name": "OpenAI default",
+    "gatewayUpstream": "https://api.openai.com",
+    "additionalHosts": []
+  },
   "capture": {
     "active": true,
     "canControl": false,

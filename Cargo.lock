@@ -302,6 +302,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "ts-rs",
+ "url",
 ]
 
 [[package]]
